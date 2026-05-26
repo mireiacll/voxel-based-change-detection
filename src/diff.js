@@ -9,8 +9,11 @@
  */
 
 import { CONFIG } from './config'
-import { toast, requestRender } from './cesiumInit'
-import { loadCompare, renderVoxelDiff } from './layers'
+import { toast } from './cesium/cesiumInit'
+import { loadCompare, renderVoxelDiff } from './cesium/layers'
+import { loadAllPoints } from './lib/glbParser'
+import { makeGridDef, buildSurface, solidify, diffSolid} from './lib/voxelizer'
+import { getPolygonGeo } from './cesium/polygonDraw'
 
 // ── Global diff state (read by layers.js) ─────────────────────────────────
 window.diffState = {
@@ -18,377 +21,7 @@ window.diffState = {
   voxelSize:      CONFIG.DEFAULTS.VOXEL_SIZE,
   addedVisible:   CONFIG.DEFAULTS.SHOW_ADDED,
   removedVisible: CONFIG.DEFAULTS.SHOW_REMOVED,
-}
-
-// ── Polygon drawing state ─────────────────────────────────────────────────
-const _poly = {
-  drawing:  false,
-  closed:   false,
-  pts:      [],
-  geo:      [],
-  handler:  null,
-  entities: [],
-}
-
-// Callback supplied by React to show/hide the draw banner
-let _onDrawBanner = () => {}
-let _onDrawInfo   = () => {}
-let _onDrawBtnLabel = () => {}
-
-export function setDrawCallbacks(onBanner, onInfo, onBtnLabel) {
-  _onDrawBanner = onBanner
-  _onDrawInfo   = onInfo
-  _onDrawBtnLabel = onBtnLabel
-}
-
-export function togglePolygonDraw() {
-  if (_poly.drawing || _poly.closed) {
-    _clearPoly()
-    _onDrawBtnLabel('✏ Draw Area')
-    _onDrawInfo('No area selected — diff runs on full extent')
-  } else {
-    _startDraw()
-  }
-}
-
-function _startDraw() {
-  _clearPoly()
-  _poly.drawing = true
-
-  const site = window.currentSite
-  if (site) {
-    // import lazily to avoid circular dep
-    import('./cesiumInit').then(({ flyTo }) =>
-      flyTo(site.camera.lon, site.camera.lat, site.camera.height * 1.2, -90, 0)
-    )
-  }
-
-  window.viewer.scene.canvas.style.cursor = 'crosshair'
-  _onDrawBanner(true)
-  _onDrawBtnLabel('✕ Cancel Drawing')
-  _onDrawInfo('Click on the map to add vertices…')
-
-  const Cesium = window.Cesium
-
-  _poly.entities.push(window.viewer.entities.add({
-    polygon: {
-      hierarchy: new Cesium.CallbackProperty(
-        () => _poly.pts.length >= 3
-          ? new Cesium.PolygonHierarchy(_poly.pts)
-          : new Cesium.PolygonHierarchy([]),
-        false
-      ),
-      material: Cesium.Color.YELLOW.withAlpha(0.12),
-    },
-  }))
-  _poly.entities.push(window.viewer.entities.add({
-    polyline: {
-      positions: new Cesium.CallbackProperty(
-        () => _poly.pts.length >= 2 ? [..._poly.pts, _poly.pts[0]] : [..._poly.pts],
-        false
-      ),
-      width: 2,
-      material: new Cesium.PolylineDashMaterialProperty({
-        color: Cesium.Color.YELLOW, dashLength: 16,
-      }),
-      clampToGround: true,
-    },
-  }))
-
-  _poly.handler = new Cesium.ScreenSpaceEventHandler(window.viewer.scene.canvas)
-  _poly.handler.setInputAction(e => {
-    if (!_poly.drawing) return
-    const ray = window.viewer.camera.getPickRay(e.position)
-    const pos = window.viewer.scene.globe.pick(ray, window.viewer.scene)
-    if (!pos) return
-    _addVertex(pos)
-  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-
-  _poly.handler.setInputAction(() => {
-    if (_poly.pts.length >= 3) _closePoly()
-    else toast('Need at least 3 vertices to close the polygon', 'warn')
-  }, Cesium.ScreenSpaceEventType.RIGHT_CLICK)
-
-  _poly.handler.setInputAction(() => {
-    if (_poly.pts.length > 3) {
-      _poly.pts.pop(); _poly.geo.pop()
-      const dot = _poly.entities.pop()
-      if (dot) window.viewer.entities.remove(dot)
-    }
-    if (_poly.pts.length >= 3) _closePoly()
-  }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK)
-}
-
-function _addVertex(cartesian) {
-  const Cesium = window.Cesium
-  _poly.pts.push(cartesian)
-  const c = Cesium.Cartographic.fromCartesian(cartesian)
-  _poly.geo.push({
-    lon: Cesium.Math.toDegrees(c.longitude),
-    lat: Cesium.Math.toDegrees(c.latitude),
-  })
-  _poly.entities.push(window.viewer.entities.add({
-    position: cartesian,
-    point: {
-      pixelSize: 8, color: Cesium.Color.YELLOW,
-      outlineColor: Cesium.Color.fromCssColorString('#111'), outlineWidth: 1.5,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-    },
-  }))
-  const n = _poly.pts.length
-  _onDrawInfo(`${n} ${n === 1 ? 'vertex' : 'vertices'}` +
-    (n >= 3 ? ' — right-click or double-click to close' : ''))
-  requestRender()
-}
-
-function _closePoly() {
-  _poly.drawing = false; _poly.closed = true
-  if (_poly.handler) { _poly.handler.destroy(); _poly.handler = null }
-  window.viewer.scene.canvas.style.cursor = ''
-  _onDrawBanner(false)
-  _onDrawBtnLabel('✕ Clear Area')
-  _onDrawInfo(`✓ ${_poly.pts.length}-vertex polygon — run diff to apply`)
-  toast(`Area selected (${_poly.pts.length} vertices). Now run the diff.`, 'ok')
-  requestRender()
-}
-
-function _clearPoly() {
-  _poly.drawing = false; _poly.closed = false
-  _poly.pts = []; _poly.geo = []
-  if (_poly.handler) { _poly.handler.destroy(); _poly.handler = null }
-  _poly.entities.forEach(e => { try { window.viewer.entities.remove(e) } catch (_) {} })
-  _poly.entities = []
-  if (window.viewer) window.viewer.scene.canvas.style.cursor = ''
-  _onDrawBanner(false)
-  requestRender()
-}
-
-function _pip(lon, lat, poly) {
-  if (!poly || poly.length < 3) return true
-  let inside = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].lon, yi = poly[i].lat
-    const xj = poly[j].lon, yj = poly[j].lat
-    if (((yi > lat) !== (yj > lat)) &&
-        lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside
-  }
-  return inside
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-//  GLB PARSER — mago3d-tiler point cloud format
-// ═════════════════════════════════════════════════════════════════════════
-
-function _parseGlb(arrayBuffer) {
-  const dv = new DataView(arrayBuffer)
-  if (dv.getUint8(0) !== 0x67 || dv.getUint8(1) !== 0x6C ||
-      dv.getUint8(2) !== 0x54 || dv.getUint8(3) !== 0x46) {
-    console.warn('[diff] Not a valid GLB'); return []
-  }
-
-  const jsonLen = dv.getUint32(12, true)
-  const gltf    = JSON.parse(new TextDecoder().decode(
-                    new Uint8Array(arrayBuffer, 20, jsonLen)))
-
-  const binBase = 20 + jsonLen + 8
-
-  let posAccIdx = -1
-  for (const mesh of (gltf.meshes || [])) {
-    for (const prim of (mesh.primitives || [])) {
-      if (prim.attributes?.POSITION !== undefined) {
-        posAccIdx = prim.attributes.POSITION; break
-      }
-    }
-    if (posAccIdx >= 0) break
-  }
-  if (posAccIdx < 0) { console.warn('[diff] GLB: no POSITION'); return [] }
-
-  const acc    = gltf.accessors[posAccIdx]
-  const bv     = gltf.bufferViews[acc.bufferView]
-  const count  = acc.count
-  const stride = bv.byteStride || 6
-  const binOff = binBase + (bv.byteOffset || 0) + (acc.byteOffset || 0)
-  const raw    = new DataView(arrayBuffer, binOff)
-
-  let rtx = 0, rty = 0, rtz = 0
-  let pcm = null
-  for (const nd of (gltf.nodes || [])) {
-    if (nd.matrix && nd.mesh !== undefined) {
-      pcm = nd.matrix
-    } else if (nd.translation && nd.children && !nd.matrix) {
-      [rtx, rty, rtz] = nd.translation
-    }
-  }
-  if (!pcm) { console.warn('[diff] GLB: no PCN matrix'); return [] }
-
-  const M = pcm
-  const A  = 6378137.0, E2 = 0.00669437999014
-
-  function toGeodetic(ex, ey, ez) {
-    const p = Math.sqrt(ex*ex + ey*ey)
-    let lat = Math.atan2(ez, p * (1 - E2))
-    for (let i = 0; i < 10; i++) {
-      const s = Math.sin(lat)
-      const N = A / Math.sqrt(1 - E2*s*s)
-      lat = Math.atan2(ez + E2*N*s, p)
-    }
-    const s = Math.sin(lat), c = Math.cos(lat)
-    const N = A / Math.sqrt(1 - E2*s*s)
-    return {
-      lon: Math.atan2(ey, ex) * 180 / Math.PI,
-      lat: lat * 180 / Math.PI,
-      h:   (Math.abs(c) > 1e-9 ? p/c - N : Math.abs(ez)/s - N*(1-E2)),
-    }
-  }
-
-  const out = []
-  for (let i = 0; i < count; i++) {
-    const base = i * stride
-    const lx = raw.getUint16(base,     true) / 65535
-    const ly = raw.getUint16(base + 2, true) / 65535
-    const lz = raw.getUint16(base + 4, true) / 65535
-    const wx = M[0]*lx + M[4]*ly + M[8]*lz  + M[12]
-    const wy = M[1]*lx + M[5]*ly + M[9]*lz  + M[13]
-    const wz = M[2]*lx + M[6]*ly + M[10]*lz + M[14]
-    const gx = wx + rtx, gy = wy + rty, gz = wz + rtz
-    out.push(toGeodetic(gx, -gz, gy))
-  }
-  return out
-}
-
-function _collectGlbUris(tile, out) {
-  if (!tile) return
-  const uri = tile.content?.uri || tile.content?.url || ''
-  if (uri.toLowerCase().endsWith('.glb')) out.push(uri)
-  if (tile.children) tile.children.forEach(c => _collectGlbUris(c, out))
-}
-
-async function _loadAllPoints(tilesetUrl) {
-  if (!tilesetUrl) return []
-  const baseUrl = new URL(tilesetUrl, window.location.href)
-  let tsJson
-  try {
-    const r = await fetch(tilesetUrl)
-    if (!r.ok) { console.error('[diff] tileset failed:', tilesetUrl, r.status); return [] }
-    tsJson = await r.json()
-  } catch (e) { console.error('[diff] tileset parse error:', e); return [] }
-
-  const uris = []
-  _collectGlbUris(tsJson.root, uris)
-  console.log(`[diff] ${uris.length} tiles in ${tilesetUrl}`)
-
-  const groups = await Promise.all(uris.map(async uri => {
-    const url = new URL(uri, baseUrl).href
-    try {
-      const r = await fetch(url)
-      if (!r.ok) { console.warn('[diff] tile failed:', url, r.status); return [] }
-      return _parseGlb(await r.arrayBuffer())
-    } catch (e) { console.warn('[diff] tile error:', url, e); return [] }
-  }))
-
-  const all = groups.flat()
-  console.log(`[diff] ${all.length} points from ${tilesetUrl}`)
-  return all
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-//  STEP 1 — Build sparse surface occupancy from raw points
-// ═════════════════════════════════════════════════════════════════════════
-
-function _buildSurface(points, gridDef, polygon) {
-  const map = new Map()
-  const { lonStep, latStep, hStep } = gridDef
-
-  for (const { lon, lat, h } of points) {
-    if (!isFinite(lon) || !isFinite(lat) || !isFinite(h)) continue
-    if (polygon && !_pip(lon, lat, polygon)) continue
-
-    const iLon = Math.floor(lon / lonStep)
-    const iLat = Math.floor(lat / latStep)
-    const iH   = Math.floor(h   / hStep)
-    const key  = `${iLon},${iLat},${iH}`
-    if (!map.has(key)) map.set(key, { iLon, iLat, iH })
-  }
-  return map
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-//  STEP 2 — Solidify: fill each column from its per-column floor to its max
-// ═════════════════════════════════════════════════════════════════════════
-//
-//  WHY PER-COLUMN FLOOR instead of a global floor:
-//
-//  A global floor = min(iH across ALL points in both datasets).
-//  Any noisy outlier point sitting below the terrain in any tile drags
-//  that floor down for EVERY column everywhere — producing a forest of
-//  underground voxels all across the scene (what you saw in the screenshot).
-//
-//  Per-column floor = for each (iLon, iLat) column, take the minimum iH
-//  that column actually has across both datasets.  Each column only fills
-//  from its own lowest real point upward.  Outliers in one column cannot
-//  affect any other column.
-
-function _solidify(surfaceA, surfaceB, gridDef) {
-  const { lonStep, latStep, hStep } = gridDef
-  const Cesium = window.Cesium
-
-  // ── Build per-column stats: minH and maxH for each dataset ───────────
-  // colKey → { iLon, iLat, minH, maxH }
-  function buildColumnMap(surface) {
-    const cols = new Map()
-    for (const { iLon, iLat, iH } of surface.values()) {
-      const colKey = `${iLon},${iLat}`
-      if (!cols.has(colKey)) {
-        cols.set(colKey, { iLon, iLat, minH: iH, maxH: iH })
-      } else {
-        const col = cols.get(colKey)
-        if (iH < col.minH) col.minH = iH
-        if (iH > col.maxH) col.maxH = iH
-      }
-    }
-    return cols
-  }
-
-  const colsA = buildColumnMap(surfaceA)
-  const colsB = buildColumnMap(surfaceB)
-
-  // ── Per-column floor = min(minH_A, minH_B) for columns present in either ─
-  // Build a unified column-floor map across both datasets.
-  const colFloor = new Map()   // colKey → lowest iH seen in either dataset
-
-  for (const [colKey, col] of colsA) {
-    colFloor.set(colKey, col.minH)
-  }
-  for (const [colKey, col] of colsB) {
-    const existing = colFloor.get(colKey)
-    colFloor.set(colKey, existing !== undefined ? Math.min(existing, col.minH) : col.minH)
-  }
-
-  // ── Fill each column from its per-column floor to its dataset max ─────
-  function fillColumns(cols) {
-    const solid = new Map()
-    for (const [colKey, { iLon, iLat, maxH }] of cols) {
-      const floorH = colFloor.get(colKey) ?? 0
-      for (let iH = floorH; iH <= maxH; iH++) {
-        const key = `${iLon},${iLat},${iH}`
-        if (!solid.has(key)) {
-          solid.set(key, Cesium.Cartesian3.fromDegrees(
-            (iLon + 0.5) * lonStep,
-            (iLat + 0.5) * latStep,
-            (iH   + 0.5) * hStep
-          ))
-        }
-      }
-    }
-    return solid
-  }
-
-  const solidA = fillColumns(colsA)
-  const solidB = fillColumns(colsB)
-
-  console.log(`[diff] Solid voxels — A: ${solidA.size}, B: ${solidB.size}`)
-  return { solidA, solidB }
+  gridDef: null,
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -412,7 +45,8 @@ export async function runVoxelDiff(
   voxSize, tintA, tintB, checkboxState,
   onDiffStatus, onStats
 ) {
-  const polygon = _poly.closed ? _poly.geo : null
+  //const polygon = _poly.closed ? _poly.geo : null
+  const polygon = getPolygonGeo()
 
   window.diffState.voxelSize      = voxSize
   window.diffState.addedVisible   = checkboxState?.added   ?? true
@@ -426,8 +60,10 @@ export async function runVoxelDiff(
   onDiffStatus('computing', `Fetching point clouds${polygon ? ' (polygon filter)' : ''}…`)
 
   const [rawA, rawB] = await Promise.all([
-    _loadAllPoints(dateA.pointCloud),
-    _loadAllPoints(dateB.pointCloud),
+    // _loadAllPoints(dateA.pointCloud),
+    // _loadAllPoints(dateB.pointCloud),
+    loadAllPoints(dateA.pointCloud),
+    loadAllPoints(dateB.pointCloud),
   ])
 
   console.log(`[diff] Raw points — A: ${rawA.length}, B: ${rawB.length}`)
@@ -439,38 +75,22 @@ export async function runVoxelDiff(
   }
 
   // 3. Build grid definition
-  const allValid = [...rawA, ...rawB]
-    .filter(p => isFinite(p.lon) && isFinite(p.lat) && isFinite(p.h))
-  const avgLat = allValid.reduce((s, p) => s + p.lat, 0) / allValid.length
-  const cosLat = Math.cos(avgLat * Math.PI / 180)
-  const gridDef = {
-    lonStep: voxSize / (111000 * cosLat),
-    latStep: voxSize / 111000,
-    hStep:   voxSize,
-  }
+  const gridDef = makeGridDef([...rawA, ...rawB], voxSize)
+  window.diffState.gridDef = gridDef
 
   // 4. Build sparse surface maps
   onDiffStatus('computing', `Voxelizing ${rawA.length + rawB.length} points @ ${voxSize}m…`)
 
-  const surfaceA = _buildSurface(rawA, gridDef, polygon)
-  const surfaceB = _buildSurface(rawB, gridDef, polygon)
+  const surfaceA = buildSurface(rawA, gridDef, polygon)
+  const surfaceB = buildSurface(rawB, gridDef, polygon)
   console.log(`[diff] Surface voxels — A: ${surfaceA.size}, B: ${surfaceB.size}`)
 
   // 5. Solidify
-  onDiffStatus('computing', 'Solidifying columns…')
-  const { solidA, solidB } = _solidify(surfaceA, surfaceB, gridDef)
+  const { solidA, solidB } = solidify(surfaceA, surfaceB, gridDef)
 
   // 6. Compute diff
-  const added = [], removed = []
-  for (const [key, center] of solidB) {
-    if (!solidA.has(key)) added.push({ center, type: 'added' })
-  }
-  for (const [key, center] of solidA) {
-    if (!solidB.has(key)) removed.push({ center, type: 'removed' })
-  }
-
+  const { added, removed } = diffSolid(solidA, solidB)
   console.log(`[diff] Diff — added: ${added.length}, removed: ${removed.length}`)
-
   window.diffState.voxels = [...added, ...removed]
 
   // Report stats to React

@@ -12,7 +12,7 @@
  *   diffPrim  — both modes; always shown, filtered by reapplyDiffFilter()
  */
 
-import { CONFIG } from './config'
+import { CONFIG } from '../config'
 import { setStatus, toast, requestRender } from './cesiumInit'
 
 export const state = {
@@ -222,35 +222,74 @@ export function applyPcStyle(pointSize) {
 export function renderVoxelDiff(voxels, voxelSize) {
   _rm(state.diffPrim)
   state.diffPrim = null
-  if (!voxels?.length) { requestRender(); return }
 
-  const Cesium   = window.Cesium
+  if (!voxels?.length) {
+    requestRender()
+    return
+  }
+
+  const Cesium = window.Cesium
+
   const addedC   = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.ADDED)
   const removedC = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.REMOVED)
-  const s = voxelSize
+
+  const {
+    lonStep,
+    latStep,
+    hStep,
+  } = window.diffState.gridDef
 
   const instances = voxels.map(v => {
-    const col = (v.type === 'added' ? addedC : removedC).withAlpha(0.85)
+    const { iLon, iLat, iH } = v.voxel
+
+    const lon = (iLon + 0.5) * lonStep
+    const lat = (iLat + 0.5) * latStep
+    const h   = (iH   + 0.5) * hStep
+
+    const center = Cesium.Cartesian3.fromDegrees(lon, lat, h)
+
+    const col = (
+      v.type === 'added'
+        ? addedC
+        : removedC
+    ).withAlpha(0.85)
+
     return new Cesium.GeometryInstance({
       geometry: Cesium.BoxGeometry.fromDimensions({
-        dimensions:   new Cesium.Cartesian3(s, s, s),
-        vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
+        dimensions: new Cesium.Cartesian3(
+          voxelSize,
+          voxelSize,
+          voxelSize
+        ),
+        vertexFormat:
+          Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
       }),
-      modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(v.center),
+
+      modelMatrix:
+        Cesium.Transforms.eastNorthUpToFixedFrame(center),
+
       attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(col),
+        color:
+          Cesium.ColorGeometryInstanceAttribute.fromColor(col),
       },
     })
   })
 
-  state.diffPrim = window.viewer.scene.primitives.add(new Cesium.Primitive({
-    geometryInstances:        instances,
-    appearance:               new Cesium.PerInstanceColorAppearance({
-      translucent: true, closed: true,
-    }),
-    releaseGeometryInstances: true,
-    compressVertices:         false,
-  }))
+  state.diffPrim =
+    window.viewer.scene.primitives.add(
+      new Cesium.Primitive({
+        geometryInstances: instances,
+
+        appearance:
+          new Cesium.PerInstanceColorAppearance({
+            translucent: true,
+            closed: true,
+          }),
+
+        releaseGeometryInstances: true,
+        compressVertices: false,
+      })
+    )
 
   requestRender()
 }

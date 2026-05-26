@@ -7,7 +7,7 @@
  */
 
 import * as Cesium from 'cesium'
-import { CONFIG } from './config'
+import { CONFIG } from '../config'
 
 // Make Cesium globally available for layers.js and diff.js which use Cesium.*
 window.Cesium = Cesium
@@ -76,6 +76,7 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
   }
 
   customTerrain = terrain
+  window.customTerrain = terrain
 
   // ── Create viewer ─────────────────────────────────────────────────────────
   viewer = new Cesium.Viewer('cesiumContainer', {

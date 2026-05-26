@@ -12,12 +12,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
-import { initViewer, flyTo, setTerrainVisible } from './cesiumInit'
-import {
-  loadDate, syncVisibility, clearLayers, clearCompareLayers,
-  applyPcStyle, setDateATint, setDateBTint,
-} from './layers'
-import { runVoxelDiff, reapplyDiffFilter, setDrawCallbacks, togglePolygonDraw } from './diff'
+import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
+import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint } from './cesium/layers'
+import { runVoxelDiff, reapplyDiffFilter } from './diff'
+import { setDrawCallbacks, togglePolygonDraw } from './cesium/polygonDraw'
 
 import TopBar          from './components/TopBar'
 import Panel           from './components/Panel'

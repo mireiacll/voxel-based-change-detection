@@ -314,38 +314,63 @@ function _buildSurface(points, gridDef, polygon) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-//  STEP 2 — Solidify: fill each column from global floor to its max
+//  STEP 2 — Solidify: fill each column from its per-column floor to its max
 // ═════════════════════════════════════════════════════════════════════════
+//
+//  WHY PER-COLUMN FLOOR instead of a global floor:
+//
+//  A global floor = min(iH across ALL points in both datasets).
+//  Any noisy outlier point sitting below the terrain in any tile drags
+//  that floor down for EVERY column everywhere — producing a forest of
+//  underground voxels all across the scene (what you saw in the screenshot).
+//
+//  Per-column floor = for each (iLon, iLat) column, take the minimum iH
+//  that column actually has across both datasets.  Each column only fills
+//  from its own lowest real point upward.  Outliers in one column cannot
+//  affect any other column.
 
 function _solidify(surfaceA, surfaceB, gridDef) {
   const { lonStep, latStep, hStep } = gridDef
+  const Cesium = window.Cesium
 
-  let globalFloorH = Infinity
-  for (const { iH } of surfaceA.values()) globalFloorH = Math.min(globalFloorH, iH)
-  for (const { iH } of surfaceB.values()) globalFloorH = Math.min(globalFloorH, iH)
-  if (!isFinite(globalFloorH)) globalFloorH = 0
-
-  console.log(`[diff] Global floor voxel: iH = ${globalFloorH}  (h ≈ ${(globalFloorH * hStep).toFixed(1)} m)`)
-
+  // ── Build per-column stats: minH and maxH for each dataset ───────────
+  // colKey → { iLon, iLat, minH, maxH }
   function buildColumnMap(surface) {
     const cols = new Map()
     for (const { iLon, iLat, iH } of surface.values()) {
       const colKey = `${iLon},${iLat}`
       if (!cols.has(colKey)) {
-        cols.set(colKey, { iLon, iLat, maxH: iH })
+        cols.set(colKey, { iLon, iLat, minH: iH, maxH: iH })
       } else {
         const col = cols.get(colKey)
+        if (iH < col.minH) col.minH = iH
         if (iH > col.maxH) col.maxH = iH
       }
     }
     return cols
   }
 
+  const colsA = buildColumnMap(surfaceA)
+  const colsB = buildColumnMap(surfaceB)
+
+  // ── Per-column floor = min(minH_A, minH_B) for columns present in either ─
+  // Build a unified column-floor map across both datasets.
+  const colFloor = new Map()   // colKey → lowest iH seen in either dataset
+
+  for (const [colKey, col] of colsA) {
+    colFloor.set(colKey, col.minH)
+  }
+  for (const [colKey, col] of colsB) {
+    const existing = colFloor.get(colKey)
+    colFloor.set(colKey, existing !== undefined ? Math.min(existing, col.minH) : col.minH)
+  }
+
+  // ── Fill each column from its per-column floor to its dataset max ─────
   function fillColumns(cols) {
-    const Cesium = window.Cesium
     const solid = new Map()
-    for (const { iLon, iLat, maxH } of cols.values()) {
-      for (let iH = globalFloorH; iH <= maxH; iH++) {
+    for (const [colKey, { iLon, iLat, maxH }] of cols) {
+      const floorH = colFloor.get(colKey) ?? 0
+      for (let iH = floorH; iH <= maxH; iH++) {
         const key = `${iLon},${iLat},${iH}`
         if (!solid.has(key)) {
           solid.set(key, Cesium.Cartesian3.fromDegrees(
@@ -359,8 +384,8 @@ function _solidify(surfaceA, surfaceB, gridDef) {
     return solid
   }
 
-  const solidA = fillColumns(buildColumnMap(surfaceA))
-  const solidB = fillColumns(buildColumnMap(surfaceB))
+  const solidA = fillColumns(colsA)
+  const solidB = fillColumns(colsB)
 
   console.log(`[diff] Solid voxels — A: ${solidA.size}, B: ${solidB.size}`)
   return { solidA, solidB }

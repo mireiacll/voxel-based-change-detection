@@ -74,7 +74,8 @@ export default function App() {
   // ── Draw banner ──────────────────────────────────────────────────────
   const [drawBanner,  setDrawBanner]  = useState(false)
   const [drawInfo,    setDrawInfo]    = useState('No area selected — diff runs on full extent')
-
+  const [drawBtnLabel, setDrawBtnLabel] = useState('✏ Draw Area')
+  
   // ── Diff ─────────────────────────────────────────────────────────────
   const [diffStatus,  setDiffStatus]  = useState({ state: '', msg: '' })
   const [diffRunning, setDiffRunning] = useState(false)
@@ -107,6 +108,7 @@ export default function App() {
     setDrawCallbacks(
       (visible) => setDrawBanner(visible),
       (info)    => setDrawInfo(info),
+      (label)   => setDrawBtnLabel(label),
     )
 
     initViewer({
@@ -308,6 +310,7 @@ export default function App() {
         showRemoved={showRemoved} onShowRemoved={setShowRemoved}
         voxelSize={voxelSize}  onVoxelSize={setVoxelSize}
         drawInfo={drawInfo}
+        drawBtnLabel={drawBtnLabel}
         onDrawArea={togglePolygonDraw}
         diffRunning={diffRunning}
         onRunDiff={handleRunDiff}

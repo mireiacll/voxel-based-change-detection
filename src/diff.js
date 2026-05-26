@@ -33,15 +33,18 @@ const _poly = {
 // Callback supplied by React to show/hide the draw banner
 let _onDrawBanner = () => {}
 let _onDrawInfo   = () => {}
+let _onDrawBtnLabel = () => {}
 
-export function setDrawCallbacks(onBanner, onInfo) {
+export function setDrawCallbacks(onBanner, onInfo, onBtnLabel) {
   _onDrawBanner = onBanner
   _onDrawInfo   = onInfo
+  _onDrawBtnLabel = onBtnLabel
 }
 
 export function togglePolygonDraw() {
   if (_poly.drawing || _poly.closed) {
     _clearPoly()
+    _onDrawBtnLabel('✏ Draw Area')
     _onDrawInfo('No area selected — diff runs on full extent')
   } else {
     _startDraw()
@@ -62,6 +65,7 @@ function _startDraw() {
 
   window.viewer.scene.canvas.style.cursor = 'crosshair'
   _onDrawBanner(true)
+  _onDrawBtnLabel('✕ Cancel Drawing')
   _onDrawInfo('Click on the map to add vertices…')
 
   const Cesium = window.Cesium
@@ -143,6 +147,7 @@ function _closePoly() {
   if (_poly.handler) { _poly.handler.destroy(); _poly.handler = null }
   window.viewer.scene.canvas.style.cursor = ''
   _onDrawBanner(false)
+  _onDrawBtnLabel('✕ Clear Area')
   _onDrawInfo(`✓ ${_poly.pts.length}-vertex polygon — run diff to apply`)
   toast(`Area selected (${_poly.pts.length} vertices). Now run the diff.`, 'ok')
   requestRender()

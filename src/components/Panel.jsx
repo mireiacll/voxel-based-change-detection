@@ -41,7 +41,7 @@ export default function Panel({
   showAdded,   onShowAdded,
   showRemoved, onShowRemoved,
   voxelSize,   onVoxelSize,
-  drawInfo,    onDrawArea,
+  drawInfo,    drawBtnLabel, onDrawArea,
   diffRunning, onRunDiff, onClearDiff,
   diffStatus,
   stats,
@@ -117,7 +117,7 @@ export default function Panel({
         </div>
 
         <div className="p-label" style={{ marginTop: 10 }}>Area Filter</div>
-        <button id="btn-draw-area" onClick={onDrawArea}>✏ Draw Area</button>
+        <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
         <div id="draw-info">{drawInfo}</div>
 
         <div className="voxel-size-row" style={{ marginTop: 10 }}>

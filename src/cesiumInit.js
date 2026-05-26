@@ -13,6 +13,7 @@ import { CONFIG } from './config'
 window.Cesium = Cesium
 
 export let viewer = null
+let customTerrain = null
 
 // Callbacks supplied by React at init time
 let _onStatus = () => {}
@@ -63,9 +64,9 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
 
   // ── Terrain ──────────────────────────────────────────────────────────────
   let terrain
-  if (CONFIG.DEFAULTS.USE_TERRAIN) {
+  if (CONFIG.TERRAIN.ENABLED) {
     try {
-      terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(4807084)
+      terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(CONFIG.TERRAIN.ASSET_ID)
     } catch (e) {
       console.warn('[viewer] Cesium World Terrain unavailable — using ellipsoid', e)
       terrain = new Cesium.EllipsoidTerrainProvider()
@@ -73,6 +74,8 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
   } else {
     terrain = new Cesium.EllipsoidTerrainProvider()
   }
+
+  customTerrain = terrain
 
   // ── Create viewer ─────────────────────────────────────────────────────────
   viewer = new Cesium.Viewer('cesiumContainer', {
@@ -122,4 +125,17 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 
   onReady?.()
+}
+
+export function setTerrainVisible(show) {
+  if (!window.viewer) return
+
+  if (show) {
+    window.viewer.terrainProvider = window.customTerrain
+  } else {
+    window.viewer.terrainProvider =
+      new window.Cesium.EllipsoidTerrainProvider()
+  }
+
+  window.viewer.scene.requestRender()
 }

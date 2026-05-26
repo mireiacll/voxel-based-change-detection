@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
-import { initViewer, flyTo } from './cesiumInit'
+import { initViewer, flyTo, setTerrainVisible } from './cesiumInit'
 import {
   loadDate, syncVisibility, clearLayers, clearCompareLayers,
   applyPcStyle, setDateATint, setDateBTint,
@@ -43,6 +43,7 @@ export default function App() {
   // ── Layer visibility toggles ─────────────────────────────────────────
   const [showMesh,    setShowMesh]    = useState(CONFIG.DEFAULTS.SHOW_MESH)
   const [showPc,      setShowPc]      = useState(CONFIG.DEFAULTS.SHOW_PC)
+  const [showTerrain, setShowTerrain] = useState(CONFIG.TERRAIN.ENABLED)
   const [showDateA,   setShowDateA]   = useState(true)
   const [showDateB,   setShowDateB]   = useState(true)
   const [showAdded,   setShowAdded]   = useState(CONFIG.DEFAULTS.SHOW_ADDED)
@@ -94,7 +95,8 @@ export default function App() {
     dateB:   showDateB,
     added:   showAdded,
     removed: showRemoved,
-  }), [showMesh, showPc, showDateA, showDateB, showAdded, showRemoved])
+    terrain: showTerrain,
+  }), [showMesh, showPc, showDateA, showDateB, showAdded, showRemoved, showTerrain])
 
   // ── Toasts helper ────────────────────────────────────────────────────
   const addToast = useCallback((msg, type = 'ok') => {
@@ -161,8 +163,9 @@ export default function App() {
       pc:    showPc,
       dateA: showDateA,
       dateB: showDateB,
+      terrain: showTerrain,
     })
-  }, [mode, showMesh, showPc, showDateA, showDateB])
+  }, [mode, showMesh, showPc, showDateA, showDateB, showTerrain])
 
   // ── Reapply diff filter when added/removed toggles change ─────────────
   useEffect(() => {
@@ -183,6 +186,10 @@ export default function App() {
   useEffect(() => {
     applyPcStyle(pcSize)
   }, [pcSize])
+
+  useEffect(() => {
+    setTerrainVisible(showTerrain)
+  }, [showTerrain])
 
   // ════════════════════════════════════════════════════════════════════
   //  EVENT HANDLERS
@@ -296,6 +303,7 @@ export default function App() {
         showMesh={showMesh}    onShowMesh={setShowMesh}
         showPc={showPc}        onShowPc={setShowPc}
         pcSize={pcSize}        onPcSize={setPcSize}
+        showTerrain={showTerrain} onShowTerrain={setShowTerrain}
         // compare
         compareIdA={compareIdA} onCompareIdA={setCompareIdA}
         compareIdB={compareIdB} onCompareIdB={setCompareIdB}

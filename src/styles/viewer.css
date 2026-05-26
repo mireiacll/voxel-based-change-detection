@@ -201,6 +201,7 @@ html, body {
 }
 .ltag-amber  { background: #2a1e0a; color: #d4914a; }
 .ltag-purple { background: #1a1030; color: #9b7cf4; }
+.ltag-green{ background:#0f2a18; color:#6dff9d;}
 
 /* Sub rows */
 .sub-row {

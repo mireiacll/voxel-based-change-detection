@@ -66,7 +66,8 @@ function _hexToRgb(hex) {
 function _makeTintStyle(hex, alpha) {
   const { r, g, b } = _hexToRgb(hex)
   return new window.Cesium.Cesium3DTileStyle({
-    color: `color("rgba(${r},${g},${b},${alpha})")`,
+    //color: `color("rgba(${r},${g},${b},${alpha})")`,
+    color: `rgba(${r}, ${g}, ${b}, ${alpha})`
   })
 }
 

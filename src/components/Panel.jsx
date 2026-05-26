@@ -29,6 +29,7 @@ export default function Panel({
   showMesh, onShowMesh,
   showPc,   onShowPc,
   pcSize,   onPcSize,
+  showTerrain, onShowTerrain,
   // compare selects
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
@@ -199,6 +200,15 @@ export default function Panel({
             onChange={e => onPcSize(parseFloat(e.target.value))}
           />
           <span className="sub-val" id="val-pc-size">{pcSize}</span>
+        </div>
+
+        <div className="layer-row">
+          <Toggle  id="chk-terrain" checked={showTerrain} onChange={onShowTerrain}/>
+          <div className="layer-body">
+            <div className="layer-name">Terrain</div>
+            <div className="layer-type">Cesium World Terrain</div>
+          </div>
+          <span className="ltag ltag-green">DEM</span>
         </div>
       </div>
 

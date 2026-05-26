@@ -83,7 +83,7 @@ export const CONFIG = {
 
   // ── Visual defaults ───────────────────────────────────────────────────────
   DEFAULTS: {
-    USE_TERRAIN:   true,
+    //USE_TERRAIN:   true,
     SHOW_MESH:     true,
     SHOW_PC:       false,
     POINT_SIZE:    1,
@@ -92,6 +92,11 @@ export const CONFIG = {
     SHOW_REMOVED:  true,
     VOXEL_SIZE:    0.5,
     MESH_Z_OFFSET: 119.575,
+  },
+
+  TERRAIN: {
+    ENABLED: true,
+    ASSET_ID: 4807084,
   },
 
   // ── Voxel diff colour coding ──────────────────────────────────────────────

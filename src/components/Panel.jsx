@@ -133,15 +133,15 @@ export default function Panel({
         </div>
 
         <div className="compare-action-buttons">
-          <button
-            id="btn-run-diff"
-            disabled={diffRunning}
-            onClick={onRunDiff}
-          >
+          <button id="btn-run-diff" disabled={diffRunning} onClick={onRunDiff}>
             {diffRunning ? '⟳ Computing…' : '⚡ Run diff'}
           </button>
-          <button id="btn-clear-diff" onClick={onClearDiff}>
-            ✖ Clear comparison
+          <button
+            id="btn-clear-diff"
+            style={diffRunning ? { borderColor: '#d49050', color: '#d49050' } : {}}
+            onClick={onClearDiff}
+          >
+            {diffRunning ? '⏹ Stop computation' : '✖ Clear comparison'}
           </button>
         </div>
 

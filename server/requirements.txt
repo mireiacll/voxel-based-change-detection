@@ -1,0 +1,10 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+numpy==2.0.2
+python-multipart==0.0.12
+python-dotenv==1.0.1
+
+# ── Future DB integration (install when ready) ────────────────────────────
+# sqlalchemy==2.0.36
+# asyncpg==0.30.0          # async PostgreSQL driver
+# alembic==1.13.3          # DB migrations

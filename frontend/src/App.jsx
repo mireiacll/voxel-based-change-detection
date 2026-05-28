@@ -157,7 +157,6 @@ export default function App() {
       if (e.key === 'c') handleModeChange('compare')
       if (e.key === '1') handleCameraSite()
       if (e.key === '2') handleCameraTop()
-      if (e.key === '3') handleCameraOblique()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -270,14 +269,6 @@ export default function App() {
   function handleCameraTop() {
     flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height * 1.2, -90)
   }
-  function handleCameraOblique() {
-    flyTo(
-      activeSite.camera.lon + 0.004,
-      activeSite.camera.lat + 0.004,
-      activeSite.camera.height * 0.7,
-      -30, 225
-    )
-  }
 
   // ═══════════════════════════════════════════════════════════════════
   //  RENDER
@@ -335,7 +326,6 @@ export default function App() {
         // camera
         onCameraSite={handleCameraSite}
         onCameraTop={handleCameraTop}
-        onCameraOblique={handleCameraOblique}
       />
     )}
 

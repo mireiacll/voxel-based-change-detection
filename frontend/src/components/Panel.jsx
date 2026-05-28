@@ -47,7 +47,7 @@ export default function Panel({
   diffStatus,
   stats,
   // camera
-  onCameraSite, onCameraTop, onCameraOblique,
+  onCameraSite, onCameraTop, 
 }) {
   const inView    = mode === 'view'
   const inCompare = mode === 'compare'
@@ -340,7 +340,6 @@ export default function Panel({
         <div className="btn-row">
           <button className="pbtn" onClick={onCameraSite}>↗ Site</button>
           <button className="pbtn" onClick={onCameraTop}>↓ Top</button>
-          <button className="pbtn" onClick={onCameraOblique}>⤢ Oblique</button>
         </div>
       </div>
 
@@ -350,7 +349,7 @@ export default function Panel({
         <div className="key-hint-row"><kbd>M</kbd> Toggle mesh &nbsp; <kbd>P</kbd> Toggle point cloud</div>
         <div className="key-hint-row"><kbd>A</kbd> Added &nbsp; <kbd>R</kbd> Removed</div>
         <div className="key-hint-row"><kbd>D</kbd> Draw area (compare mode)</div>
-        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top &nbsp; <kbd>3</kbd> Oblique</div>
+        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top </div> 
         <div className="key-hint-row"><kbd>V</kbd> View mode &nbsp; <kbd>C</kbd> Compare mode</div>
       </div>
 

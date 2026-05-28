@@ -4,7 +4,15 @@ numpy==2.0.2
 python-multipart==0.0.12
 python-dotenv==1.0.1
 
-# ── Future DB integration (install when ready) ────────────────────────────
+# ── DB integration / Database ────────────────────────────
 # sqlalchemy==2.0.36
-# asyncpg==0.30.0          # async PostgreSQL driver
-# alembic==1.13.3          # DB migrations
+
+# ── Database ──────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+alembic==1.13.3             # DB migrations
+
+# Local dev — SQLite async driver (zero setup, works out of the box)
+aiosqlite==0.20.0
+
+# Production — uncomment when switching to PostgreSQL
+# asyncpg==0.30.0

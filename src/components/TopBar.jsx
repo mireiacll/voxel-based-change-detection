@@ -10,7 +10,7 @@ export default function TopBar({ activeSite, sites, onSiteChange, coords }) {
             <polyline points="2 12 12 17 22 12"/>
           </svg>
         </div>
-        <span id="tb-title">Asan City 3D Change Detection</span>
+        <span id="tb-title">3D Change Detection</span>
       </div>
 
       <div id="tb-center">

@@ -1,5 +1,5 @@
 """
-main.py — FastAPI server for Asan City 3D Change Detection Viewer
+main.py — FastAPI server for  City 3D Change Detection Viewer
 
 Uses ThreadPoolExecutor instead of ProcessPoolExecutor:
 - No multiprocessing.Manager needed — plain dict works across threads
@@ -21,6 +21,14 @@ from pydantic import BaseModel, Field
 from glb_parser import load_all_points
 from voxelizer import build_surface, diff_solid, make_grid_def, solidify
 
+# db related imports
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_db, engine
+from models import Base, Site, SurveyDate
+from fastapi import Depends
+
 load_dotenv()
 
 DATA_ROOT = Path(os.getenv("DATA_ROOT", "./public/data")).resolve()
@@ -31,13 +39,18 @@ ALLOWED_ORIGINS = [
     ).split(",")
 ]
 
-app = FastAPI(title="Asan City 3D Change Detection API", version="1.0.0")
+app = FastAPI(title="3D Change Detection API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 # ThreadPoolExecutor — safe to create at module level, no spawning issues
 _executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
@@ -159,28 +172,13 @@ def _run_diff(
 async def health():
     return {"status": "ok", "data_root": str(DATA_ROOT)}
 
-
 @app.get("/api/sites")
-async def list_sites():
-    if not DATA_ROOT.exists():
-        raise HTTPException(status_code=500, detail=f"DATA_ROOT not found: {DATA_ROOT}")
-    sites = []
-    for site_dir in sorted(DATA_ROOT.iterdir()):
-        if not site_dir.is_dir():
-            continue
-        dates = []
-        for date_dir in sorted(site_dir.iterdir()):
-            if not date_dir.is_dir():
-                continue
-            mesh_ts = date_dir / "3d_mesh"     / "tiles" / "tileset.json"
-            pc_ts   = date_dir / "point_cloud" / "tiles" / "tileset.json"
-            dates.append({
-                "id":          date_dir.name,
-                "mesh":        str(mesh_ts.relative_to(DATA_ROOT.parent)) if mesh_ts.exists() else None,
-                "point_cloud": str(pc_ts.relative_to(DATA_ROOT.parent))  if pc_ts.exists()  else None,
-            })
-        sites.append({"id": site_dir.name, "dates": dates})
-    return {"sites": sites}
+async def list_sites(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Site).options(selectinload(Site.dates)).order_by(Site.id)
+    )
+    sites = result.scalars().all()
+    return {"sites": [s.to_dict() for s in sites]}
 
 
 @app.post("/api/diff")

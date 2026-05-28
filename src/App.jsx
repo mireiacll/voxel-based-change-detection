@@ -26,8 +26,9 @@ import Toasts     from './components/Toasts'
 
 export default function App() {
   // ── Site / date ──────────────────────────────────────────────────────
-  const [activeSite, setActiveSite] = useState(CONFIG.SITES[0])
-  const [activeDate, setActiveDate] = useState(CONFIG.SITES[0].dates[0] || null)
+  const [activeSite, setActiveSite] = useState(null)   // null until loaded
+  const [activeDate, setActiveDate] = useState(null)
+  const [sites,      setSites]      = useState([])
   const [mode,       setMode]       = useState('view')
 
   // ── Layer visibility toggles ─────────────────────────────────────────
@@ -46,8 +47,8 @@ export default function App() {
   const [alphaB, setAlphaB] = useState(0.9)
 
   // ── Compare selects ──────────────────────────────────────────────────
-  const [compareIdA, setCompareIdA] = useState(CONFIG.SITES[0].dates[0]?.id || '')
-  const [compareIdB, setCompareIdB] = useState(CONFIG.SITES[0].dates[1]?.id || CONFIG.SITES[0].dates[0]?.id || '')
+  const [compareIdA, setCompareIdA] = useState('')
+  const [compareIdB, setCompareIdB] = useState('')
 
   // ── Point cloud size ─────────────────────────────────────────────────
   const [pcSize, setPcSize] = useState(CONFIG.DEFAULTS.POINT_SIZE)
@@ -95,35 +96,52 @@ export default function App() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
   }, [])
 
-  // ── Init Cesium once ─────────────────────────────────────────────────
   useEffect(() => {
-    // Wire polygon-draw UI callbacks into polygonDraw.js
-    setDrawCallbacks(
-      (visible) => setDrawBanner(visible),
-      (info)    => setDrawInfo(info),
-      (label)   => setDrawBtnLabel(label),
-    )
+    async function setup() {
+      setDrawCallbacks(
+        (visible) => setDrawBanner(visible),
+        (info)    => setDrawInfo(info),
+        (label)   => setDrawBtnLabel(label),
+      )
+      await initViewer({
+        onReady:  () => { viewerReady.current = true },
+        onStatus: (msg, done) => {
+          setStatusMsg(msg)
+          setStatusDone(!!done)
+        },
+        onToast:  addToast,
+        onCoords: setCoords,
+      })
 
-    initViewer({
-      onReady:  () => { viewerReady.current = true },
-      onStatus: (msg, done) => { setStatusMsg(msg); setStatusDone(!!done) },
-      onToast:  addToast,
-      onCoords: setCoords,
-    }).then(() => {
-      window.currentSite = CONFIG.SITES[0]
-      const firstDate = CONFIG.SITES[0].dates[0]
-      if (firstDate) {
-        loadDate(CONFIG.SITES[0], firstDate, 'view', {
-          mesh: CONFIG.DEFAULTS.SHOW_MESH,
-          pc:   CONFIG.DEFAULTS.SHOW_PC,
-        })
-        flyTo(
-          CONFIG.SITES[0].camera.lon,
-          CONFIG.SITES[0].camera.lat,
-          CONFIG.SITES[0].camera.height
-        )
+      // ── Fetch sites from backend ─────────────────────────────
+      const API_BASE =
+        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+
+      const res = await fetch(`${API_BASE}/api/sites`)
+      const data = await res.json()
+
+      const loadedSites = data.sites || []
+      setSites(loadedSites)
+
+      if (loadedSites.length === 0) return
+
+      const first = loadedSites[0]
+      const firstDate = first?.dates[0] ?? null
+
+      setActiveSite(first)
+      setActiveDate(firstDate)
+
+      setCompareIdA(firstDate?.id || '')
+      setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
+
+      window.currentSite = first
+
+      if (first && firstDate) {
+        loadDate(first, firstDate, 'view', { mesh: CONFIG.DEFAULTS.SHOW_MESH, pc: CONFIG.DEFAULTS.SHOW_PC })
+        flyTo(first.camera.lon, first.camera.lat, first.camera.height)
       }
-    })
+    }
+    setup()
   }, [addToast])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────
@@ -244,7 +262,6 @@ export default function App() {
     setStats(null)
     setDiffStatus({ state: '', msg: '' })
     setDrawInfo('No area selected — diff runs on full extent')
-    //setDrawBtnLabel('✏ Draw Area')
   }
 
   function handleCameraSite() {
@@ -275,11 +292,12 @@ export default function App() {
 
       <TopBar
         activeSite={activeSite}
-        sites={CONFIG.SITES}
+        sites={sites}
         onSiteChange={handleSiteChange}
         coords={coords}
       />
 
+    {activeSite && (
       <Panel
         // mode
         mode={mode}
@@ -319,6 +337,7 @@ export default function App() {
         onCameraTop={handleCameraTop}
         onCameraOblique={handleCameraOblique}
       />
+    )}
 
       <StatusBar msg={statusMsg} done={statusDone} />
 

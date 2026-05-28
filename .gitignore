@@ -48,3 +48,11 @@ public
 *.glb
 *.b3dm
 *.pnts
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# SQLAlchemy / alembic cache
+*.db-journal

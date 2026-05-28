@@ -1,16 +1,57 @@
-# React + Vite
+# Voxel Based Change Detection
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Voxel Based Change Detection is organized as a multi-part application with a frontend viewer, a backend API, and an existing Python server workspace for voxel processing experiments.
 
-Currently, two official plugins are available:
+## Project Structure
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```text
+voxel-based-change-detection/
+├── backend/                      # Spring Boot API server
+├── frontend/                     # React + Vite frontend application
+└── server/                       # Python processing/server workspace
+```
 
-## React Compiler
+## Backend
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The backend is a minimal Spring Boot API server.
 
-## Expanding the ESLint configuration
+```powershell
+cd backend
+.\gradlew.bat bootRun
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Useful endpoints:
+
+- `GET /api/health`
+- `GET /api/demo`
+- `POST /api/demo/echo`
+- `GET /actuator/health`
+
+Run tests:
+
+```powershell
+cd backend
+.\gradlew.bat test
+```
+
+## Frontend
+
+The frontend is a React + Vite application.
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+## Server
+
+The `server/` directory contains the Python workspace used for voxel processing and related experiments. Keep runtime setup notes, data requirements, and migration instructions close to that workspace when they become stable.
+
+## Contribution Checklist
+
+Before opening or merging a change:
+
+- Run the affected tests or document why they could not be run.
+- Keep sample/demo endpoints clearly labeled.
+- Avoid committing generated build outputs, local caches, or environment-specific files.

@@ -1,6 +1,16 @@
 spring:
   application:
     name: backend-api
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:voxel_change_detection}
+    username: ${DB_USER:voxel}
+    password: ${DB_PASSWORD:voxel}
+  sql:
+    init:
+      mode: always
+      platform: ${DB_PLATFORM:postgres}
+      schema-locations: classpath:schema-${DB_PLATFORM:postgres}.sql
+      data-locations: classpath:data-${DB_PLATFORM:postgres}.sql
 
 server:
   port: ${SERVER_PORT:8080}

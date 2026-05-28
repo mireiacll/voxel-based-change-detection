@@ -184,4 +184,3 @@ After converting, run `python seed.py` to register the new date in the database.
 | `C` | Switch to Compare mode |
 | `1` | Site camera |
 | `2` | Top-down camera |
-| `3` | Oblique camera |

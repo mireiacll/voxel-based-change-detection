@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: backend-api
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+server/venv/
+.env
+
+# Node
+node_modules
+
+# Build
+dist
+dist-ssr
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Cesium / point cloud data
+public/data/
+public
+
+*.las
+*.laz
+*.ply
+*.pcd
+*.glb
+*.b3dm
+*.pnts
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# SQLAlchemy / alembic cache
+*.db-journal

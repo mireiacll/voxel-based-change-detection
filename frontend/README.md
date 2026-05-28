@@ -1,4 +1,4 @@
-# Asan City 3D Change Detection Viewer
+# 3D Change Detection Viewer
 
 A web-based 3D change detection tool for monitoring illegal waste sites in Asan City, South Korea. Built with **React + CesiumJS** on the frontend and **FastAPI + Python** on the backend.
 
@@ -15,7 +15,7 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 | 3D data format | 3D Tiles (mago3d-tiler for mesh + point cloud) |
 | Backend API | FastAPI + Uvicorn |
 | Computation | NumPy (vectorised GLB parsing + voxelization) |
-| Database | SQLAlchemy async — SQLite (dev) / PostgreSQL (prod) |
+| Database | SQLAlchemy async — SQLite (dev) |
 | Migrations | Alembic |
 
 ---
@@ -78,58 +78,6 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 │       └── versions/
 │
 └── backend/                           
-```
-```
-cesium-viewer-react/
-├── public/
-│   └── data/                      ← 3D Tiles served statically by Vite
-│       ├── dunpo/
-│       │   ├── 251106/
-│       │   │   ├── 3d_mesh/tiles/     ← tileset.json + *.glb (mago3d-tiler)
-│       │   │   └── point_cloud/tiles/ ← tileset.json + *.glb (mago3d-tiler)
-│       │   ├── 251209/
-│       │   └── 260209/
-│       └── ungpo/
-│
-├── src/                           ← React + Cesium frontend
-│   ├── components/
-│   │   ├── DrawBanner.jsx
-│   │   ├── Panel.jsx
-│   │   ├── StatusBar.jsx
-│   │   ├── Toasts.jsx
-│   │   └── TopBar.jsx
-│   ├── cesium/
-│   │   ├── cesiumInit.js          ← viewer init, flyTo, terrain toggle
-│   │   ├── layers.js              ← tileset loading, visibility, voxel renderer
-│   │   └── polygonDraw.js         ← interactive polygon drawing tool
-│   ├── lib/
-│   │   ├── glbParser.js           ← browser-side GLB parser (fallback / dev)
-│   │   ├── voxelizer.js           ← browser-side voxelizer (fallback / dev)
-│   │   └── polygonUtils.js        ← point-in-polygon utility
-│   ├── styles/
-│   │   └── viewer.css
-│   ├── App.jsx                    ← root component, all UI state
-│   ├── config.js                  ← ion token, visual defaults, terrain config
-│   ├── diff.js                    ← calls /api/diff, stores results, rerenders
-│   └── main.jsx
-│
-├── server/                        ← FastAPI backend
-│   ├── main.py                    ← routes: /health, /api/sites, /api/diff
-│   ├── glb_parser.py              ← numpy GLB parser (reads from disk)
-│   ├── voxelizer.py               ← numpy voxelization + solidification + diff
-│   ├── database.py                ← SQLAlchemy async engine + session
-│   ├── models.py                  ← ORM models: Site, SurveyDate
-│   ├── seed.py                    ← populate DB from public/data/ filesystem
-│   ├── requirements.txt
-│   ├── .env                       ← local config (not committed)
-│   ├── .env.example
-│   └── alembic/                   ← DB migration scripts
-│       ├── env.py
-│       └── versions/
-│
-├── index.html
-├── vite.config.js
-└── package.json
 ```
 
 ---

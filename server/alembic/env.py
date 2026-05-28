@@ -28,7 +28,7 @@ target_metadata = Base.metadata
 # ── Build a sync DATABASE_URL (strip async driver prefix) ─────────────────
 # Alembic uses a regular (sync) engine for migrations even if the app uses
 # an async engine at runtime.
-_async_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./3dchanges_detection.db")
+_async_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./3dchange_detection.db")
 _sync_url  = (
     _async_url
     .replace("sqlite+aiosqlite", "sqlite")

@@ -7,7 +7,11 @@
  */
 
 import * as Cesium from 'cesium'
+import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { CONFIG } from '../config'
+
+// Tell CesiumJS where its static files live (set by vite.config.js define)
+window.CESIUM_BASE_URL = '/cesium'
 
 // Make Cesium globally available for layers.js and diff.js which use Cesium.*
 window.Cesium = Cesium

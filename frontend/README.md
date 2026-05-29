@@ -97,6 +97,9 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 # Install dependencies
 npm install
 
+# Required for Cesium static assets 
+npm install --save-dev vite-plugin-static-copy
+
 # Start the Vite dev server
 npm run dev
 # → http://localhost:5173
@@ -143,19 +146,20 @@ Raw `.obj` mesh and `.las`/`.laz` point cloud files cannot be loaded by CesiumJS
 pip install mago3d-tiler --break-system-packages
 
 mago3d-tiler \
-  -input  "path/to/251106_mesh.obj" \
-  -inputType OBJ \
-  -output "public/data/dunpo/251106/3d_mesh/tiles" \
-  -crs 5186
+  -i "simplified_3d_mesh.fbx" ^ \
+  -o ".\tiles" ^ \
+  -pg ^ \
+  -rx 90 ^ \
+  -lon 127.00669157 -lat 36.90993259 -zo 119.575
 ```
 
 **Point cloud:**
 ```bash
 mago3d-tiler \
-  -input  "path/to/251106_pointcloud.las" \
-  -inputType LAS \
-  -output "public/data/dunpo/251106/point_cloud/tiles" \
-  -crs 5186
+  -i "densified_point_cloud.las" ^ \ 
+  -o ".\tiles" ^\
+  -c 5186
+
 ```
 
 After converting, run `python seed.py` to register the new date in the database.

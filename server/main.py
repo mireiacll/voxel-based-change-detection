@@ -181,6 +181,27 @@ async def list_sites(db: AsyncSession = Depends(get_db)):
     return {"sites": [s.to_dict() for s in sites]}
 
 
+class MeshZOffsetUpdate(BaseModel):
+    mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
+
+
+@app.patch("/api/sites/{site_id}/dates/{date_code}/mesh-z-offset")
+async def update_mesh_z_offset(
+    site_id:   str,
+    date_code: str,
+    body:      MeshZOffsetUpdate,
+    db:        AsyncSession = Depends(get_db),
+):
+    """Persist the mesh Z-offset for one survey date."""
+    pk = f"{site_id}_{date_code}"
+    date_row = await db.get(SurveyDate, pk)
+    if date_row is None:
+        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
+    date_row.mesh_z_offset = body.mesh_z_offset
+    await db.commit()
+    return {"site_id": site_id, "date_code": date_code, "mesh_z_offset": body.mesh_z_offset}
+
+
 @app.post("/api/diff")
 async def run_diff(req: DiffRequest):
 

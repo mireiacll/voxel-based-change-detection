@@ -5,6 +5,8 @@
  * No local state — single source of truth lives in App.
  */
 
+import { useEffect, useState } from 'react'
+
 function Toggle({ id, checked, onChange }) {
   return (
     <label className="sw">
@@ -30,6 +32,10 @@ export default function Panel({
   showPc,   onShowPc,
   pcSize,   onPcSize,
   showTerrain, onShowTerrain,
+
+  meshZOffset, onMeshZOffset,
+  onSaveMeshZOffset,
+
   // compare selects
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
@@ -51,6 +57,23 @@ export default function Panel({
 }) {
   const inView    = mode === 'view'
   const inCompare = mode === 'compare'
+
+  const [meshOffsetInput, setMeshOffsetInput] = useState(meshZOffset)
+
+  useEffect(() => {
+    setMeshOffsetInput(meshZOffset)
+  }, [meshZOffset])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const v = parseFloat(meshOffsetInput)
+      if (!Number.isNaN(v)) {
+        onMeshZOffset(v)
+      }
+    }, 400)
+
+    return () => clearTimeout(t)
+  }, [meshOffsetInput, onMeshZOffset])
 
   const netM3 = stats
     ? (stats.added - stats.removed) * stats.voxSize ** 3
@@ -210,6 +233,45 @@ export default function Panel({
           </div>
           <span className="ltag ltag-green">DEM</span>
         </div>
+
+        <div className="p-label" style={{ marginTop: 12 }}>
+          Mesh Height Offset
+        </div>
+
+        <div className="voxel-size-row">
+          <label htmlFor="mesh-z-offset-input">
+            Offset
+          </label>
+
+          <input
+            type="number"
+            id="mesh-z-offset-input"
+            min="-500"
+            max="500"
+            step="0.01"
+            value={meshOffsetInput}
+            className="mesh-offset-input"
+            onChange={e => setMeshOffsetInput(e.target.value)}
+          />
+
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+            }}
+          >
+            m
+          </span>
+        </div>
+
+        <button
+          className="pbtn"
+          style={{ marginTop: 8 }}
+          onClick={onSaveMeshZOffset}
+        >
+          Save to DB
+        </button>
+
       </div>
 
       {/* ── COMPARE: datasets + change detection ── */}

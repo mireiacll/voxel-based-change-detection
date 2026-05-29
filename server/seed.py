@@ -30,11 +30,13 @@ SITE_CONFIGS: dict[str, dict] = {
         "label":    "둔포면 — Waste Site",
         "label_en": "Dunpo-myeon",
         "camera":   {"lon": 127.0071, "lat": 36.9102, "height": 600},
+        "mesh_z_offset": 119.575,
     },
     "ungpo": {
         "label":    "웅포면 — Waste Site",
         "label_en": "Ungpo-myeon",
         "camera":   {"lon": 126.9300, "lat": 36.0500, "height": 600},
+        "mesh_z_offset": 194.253,
     },
 }
 
@@ -92,6 +94,7 @@ async def seed():
                     camera_lon=cfg["camera"]["lon"],
                     camera_lat=cfg["camera"]["lat"],
                     camera_height=cfg["camera"]["height"],
+                    mesh_z_offset=cfg["mesh_z_offset"],
                 ))
                 print(f"[seed] Inserted site: {site_id}")
             else:

@@ -788,3 +788,8 @@ kbd {
   font-size: 12px; font-weight: 500;
   color: var(--text);
 }
+
+
+.mesh-offset-input {
+  width: 92px !important;
+}

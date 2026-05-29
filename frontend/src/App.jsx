@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
-import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint } from './cesium/layers'
+import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
 
@@ -83,6 +83,8 @@ export default function App() {
   // ── Coordinates ──────────────────────────────────────────────────────
   const [coords, setCoords] = useState({ lat: '—', lon: '—', height: '—' })
 
+  const [meshZOffset, setMeshZOffset] = useState(CONFIG.DEFAULTS.MESH_Z_OFFSET)
+
   const viewerReady = useRef(false)
 
   // ── Build checkbox state object (passed into imperative layer) ────────
@@ -140,6 +142,7 @@ export default function App() {
           label:   cfg.label   || serverSite.id,
           labelEn: cfg.labelEn || serverSite.id,
           camera:  cfg.camera  || { lon: 127.0, lat: 37.0, height: 1000 },
+          meshZOffset: serverSite.meshZOffset,
           dates: serverSite.dates.map(sd => {
             const cfgDate = cfg.dates?.find(d => d.id === sd.id) || {}
             return {
@@ -147,6 +150,7 @@ export default function App() {
               label:      cfgDate.label     || sd.id,
               mesh:       cfgDate.mesh       || sd.mesh        || null,
               pointCloud: cfgDate.pointCloud || sd.point_cloud || null,
+              meshZOffset: serverSite.meshZOffset,
             }
           }),
         }
@@ -162,6 +166,7 @@ export default function App() {
 
       setActiveSite(first)
       setActiveDate(firstDate)
+      setMeshZOffset(first.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
       setCompareIdA(firstDate?.id || '')
       setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
       window.currentSite = first
@@ -226,6 +231,10 @@ export default function App() {
   }, [pcSize])
 
   useEffect(() => {
+    applyMeshZOffset(meshZOffset)
+  }, [meshZOffset])
+
+  useEffect(() => {
     setTerrainVisible(showTerrain)
   }, [showTerrain])
 
@@ -271,6 +280,8 @@ export default function App() {
     setActiveSite(site)
     setActiveDate(firstDate)
     window.currentSite = site
+
+    setMeshZOffset(site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
 
     // ── 5. Load first date + fly ──────────────────────────────────────────
     // Deferred one tick so the React state flush and clearLayers complete
@@ -336,6 +347,51 @@ export default function App() {
     setDrawInfo('No area selected — diff runs on full extent')
   }
 
+  async function handleSaveMeshZOffset() {
+    if (!activeSite) return
+
+    try {
+      const API_BASE =
+        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+
+      const res = await fetch(
+        `${API_BASE}/api/sites/${activeSite.id}/z-offset`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            mesh_z_offset: meshZOffset,
+          }),
+        }
+      )
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+
+      // keep local site object in sync
+      setActiveSite(prev => ({
+        ...prev,
+        meshZOffset,
+      }))
+
+      setSites(prev =>
+        prev.map(s =>
+          s.id === activeSite.id
+            ? { ...s, meshZOffset }
+            : s
+        )
+      )
+
+      addToast('Mesh Z offset saved', 'ok')
+    } catch (err) {
+      console.error(err)
+      addToast('Failed to save mesh Z offset', 'warn')
+    }
+  }
+
   function handleCameraSite() {
     flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40)
   }
@@ -390,6 +446,11 @@ export default function App() {
         showMesh={showMesh}    onShowMesh={setShowMesh}
         showPc={showPc}        onShowPc={setShowPc}
         pcSize={pcSize}        onPcSize={setPcSize}
+
+        meshZOffset={meshZOffset}
+        onMeshZOffset={setMeshZOffset}
+        onSaveMeshZOffset={handleSaveMeshZOffset}
+
         showTerrain={showTerrain} onShowTerrain={setShowTerrain}
         // compare
         compareIdA={compareIdA} onCompareIdA={setCompareIdA}

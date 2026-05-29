@@ -4,9 +4,12 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
-  sql:
-    init:
-      mode: always
-      platform: h2
-      schema-locations: classpath:schema-h2.sql
-      data-locations: classpath:data-h2.sql
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+voxelizer:
+  jar-path: ./build/test-fixtures/voxelizer.jar
+  temp-path: ./build/test-storage/temp
+  visualization-tiles-path: ./build/test-storage/3dtiles
+  voxel-set-output-path: ./build/test-storage/voxelsets

@@ -5,12 +5,9 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:voxel_change_detection}
     username: ${DB_USER:voxel}
     password: ${DB_PASSWORD:voxel}
-  sql:
-    init:
-      mode: always
-      platform: ${DB_PLATFORM:postgres}
-      schema-locations: classpath:schema-${DB_PLATFORM:postgres}.sql
-      data-locations: classpath:data-${DB_PLATFORM:postgres}.sql
+  jpa:
+    hibernate:
+      ddl-auto: update
 
 server:
   port: ${SERVER_PORT:8080}
@@ -22,3 +19,9 @@ management:
     web:
       exposure:
         include: health,info
+
+voxelizer:
+  jar-path: ${VOXELIZER_JAR_PATH:./voxelizer/voxelizer.jar}
+  temp-path: ${VOXELIZER_TEMP_PATH:./storage/temp}
+  visualization-tiles-path: ${VOXELIZER_VISUALIZATION_TILES_PATH:./storage/3dtiles}
+  voxel-set-output-path: ${VOXELIZER_VOXEL_SET_OUTPUT_PATH:./storage/voxelsets}

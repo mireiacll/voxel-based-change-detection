@@ -22,7 +22,7 @@ The default database connection is:
 - username: `voxel`
 - password: `voxel`
 
-At startup, the backend loads SQL from `schema-postgres.sql` and `data-postgres.sql` and applies it automatically. The PostgreSQL schema enables the PostGIS extension and creates the sample table with a nullable geometry column.
+At startup, Hibernate creates or updates the schema automatically with `spring.jpa.hibernate.ddl-auto=update`. A `CommandLineRunner` seeds the initial sample row when the `samples` table is empty.
 
 ## Run backend
 
@@ -31,21 +31,16 @@ gradle bootRun
 ```
 
 The server starts on `http://localhost:8080` by default.
-
 Swagger UI is available at `http://localhost:8080/swagger-ui/index.html`.
 OpenAPI JSON is available at `http://localhost:8080/v3/api-docs`.
 
 ## Endpoints
 
-- `GET /api/health`
-- `GET /api/demo`
-- `POST /api/demo/echo`
 - `GET /api/samples`
 - `GET /api/samples/{id}`
 - `POST /api/samples`
 - `PUT /api/samples/{id}`
 - `DELETE /api/samples/{id}`
-- `GET /actuator/health`
 
 Example:
 
@@ -65,7 +60,6 @@ You can override the DB connection with environment variables:
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
-- `DB_PLATFORM`
 
 ## Test
 
@@ -73,4 +67,4 @@ You can override the DB connection with environment variables:
 gradle test
 ```
 
-Tests use an embedded H2 datasource with PostgreSQL compatibility mode and load `schema-h2.sql` / `data-h2.sql` automatically.
+Tests use an embedded H2 datasource with PostgreSQL compatibility mode and create the schema with JPA automatically.

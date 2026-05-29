@@ -1,4 +1,4 @@
-package com.example.backend.config;
+package com.gaia3d.backend.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;

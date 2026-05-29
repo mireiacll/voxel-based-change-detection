@@ -1,4 +1,4 @@
-package com.example.backend.sample;
+package com.gaia3d.backend.sample;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;

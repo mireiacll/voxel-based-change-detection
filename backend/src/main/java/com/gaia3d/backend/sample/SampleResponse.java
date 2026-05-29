@@ -1,4 +1,4 @@
-package com.example.backend.sample;
+package com.gaia3d.backend.sample;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

@@ -1,4 +1,4 @@
-package com.example.backend;
+package com.gaia3d.backend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

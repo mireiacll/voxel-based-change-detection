@@ -27,6 +27,7 @@ def upgrade() -> None:
     sa.Column('camera_lon', sa.Float(), nullable=False),
     sa.Column('camera_lat', sa.Float(), nullable=False),
     sa.Column('camera_height', sa.Float(), nullable=False),
+    sa.Column('mesh_z_offset', sa.Float(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
@@ -37,7 +38,6 @@ def upgrade() -> None:
     sa.Column('label', sa.Text(), nullable=False),
     sa.Column('mesh_path', sa.Text(), nullable=True),
     sa.Column('point_cloud_path', sa.Text(), nullable=True),
-    sa.Column('mesh_z_offset', sa.Float(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['site_id'], ['sites.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),

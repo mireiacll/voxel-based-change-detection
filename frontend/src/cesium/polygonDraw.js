@@ -10,15 +10,21 @@ const _poly = {
   entities: [],
 }
 
-// Callback supplied by React to show/hide the draw banner
-let _onDrawBanner = () => {}
-let _onDrawInfo   = () => {}
+let _onDrawBanner   = () => {}
+let _onDrawInfo     = () => {}
 let _onDrawBtnLabel = () => {}
 
 export function setDrawCallbacks(onBanner, onInfo, onBtnLabel) {
-  _onDrawBanner = onBanner
-  _onDrawInfo   = onInfo
+  _onDrawBanner   = onBanner
+  _onDrawInfo     = onInfo
   _onDrawBtnLabel = onBtnLabel
+}
+
+// Always clears regardless of current state — used on project switch
+export function clearPolygon() {
+  _clearPoly()
+  _onDrawBtnLabel('✏ Draw Area')
+  _onDrawInfo('No area selected — diff runs on full extent')
 }
 
 export function togglePolygonDraw() {
@@ -37,7 +43,6 @@ function _startDraw() {
 
   const site = window.currentSite
   if (site) {
-    // import lazily to avoid circular dep
     import('./cesiumInit').then(({ flyTo }) =>
       flyTo(site.camera.lon, site.camera.lat, site.camera.height * 1.2, -90, 0)
     )

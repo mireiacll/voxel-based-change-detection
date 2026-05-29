@@ -474,3 +474,322 @@ kbd {
   width: 100%;
   height: 100%;
 }
+/* ════════════════════════════════════════════════════════════
+   PROJECT LAUNCHER  — fullscreen overlay
+   ════════════════════════════════════════════════════════════ */
+
+.launcher-overlay {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  overflow-y: auto;
+  padding: 40px 20px;
+}
+
+.launcher-inner {
+  width: 100%; max-width: 860px;
+}
+
+.launcher-header {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 36px;
+}
+
+.launcher-logo {
+  width: 48px; height: 48px; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+
+.launcher-title {
+  font-size: 22px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text);
+}
+
+.launcher-sub {
+  font-size: 13px; color: var(--muted); margin-top: 3px;
+}
+
+.launcher-section-label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted); margin-bottom: 12px;
+}
+
+/* ── Hero cards ── */
+.launcher-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.lcard {
+  position: relative; overflow: hidden;
+  background: var(--surf); border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 18px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+  cursor: pointer; text-align: left;
+  transition: border-color .15s, background .15s, transform .1s;
+  min-height: 148px;
+}
+.lcard:hover {
+  border-color: var(--accent);
+  background: var(--surf2);
+  transform: translateY(-2px);
+}
+
+/* Subtle dot-grid decorative bg */
+.lcard-bg {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 18px 18px;
+  opacity: .45;
+}
+
+.lcard-body { position: relative; flex: 1; }
+
+.lcard-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #10162a, #1a1040);
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); margin-bottom: 10px;
+}
+
+.lcard-name {
+  font-size: 13px; font-weight: 600;
+  color: var(--text); line-height: 1.3;
+}
+
+.lcard-meta {
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: 6px;
+  font-size: 10px; color: var(--muted); font-family: var(--mono);
+}
+
+.lcard-latest { color: var(--accent); opacity: .8; }
+
+.lcard-arrow {
+  position: absolute; bottom: 16px; right: 18px;
+  font-size: 14px; color: var(--muted);
+  transition: color .15s, transform .15s;
+}
+.lcard:hover .lcard-arrow { color: var(--accent); transform: translateX(3px); }
+
+/* New project card */
+.lcard-new {
+  border-style: dashed;
+  align-items: center; justify-content: center;
+  gap: 8px; text-align: center;
+}
+.lcard-new:hover { border-color: var(--border2); }
+
+.lcard-new-icon {
+  font-size: 28px; line-height: 1;
+  color: var(--border2);
+  transition: color .15s;
+}
+.lcard-new:hover .lcard-new-icon { color: var(--muted); }
+
+/* Skeleton */
+.lcard-skeleton {
+  background: var(--surf2);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+  cursor: default;
+}
+@keyframes sk-pulse {
+  0%, 100% { opacity: .4; }
+  50%       { opacity: .8; }
+}
+
+/* ── Compact list rows (sites 4+) ── */
+.launcher-list {
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+.llist-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: var(--surf); border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer; text-align: left;
+  transition: background .12s, border-color .12s;
+}
+.llist-row:hover { background: var(--surf2); border-color: var(--border2); }
+
+.llist-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent2); flex-shrink: 0;
+}
+
+.llist-name { flex: 1; font-size: 12px; font-weight: 500; color: var(--text); }
+.llist-meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.llist-arrow { font-size: 12px; color: var(--muted); }
+.llist-row:hover .llist-arrow { color: var(--accent); }
+
+
+/* ════════════════════════════════════════════════════════════
+   PROJECT DRAWER  — slide-in panel from logo button
+   ════════════════════════════════════════════════════════════ */
+
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(7, 7, 13, .6);
+  z-index: 390;
+  backdrop-filter: blur(2px);
+}
+
+.proj-drawer {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 300px;
+  background: var(--surf);
+  border-right: 1px solid var(--border);
+  z-index: 400;
+  display: flex; flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform .2s cubic-bezier(.4, 0, .2, 1);
+  overflow: hidden;
+}
+.proj-drawer.open { transform: translateX(0); }
+
+.pd-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pd-title {
+  font-size: 12px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pd-close {
+  background: none; border: none;
+  color: var(--muted); font-size: 13px;
+  cursor: pointer; padding: 2px 4px;
+  border-radius: 3px; transition: color .12s;
+}
+.pd-close:hover { color: var(--text); }
+
+.pd-new-btn {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 12px;
+  padding: 8px 12px;
+  background: var(--surf2); border: 1px dashed var(--border2);
+  border-radius: var(--r);
+  color: var(--muted); font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: .15s;
+}
+.pd-new-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.pd-new-plus {
+  font-size: 16px; line-height: 1;
+  color: var(--border2);
+}
+.pd-new-btn:hover .pd-new-plus { color: var(--accent); }
+
+.pd-divider { height: 1px; background: var(--border); margin: 0 0 6px; }
+
+.pd-tree {
+  flex: 1; overflow-y: auto;
+  padding: 0 0 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+/* Site row */
+.pd-site { }
+
+.pd-site-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 1px 12px 1px 8px;
+}
+.pd-site-row.active .pd-site-name { color: var(--accent); }
+
+.pd-expand {
+  width: 18px; flex-shrink: 0;
+  background: none; border: none;
+  color: var(--muted); font-size: 10px;
+  cursor: pointer; padding: 4px 2px;
+  transition: color .1s;
+}
+.pd-expand:hover { color: var(--text); }
+
+.pd-site-name {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  background: none; border: none;
+  color: var(--text); font-size: 12px; font-weight: 500;
+  cursor: pointer; text-align: left;
+  padding: 5px 4px; border-radius: var(--r);
+  transition: background .1s, color .1s;
+}
+.pd-site-name:hover { background: var(--surf2); color: var(--accent); }
+
+.pd-site-icon { color: var(--accent2); display: flex; }
+
+.pd-badge {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 3px;
+  background: #101e3a; border: 1px solid var(--accent);
+  color: var(--accent); letter-spacing: .04em; flex-shrink: 0;
+}
+
+/* Date sub-rows */
+.pd-dates { padding-left: 30px; }
+
+.pd-date-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px 4px 0;
+  font-size: 11px; color: var(--muted);
+  position: relative;
+}
+
+.pd-date-line {
+  position: absolute; left: -16px; top: 0; bottom: 0;
+  width: 1px; background: var(--border);
+}
+
+.pd-date-icon { font-size: 10px; flex-shrink: 0; }
+.pd-date-label { flex: 1; color: var(--text); font-size: 11px; }
+.pd-date-id { font-family: var(--mono); font-size: 9px; opacity: .5; }
+
+.pd-empty {
+  padding: 20px 16px;
+  font-size: 11px; color: var(--muted);
+  font-style: italic;
+}
+
+/* ── Logo button hover state ── */
+#tb-logo:hover {
+  opacity: .85;
+  box-shadow: 0 0 0 2px var(--accent2);
+}
+
+/* ── Active project name in topbar centre ── */
+#tb-project {
+  display: flex; align-items: center; gap: 8px;
+}
+.tb-project-label {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted);
+  padding: 2px 6px;
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.tb-project-name {
+  font-size: 12px; font-weight: 500;
+  color: var(--text);
+}
+
+
+.mesh-offset-input {
+  width: 92px !important;
+}

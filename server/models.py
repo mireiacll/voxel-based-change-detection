@@ -37,6 +37,9 @@ class Site(Base):
     camera_lat:    Mapped[float] = mapped_column(Float, nullable=False)
     camera_height: Mapped[float] = mapped_column(Float, nullable=False)
 
+    # Default mesh Z offset for this site
+    mesh_z_offset: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -54,6 +57,7 @@ class Site(Base):
             "id":       self.id,
             "label":    self.label,
             "labelEn":  self.label_en,
+            "meshZOffset": self.mesh_z_offset,
             "camera": {
                 "lon":    self.camera_lon,
                 "lat":    self.camera_lat,
@@ -93,7 +97,7 @@ class SurveyDate(Base):
     point_cloud_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Per-date Z offset override — NULL means "use CONFIG.DEFAULTS.MESH_Z_OFFSET"
-    mesh_z_offset: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #mesh_z_offset: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
@@ -108,5 +112,5 @@ class SurveyDate(Base):
             "label":        self.label,
             "mesh":         self.mesh_path,
             "pointCloud":   self.point_cloud_path,
-            "meshZOffset":  self.mesh_z_offset,   # None → frontend uses global default
+            #"meshZOffset":  self.mesh_z_offset,   # None → frontend uses global default
         }

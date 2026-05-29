@@ -5,6 +5,8 @@
  * No local state — single source of truth lives in App.
  */
 
+import { useEffect, useState } from 'react'
+
 function Toggle({ id, checked, onChange }) {
   return (
     <label className="sw">
@@ -30,6 +32,10 @@ export default function Panel({
   showPc,   onShowPc,
   pcSize,   onPcSize,
   showTerrain, onShowTerrain,
+
+  meshZOffset, onMeshZOffset,
+  onSaveMeshZOffset,
+
   // compare selects
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
@@ -47,10 +53,27 @@ export default function Panel({
   diffStatus,
   stats,
   // camera
-  onCameraSite, onCameraTop, onCameraOblique,
+  onCameraSite, onCameraTop, 
 }) {
   const inView    = mode === 'view'
   const inCompare = mode === 'compare'
+
+  const [meshOffsetInput, setMeshOffsetInput] = useState(meshZOffset)
+
+  useEffect(() => {
+    setMeshOffsetInput(meshZOffset)
+  }, [meshZOffset])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const v = parseFloat(meshOffsetInput)
+      if (!Number.isNaN(v)) {
+        onMeshZOffset(v)
+      }
+    }, 400)
+
+    return () => clearTimeout(t)
+  }, [meshOffsetInput, onMeshZOffset])
 
   const netM3 = stats
     ? (stats.added - stats.removed) * stats.voxSize ** 3
@@ -210,6 +233,45 @@ export default function Panel({
           </div>
           <span className="ltag ltag-green">DEM</span>
         </div>
+
+        <div className="p-label" style={{ marginTop: 12 }}>
+          Mesh Height Offset
+        </div>
+
+        <div className="voxel-size-row">
+          <label htmlFor="mesh-z-offset-input">
+            Offset
+          </label>
+
+          <input
+            type="number"
+            id="mesh-z-offset-input"
+            min="-500"
+            max="500"
+            step="0.01"
+            value={meshOffsetInput}
+            className="mesh-offset-input"
+            onChange={e => setMeshOffsetInput(e.target.value)}
+          />
+
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+            }}
+          >
+            m
+          </span>
+        </div>
+
+        <button
+          className="pbtn"
+          style={{ marginTop: 8 }}
+          onClick={onSaveMeshZOffset}
+        >
+          Save to DB
+        </button>
+
       </div>
 
       {/* ── COMPARE: datasets + change detection ── */}
@@ -340,7 +402,6 @@ export default function Panel({
         <div className="btn-row">
           <button className="pbtn" onClick={onCameraSite}>↗ Site</button>
           <button className="pbtn" onClick={onCameraTop}>↓ Top</button>
-          <button className="pbtn" onClick={onCameraOblique}>⤢ Oblique</button>
         </div>
       </div>
 
@@ -350,7 +411,7 @@ export default function Panel({
         <div className="key-hint-row"><kbd>M</kbd> Toggle mesh &nbsp; <kbd>P</kbd> Toggle point cloud</div>
         <div className="key-hint-row"><kbd>A</kbd> Added &nbsp; <kbd>R</kbd> Removed</div>
         <div className="key-hint-row"><kbd>D</kbd> Draw area (compare mode)</div>
-        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top &nbsp; <kbd>3</kbd> Oblique</div>
+        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top </div> 
         <div className="key-hint-row"><kbd>V</kbd> View mode &nbsp; <kbd>C</kbd> Compare mode</div>
       </div>
 

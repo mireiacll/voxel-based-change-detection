@@ -14,17 +14,24 @@ import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
 import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
-import { setDrawCallbacks, togglePolygonDraw } from './cesium/polygonDraw'
+import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
 
-import TopBar     from './components/TopBar'
-import Panel      from './components/Panel'
-import DrawBanner from './components/DrawBanner'
-import StatusBar  from './components/StatusBar'
-import Toasts     from './components/Toasts'
+import TopBar          from './components/TopBar'
+import Panel           from './components/Panel'
+import DrawBanner      from './components/DrawBanner'
+import StatusBar       from './components/StatusBar'
+import Toasts          from './components/Toasts'
+import ProjectLauncher from './components/ProjectLauncher'
+import ProjectDrawer   from './components/ProjectDrawer'
 
 // ═════════════════════════════════════════════════════════════════════════
 
 export default function App() {
+  // ── Project launcher / drawer ─────────────────────────────────────────
+  const [showLauncher,  setShowLauncher]  = useState(true)
+  const [launcherReady, setLauncherReady] = useState(false)
+  const [drawerOpen,    setDrawerOpen]    = useState(false)
+
   // ── Site / date ──────────────────────────────────────────────────────
   const [activeSite, setActiveSite] = useState(null)   // null until loaded
   const [activeDate, setActiveDate] = useState(null)
@@ -121,24 +128,51 @@ export default function App() {
       const data = await res.json()
 
       const loadedSites = data.sites || []
-      setSites(loadedSites)
 
-      if (loadedSites.length === 0) return
+      // Merge server site list with CONFIG metadata (camera, labels, camelCase paths).
+      // The server only knows folder structure; CONFIG has camera coords and labels.
+      const enriched = loadedSites.map(serverSite => {
+        const cfg = CONFIG.SITES.find(s => s.id === serverSite.id) || {}
+        // cfg spreads LAST so its camera/label/dates win over raw server data
+        return {
+          ...serverSite,
+          ...cfg,
+          label:   cfg.label   || serverSite.id,
+          labelEn: cfg.labelEn || serverSite.id,
+          camera:  cfg.camera  || { lon: 127.0, lat: 37.0, height: 1000 },
+          dates: serverSite.dates.map(sd => {
+            const cfgDate = cfg.dates?.find(d => d.id === sd.id) || {}
+            return {
+              id:         sd.id,
+              label:      cfgDate.label     || sd.id,
+              mesh:       cfgDate.mesh       || sd.mesh        || null,
+              pointCloud: cfgDate.pointCloud || sd.point_cloud || null,
+            }
+          }),
+        }
+      })
 
-      const first = loadedSites[0]
-      const firstDate = first?.dates[0] ?? null
+      setSites(enriched)
+      setLauncherReady(true)
+
+      if (enriched.length === 0) return
+
+      const first     = enriched[0]
+      const firstDate = first.dates[0] ?? null
 
       setActiveSite(first)
       setActiveDate(firstDate)
-
       setCompareIdA(firstDate?.id || '')
       setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
-
       window.currentSite = first
 
-      if (first && firstDate) {
-        loadDate(first, firstDate, 'view', { mesh: CONFIG.DEFAULTS.SHOW_MESH, pc: CONFIG.DEFAULTS.SHOW_PC })
-        flyTo(first.camera.lon, first.camera.lat, first.camera.height)
+      // Skip launcher when there is only one site
+      if (enriched.length === 1) {
+        setShowLauncher(false)
+        if (firstDate) {
+          loadDate(first, firstDate, 'view', { mesh: CONFIG.DEFAULTS.SHOW_MESH, pc: CONFIG.DEFAULTS.SHOW_PC })
+          flyTo(first.camera.lon, first.camera.lat, first.camera.height)
+        }
       }
     }
     setup()
@@ -199,20 +233,58 @@ export default function App() {
   //  EVENT HANDLERS
   // ════════════════════════════════════════════════════════════════════
 
-  function handleSiteChange(site) {
-    if (site.id === activeSite.id) return
-    const firstDate = site.dates[0] || null
-    setActiveSite(site)
-    setActiveDate(firstDate)
+  // ── Open a project (from launcher card or drawer row) ────────────────
+  // This is the ONLY way to switch the active project. Clears all layers,
+  // resets diff state, and loads the first date of the selected site.
+  function handleOpenProject(site) {
+    const isSame = site.id === activeSite?.id
+    setShowLauncher(false)
+    setDrawerOpen(false)
+    if (isSame && !showLauncher) return // If launcher is open, STILL need to load the scene
+
+    const firstDate = site.dates[0] || null 
+
+    // ── 1. Cancel any running diff ────────────────────────────────────────
+    if (diffRunning) {
+      cancelVoxelDiff()
+      setDiffRunning(false)
+    }
+
+    // ── 2. Clear Cesium scene ─────────────────────────────────────────────
+    clearLayers()
+    if (window.diffState) {
+      window.diffState.voxels  = []
+      window.diffState.gridDef = null
+    }
+
+    // ── 3. Clear drawn polygon ────────────────────────────────────────────
+    clearPolygon()
+
+    // ── 4. Reset React UI state ───────────────────────────────────────────
     setMode('view')
+    setStats(null)
+    setDiffStatus({ state: '', msg: '' })
+    setDrawInfo('No area selected — diff runs on full extent')
+    setDrawBtnLabel('✏ Draw Area')
     setCompareIdA(site.dates[0]?.id || '')
     setCompareIdB(site.dates[1]?.id || site.dates[0]?.id || '')
+    setActiveSite(site)
+    setActiveDate(firstDate)
     window.currentSite = site
-    clearLayers()
+
+    // ── 5. Load first date + fly ──────────────────────────────────────────
+    // Deferred one tick so the React state flush and clearLayers complete
+    // before we start adding new primitives to the scene.
     if (firstDate) {
-      loadDate(site, firstDate, 'view', { mesh: showMesh, pc: showPc })
-      flyTo(site.camera.lon, site.camera.lat, site.camera.height)
+      setTimeout(() => {
+        loadDate(site, firstDate, 'view', { mesh: showMesh, pc: showPc })
+        flyTo(site.camera.lon, site.camera.lat, site.camera.height)
+      }, 0)
     }
+  }
+
+  function handleNewProject() {
+    alert('New project: add a new site entry to config.js or via the backend.')
   }
 
   function handleDateChange(d) {
@@ -220,6 +292,7 @@ export default function App() {
     if (d.id === activeDate?.id) return
     setActiveDate(d)
     loadDate(activeSite, d, mode, { mesh: showMesh, pc: showPc })
+    flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height)
   }
 
   function handleModeChange(newMode) {
@@ -276,16 +349,32 @@ export default function App() {
 
   return (
     <>
-      {/* Cesium renders into this div — React never touches it after mount */}
       <div id="cesiumContainer" />
+
+      {showLauncher && (
+        <ProjectLauncher
+          sites={sites}
+          loading={!launcherReady}
+          onSelect={handleOpenProject}
+          onNewProject={handleNewProject}
+        />
+      )}
+
+      <ProjectDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        sites={sites}
+        activeSite={activeSite}
+        onSelectSite={handleOpenProject}
+        onNewProject={handleNewProject}
+      />
 
       <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
 
       <TopBar
         activeSite={activeSite}
-        sites={sites}
-        onSiteChange={handleSiteChange}
         coords={coords}
+        onLogoClick={() => setDrawerOpen(v => !v)}
       />
 
     {activeSite && (

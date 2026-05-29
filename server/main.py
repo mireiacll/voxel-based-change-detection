@@ -25,7 +25,7 @@ from voxelizer import build_surface, diff_solid, make_grid_def, solidify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db, engine
+from database import get_db, engine, AsyncSessionLocal
 from models import Base, Site, SurveyDate
 from fastapi import Depends
 
@@ -58,6 +58,9 @@ _executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
 # Plain dict is fine for threads (no cross-process boundary)
 _cancel_flags: dict[str, bool] = {}
 
+
+class MeshOffsetUpdate(BaseModel):
+    mesh_z_offset: float
 
 # ═════════════════════════════════════════════════════════════════════════
 #  MODELS
@@ -184,6 +187,29 @@ async def list_sites(db: AsyncSession = Depends(get_db)):
 class MeshZOffsetUpdate(BaseModel):
     mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
 
+@app.patch("/api/sites/{site_id}/z-offset")
+async def update_site_z_offset(
+    site_id: str,
+    payload: MeshZOffsetUpdate,
+):
+    async with AsyncSessionLocal() as session:
+        site = await session.get(Site, site_id)
+
+        if site is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Site not found"
+            )
+
+        site.mesh_z_offset = payload.mesh_z_offset
+
+        await session.commit()
+
+        return {
+            "ok": True,
+            "siteId": site_id,
+            "meshZOffset": site.mesh_z_offset,
+        }
 
 @app.patch("/api/sites/{site_id}/dates/{date_code}/mesh-z-offset")
 async def update_mesh_z_offset(

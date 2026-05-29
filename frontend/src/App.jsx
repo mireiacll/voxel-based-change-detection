@@ -392,6 +392,53 @@ export default function App() {
     }
   }
 
+  async function handleSaveMeshZOffset() {
+    if (!activeSite) return
+
+    try {
+      const API_BASE =
+        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+
+      const res = await fetch(
+        `${API_BASE}/api/sites/${activeSite.id}/z-offset`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            mesh_z_offset: meshZOffset,
+          }),
+        }
+      )
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+
+      // update active site
+      setActiveSite(prev => ({
+        ...prev,
+        meshZOffset,
+      }))
+
+      // update sites list too
+      setSites(prev =>
+        prev.map(s =>
+          s.id === activeSite.id
+            ? { ...s, meshZOffset }
+            : s
+        )
+      )
+
+      addToast('Mesh Z offset saved', 'ok')
+
+    } catch (err) {
+      console.error(err)
+      addToast('Failed to save mesh Z offset', 'warn')
+    }
+  }
+
   function handleCameraSite() {
     flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40)
   }

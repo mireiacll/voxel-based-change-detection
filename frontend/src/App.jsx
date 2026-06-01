@@ -130,38 +130,13 @@ export default function App() {
       const data = await res.json()
 
       const loadedSites = data.sites || []
-
-      // Merge server site list with CONFIG metadata (camera, labels, camelCase paths).
-      // The server only knows folder structure; CONFIG has camera coords and labels.
-      const enriched = loadedSites.map(serverSite => {
-        const cfg = CONFIG.SITES.find(s => s.id === serverSite.id) || {}
-        // cfg spreads LAST so its camera/label/dates win over raw server data
-        return {
-          ...serverSite,
-          ...cfg,
-          label:   cfg.label   || serverSite.id,
-          labelEn: cfg.labelEn || serverSite.id,
-          camera:  cfg.camera  || { lon: 127.0, lat: 37.0, height: 1000 },
-          meshZOffset: serverSite.meshZOffset,
-          dates: serverSite.dates.map(sd => {
-            const cfgDate = cfg.dates?.find(d => d.id === sd.id) || {}
-            return {
-              id:         sd.id,
-              label:      cfgDate.label     || sd.id,
-              mesh:       cfgDate.mesh       || sd.mesh        || null,
-              pointCloud: cfgDate.pointCloud || sd.point_cloud || null,
-              meshZOffset: serverSite.meshZOffset,
-            }
-          }),
-        }
-      })
-
-      setSites(enriched)
+      
+      setSites(loadedSites)
       setLauncherReady(true)
 
-      if (enriched.length === 0) return
+      if (loadedSites.length === 0) return
 
-      const first     = enriched[0]
+      const first     = loadedSites[0]
       const firstDate = first.dates[0] ?? null
 
       setActiveSite(first)
@@ -172,7 +147,7 @@ export default function App() {
       window.currentSite = first
 
       // Skip launcher when there is only one site
-      if (enriched.length === 1) {
+      if (loadedSites.length === 1) {
         setShowLauncher(false)
         if (firstDate) {
           loadDate(first, firstDate, 'view', { mesh: CONFIG.DEFAULTS.SHOW_MESH, pc: CONFIG.DEFAULTS.SHOW_PC })
@@ -289,7 +264,7 @@ export default function App() {
     if (firstDate) {
       setTimeout(() => {
         loadDate(site, firstDate, 'view', { mesh: showMesh, pc: showPc })
-        flyTo(site.camera.lon, site.camera.lat, site.camera.height)
+        flyTo(site.camera.lon, site.camera.lat-0.006, site.camera.height)
       }, 0)
     }
   }
@@ -303,7 +278,6 @@ export default function App() {
     if (d.id === activeDate?.id) return
     setActiveDate(d)
     loadDate(activeSite, d, mode, { mesh: showMesh, pc: showPc })
-    flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height)
   }
 
   function handleModeChange(newMode) {

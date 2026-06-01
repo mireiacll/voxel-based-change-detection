@@ -713,14 +713,19 @@ kbd {
 }
 .pd-site-row.active .pd-site-name { color: var(--accent); }
 
+.pd-site-row:hover .pd-expand {
+  color: var(--accent2);
+}
+
 .pd-expand {
   width: 18px; flex-shrink: 0;
   background: none; border: none;
-  color: var(--muted); font-size: 10px;
+  color: #b8b8d8;       /* much brighter */
+  font-size: 12px;      /* slightly bigger */
   cursor: pointer; padding: 4px 2px;
   transition: color .1s;
 }
-.pd-expand:hover { color: var(--text); }
+.pd-expand:hover { color: var(--accent); }
 
 .pd-site-name {
   flex: 1; display: flex; align-items: center; gap: 6px;
@@ -758,7 +763,7 @@ kbd {
 
 .pd-date-icon { font-size: 10px; flex-shrink: 0; }
 .pd-date-label { flex: 1; color: var(--text); font-size: 11px; }
-.pd-date-id { font-family: var(--mono); font-size: 9px; opacity: .5; }
+.pd-date-id { font-family: var(--mono); font-size: 9px; opacity: .5; color: #8d8db0; opacity: 1; min-width: 52px; text-align: right;}
 
 .pd-empty {
   padding: 20px 16px;
@@ -792,4 +797,189 @@ kbd {
 
 .mesh-offset-input {
   width: 92px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MODAL SYSTEM
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.modal-box {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 440px; max-width: 96vw;
+  display: flex; flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0,0,0,.6);
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.modal-box-sm {
+  width: 360px;
+}
+
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+
+.modal-close {
+  background: none; border: none; color: var(--muted);
+  font-size: 13px; cursor: pointer; padding: 2px 4px;
+  border-radius: 4px; line-height: 1;
+}
+.modal-close:hover { color: var(--text); background: var(--surf2); }
+
+.modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-section-label {
+  font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.modal-field {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-bottom: 10px;
+}
+
+.modal-field label {
+  font-size: 11px; color: var(--muted);
+}
+
+.modal-field input {
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); font-size: 12px;
+  padding: 6px 8px; outline: none; width: 100%; box-sizing: border-box;
+}
+.modal-field input:focus {
+  border-color: var(--accent2);
+}
+
+.modal-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+
+.modal-hint {
+  font-size: 10px; color: var(--muted); opacity: .8;
+}
+
+.modal-error {
+  background: rgba(255,60,60,.15); border: 1px solid rgba(255,60,60,.4);
+  border-radius: 4px; padding: 7px 10px;
+  font-size: 11px; color: #ff8080;
+  margin-top: 8px;
+}
+
+.modal-progress {
+  background: rgba(77,159,255,.15); border: 1px solid rgba(77,159,255,.4);
+  border-radius: 4px; padding: 7px 10px;
+  font-size: 11px; color: var(--accent2);
+  margin-top: 8px;
+}
+
+.modal-site-tag {
+  font-size: 11px; color: var(--muted);
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 8px;
+  margin-bottom: 12px;
+}
+
+.modal-current-path {
+  font-size: 10px; color: var(--muted);
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px;
+  margin-bottom: 4px;
+}
+.modal-current-path code {
+  font-family: var(--mono); color: var(--accent2); word-break: break-all;
+}
+
+.modal-file-row {
+  display: flex; gap: 6px; align-items: center;
+}
+
+.modal-btn-primary {
+  background: var(--accent2); border: none; color: #000;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  padding: 7px 16px; border-radius: 5px; transition: opacity .15s;
+}
+.modal-btn-primary:hover:not(:disabled) { opacity: .85; }
+.modal-btn-primary:disabled { opacity: .45; cursor: default; }
+
+.modal-btn-secondary {
+  background: var(--surf2); border: 1px solid var(--border);
+  color: var(--text); font-size: 12px; cursor: pointer;
+  padding: 7px 14px; border-radius: 5px; transition: background .15s;
+}
+.modal-btn-secondary:hover:not(:disabled) { background: var(--border); }
+.modal-btn-secondary:disabled { opacity: .45; cursor: default; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DRAWER — upload buttons + add date row
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.pd-upload-btns {
+  display: flex; gap: 3px; margin-left: auto; flex-shrink: 0;
+}
+
+.pd-upload-btn {
+  background: var(--surf2); border: 1px solid var(--border);
+  color: var(--muted); font-size: 9px; cursor: pointer;
+  padding: 2px 5px; border-radius: 3px; line-height: 1.4;
+  transition: background .12s, color .12s;
+}
+.pd-upload-btn:hover {
+  background: var(--border); color: var(--text);
+}
+.pd-upload-btn.has-data {
+  border-color: var(--accent2); color: var(--accent2);
+}
+.pd-upload-btn.has-data:hover {
+  background: rgba(77,159,255,.15);
+}
+
+.pd-adddate-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 0 4px 0;
+  position: relative;
+}
+
+.pd-date-line-last {
+  /* extends the vertical tree line up to the add-date row */
+  top: 0; bottom: 50%;
+}
+
+.pd-adddate-btn {
+  background: none; border: 1px dashed var(--border);
+  color: var(--muted); font-size: 10px; cursor: pointer;
+  padding: 3px 8px; border-radius: 4px;
+  display: flex; align-items: center; gap: 4px;
+  transition: color .12s, border-color .12s;
+}
+.pd-adddate-btn:hover {
+  color: var(--accent2); border-color: var(--accent2);
 }

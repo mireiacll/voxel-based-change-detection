@@ -1,16 +1,16 @@
 /**
- * ProjectLauncher.jsx
+ * ProjectLauncher.jsx  — unchanged from original.
  *
- * Fullscreen overlay shown when the app starts (or when no project is open).
- * Shows the most recent 3 sites as large hero cards, then the rest in a
- * compact list below. "New project" card is always last.
+ * The "New project" card already calls the onNewProject prop,
+ * which App.jsx now wires to open NewProjectModal.
+ * No changes needed here.
  *
  * Props
  * -----
  *   sites        — array from /api/sites
  *   onSelect     — (site) => void
  *   onNewProject — () => void
- *   loading      — bool  (show skeleton while fetching)
+ *   loading      — bool
  */
 
 export default function ProjectLauncher({ sites, onSelect, onNewProject, loading }) {
@@ -21,7 +21,6 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, loading
     <div className="launcher-overlay">
       <div className="launcher-inner">
 
-        {/* ── Header ── */}
         <div className="launcher-header">
           <div className="launcher-logo">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -70,8 +69,6 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, loading
   )
 }
 
-// ── Hero card ──────────────────────────────────────────────────────────────
-
 function SiteCard({ site, onSelect }) {
   const dateCount = site.dates?.length ?? 0
   const latest    = site.dates?.[dateCount - 1]
@@ -80,7 +77,6 @@ function SiteCard({ site, onSelect }) {
     <button className="lcard" onClick={() => onSelect(site)}>
       {/* Decorative grid pattern */}
       <div className="lcard-bg" aria-hidden />
-
       <div className="lcard-body">
         <div className="lcard-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -98,14 +94,12 @@ function SiteCard({ site, onSelect }) {
           )}
         </div>
       </div>
-
       <div className="lcard-arrow">→</div>
     </button>
   )
 }
 
 // ── New project card ───────────────────────────────────────────────────────
-
 function NewProjectCard({ onNewProject }) {
   return (
     <button className="lcard lcard-new" onClick={onNewProject}>
@@ -121,7 +115,6 @@ function NewProjectCard({ onNewProject }) {
 }
 
 // ── Compact list row (for sites beyond the first 3) ────────────────────────
-
 function SiteListRow({ site, onSelect }) {
   const dateCount = site.dates?.length ?? 0
   return (

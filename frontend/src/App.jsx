@@ -23,6 +23,11 @@ import StatusBar       from './components/StatusBar'
 import Toasts          from './components/Toasts'
 import ProjectLauncher from './components/ProjectLauncher'
 import ProjectDrawer   from './components/ProjectDrawer'
+import NewProjectModal from './components/NewProjectModal'
+import AddDateModal    from './components/AddDateModal'
+import UploadModal     from './components/UploadModal'
+
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -32,8 +37,13 @@ export default function App() {
   const [launcherReady, setLauncherReady] = useState(false)
   const [drawerOpen,    setDrawerOpen]    = useState(false)
 
+  // ── Modal state ───────────────────────────────────────────────────────
+  const [showNewProject, setShowNewProject] = useState(false)
+  const [addDateSite,    setAddDateSite]    = useState(null)   // site to add a date to
+  const [uploadState,    setUploadState]    = useState(null)   // { site, date, type }
+
   // ── Site / date ──────────────────────────────────────────────────────
-  const [activeSite, setActiveSite] = useState(null)   // null until loaded
+  const [activeSite, setActiveSite] = useState(null)
   const [activeDate, setActiveDate] = useState(null)
   const [sites,      setSites]      = useState([])
   const [mode,       setMode]       = useState('view')
@@ -87,7 +97,7 @@ export default function App() {
 
   const viewerReady = useRef(false)
 
-  // ── Build checkbox state object (passed into imperative layer) ────────
+  // ── Build checkbox state object ───────────────────────────────────────
   const checkboxState = useCallback(() => ({
     mesh:    showMesh,
     pc:      showPc,
@@ -103,6 +113,18 @@ export default function App() {
     const id = Date.now() + Math.random()
     setToasts(prev => [...prev, { id, msg, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
+  }, [])
+
+  // ── Fetch sites from backend ─────────────────────────────────────────
+  const refreshSites = useCallback(async () => {
+    try {
+      const res  = await fetch(`${API_BASE}/api/sites`)
+      const data = await res.json()
+      return data.sites || []
+    } catch (e) {
+      console.error('[refreshSites]', e)
+      return []
+    }
   }, [])
 
   useEffect(() => {
@@ -122,15 +144,7 @@ export default function App() {
         onCoords: setCoords,
       })
 
-      // ── Fetch sites from backend ─────────────────────────────
-      const API_BASE =
-        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
-
-      const res = await fetch(`${API_BASE}/api/sites`)
-      const data = await res.json()
-
-      const loadedSites = data.sites || []
-      
+      const loadedSites = await refreshSites()
       setSites(loadedSites)
       setLauncherReady(true)
 
@@ -156,7 +170,7 @@ export default function App() {
       }
     }
     setup()
-  }, [addToast])
+  }, [addToast, refreshSites])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   useEffect(() => {
@@ -177,7 +191,7 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, activeSite])
 
-  // ── Sync Cesium visibility when relevant state changes ────────────────
+  // ── Sync Cesium visibility ────────────────────────────────────────────
   useEffect(() => {
     if (!viewerReady.current) return
     syncVisibility(mode, {
@@ -189,44 +203,27 @@ export default function App() {
     })
   }, [mode, showMesh, showPc, showDateA, showDateB, showTerrain])
 
-  // ── Diff filter ───────────────────────────────────────────────────────
-  useEffect(() => {
-    reapplyDiffFilter(showAdded, showRemoved)
-  }, [showAdded, showRemoved])
-
-  // ── Tint A ────────────────────────────────────────────────────────────
+  useEffect(() => { reapplyDiffFilter(showAdded, showRemoved) }, [showAdded, showRemoved])
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
 
   // ── Tint B ────────────────────────────────────────────────────────────
   useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
-
-  // ── Point cloud size ──────────────────────────────────────────────────
-  useEffect(() => {
-    applyPcStyle(pcSize)
-  }, [pcSize])
-
-  useEffect(() => {
-    applyMeshZOffset(meshZOffset)
-  }, [meshZOffset])
-
-  useEffect(() => {
-    setTerrainVisible(showTerrain)
-  }, [showTerrain])
+  useEffect(() => { applyPcStyle(pcSize) }, [pcSize])
+  useEffect(() => { applyMeshZOffset(meshZOffset) }, [meshZOffset])
+  useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
 
   // ════════════════════════════════════════════════════════════════════
   //  EVENT HANDLERS
   // ════════════════════════════════════════════════════════════════════
 
   // ── Open a project (from launcher card or drawer row) ────────────────
-  // This is the ONLY way to switch the active project. Clears all layers,
-  // resets diff state, and loads the first date of the selected site.
   function handleOpenProject(site) {
     const isSame = site.id === activeSite?.id
     setShowLauncher(false)
     setDrawerOpen(false)
-    if (isSame && !showLauncher) return // If launcher is open, STILL need to load the scene
+    if (isSame && !showLauncher) return
 
-    const firstDate = site.dates[0] || null 
+    const firstDate = site.dates[0] || null
 
     // ── 1. Cancel any running diff ────────────────────────────────────────
     if (diffRunning) {
@@ -264,13 +261,67 @@ export default function App() {
     if (firstDate) {
       setTimeout(() => {
         loadDate(site, firstDate, 'view', { mesh: showMesh, pc: showPc })
-        flyTo(site.camera.lon, site.camera.lat-0.006, site.camera.height)
+        flyTo(site.camera.lon, site.camera.lat - 0.006, site.camera.height)
       }, 0)
     }
   }
 
+  // ── New project modal ────────────────────────────────────────────────
   function handleNewProject() {
-    alert('New project: add a new site entry to config.js or via the backend.')
+    setDrawerOpen(false)
+    setShowNewProject(true)
+  }
+
+  async function handleProjectCreated(newSite) {
+    setShowNewProject(false)
+    const updated = await refreshSites()
+    setSites(updated)
+    addToast(`Project "${newSite.label}" created`, 'ok')
+    // Auto-open new project
+    const full = updated.find(s => s.id === newSite.id)
+    if (full) handleOpenProject(full)
+  }
+
+  // ── Add date modal ───────────────────────────────────────────────────
+  function handleAddDate(site) {
+    setAddDateSite(site)
+  }
+
+  async function handleDateCreated(newDate) {
+    const site = addDateSite
+    setAddDateSite(null)
+    const updated = await refreshSites()
+    setSites(updated)
+
+    // If the site is currently active, update activeSite too
+    if (activeSite && activeSite.id === site.id) {
+      const updatedSite = updated.find(s => s.id === site.id)
+      if (updatedSite) setActiveSite(updatedSite)
+    }
+    addToast(`Date "${newDate.label}" added to ${site.label ?? site.id}`, 'ok')
+  }
+
+  // ── Upload modal ─────────────────────────────────────────────────────
+  function handleUpload(site, date, type) {
+    setUploadState({ site, date, type })
+  }
+
+  async function handleUploaded() {
+    const { site, type } = uploadState
+    setUploadState(null)
+    const updated = await refreshSites()
+    setSites(updated)
+
+    // Update activeSite if it's the one we just uploaded to
+    if (activeSite && activeSite.id === site.id) {
+      const updatedSite = updated.find(s => s.id === site.id)
+      if (updatedSite) {
+        setActiveSite(updatedSite)
+        window.currentSite = updatedSite
+      }
+    }
+    const label = type === 'mesh' ? 'Mesh' : 'Point cloud'
+    addToast(`${label} uploaded successfully`, 'ok')
   }
 
   function handleDateChange(d) {
@@ -323,90 +374,20 @@ export default function App() {
 
   async function handleSaveMeshZOffset() {
     if (!activeSite) return
-
     try {
-      const API_BASE =
-        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
-
       const res = await fetch(
         `${API_BASE}/api/sites/${activeSite.id}/z-offset`,
         {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            mesh_z_offset: meshZOffset,
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mesh_z_offset: meshZOffset }),
         }
       )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-
-      // keep local site object in sync
-      setActiveSite(prev => ({
-        ...prev,
-        meshZOffset,
-      }))
-
-      setSites(prev =>
-        prev.map(s =>
-          s.id === activeSite.id
-            ? { ...s, meshZOffset }
-            : s
-        )
-      )
-
+      setActiveSite(prev => ({ ...prev, meshZOffset }))
+      setSites(prev => prev.map(s => s.id === activeSite.id ? { ...s, meshZOffset } : s))
       addToast('Mesh Z offset saved', 'ok')
-    } catch (err) {
-      console.error(err)
-      addToast('Failed to save mesh Z offset', 'warn')
-    }
-  }
-
-  async function handleSaveMeshZOffset() {
-    if (!activeSite) return
-
-    try {
-      const API_BASE =
-        import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
-
-      const res = await fetch(
-        `${API_BASE}/api/sites/${activeSite.id}/z-offset`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            mesh_z_offset: meshZOffset,
-          }),
-        }
-      )
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-
-      // update active site
-      setActiveSite(prev => ({
-        ...prev,
-        meshZOffset,
-      }))
-
-      // update sites list too
-      setSites(prev =>
-        prev.map(s =>
-          s.id === activeSite.id
-            ? { ...s, meshZOffset }
-            : s
-        )
-      )
-
-      addToast('Mesh Z offset saved', 'ok')
-
     } catch (err) {
       console.error(err)
       addToast('Failed to save mesh Z offset', 'warn')
@@ -444,6 +425,31 @@ export default function App() {
         activeSite={activeSite}
         onSelectSite={handleOpenProject}
         onNewProject={handleNewProject}
+        onAddDate={handleAddDate}
+        onUpload={handleUpload}
+      />
+
+      {/* ── Modals ── */}
+      <NewProjectModal
+        open={showNewProject}
+        onClose={() => setShowNewProject(false)}
+        onCreated={handleProjectCreated}
+      />
+
+      <AddDateModal
+        open={!!addDateSite}
+        site={addDateSite}
+        onClose={() => setAddDateSite(null)}
+        onCreated={handleDateCreated}
+      />
+
+      <UploadModal
+        open={!!uploadState}
+        site={uploadState?.site}
+        date={uploadState?.date}
+        type={uploadState?.type}
+        onClose={() => setUploadState(null)}
+        onUploaded={handleUploaded}
       />
 
       <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
@@ -501,7 +507,6 @@ export default function App() {
     )}
 
       <StatusBar msg={statusMsg} done={statusDone} />
-
       <Toasts items={toasts} />
     </>
   )

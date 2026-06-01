@@ -2,8 +2,8 @@
  * ProjectDrawer.jsx
  *
  * Slide-in panel triggered by clicking the logo in the top-left.
- * Shows a simplified file explorer: sites → dates, with expand/collapse.
- * "Open" switches to that site. "New project" stub fires a callback.
+ * Shows a file explorer: sites → dates, with expand/collapse.
+ * Includes "+ Add Date" per site and upload buttons per date.
  *
  * Props
  * -----
@@ -13,12 +13,15 @@
  *   activeSite     — current site object
  *   onSelectSite   — (site) => void
  *   onNewProject   — () => void
+ *   onAddDate      — (site) => void
+ *   onUpload       — (site, date, type) => void   type: 'mesh' | 'pointcloud'
  */
 
 import { useState } from 'react'
 
 export default function ProjectDrawer({
   open, onClose, sites, activeSite, onSelectSite, onNewProject,
+  onAddDate, onUpload,
 }) {
   const [expanded, setExpanded] = useState({})
 
@@ -33,10 +36,7 @@ export default function ProjectDrawer({
 
   return (
     <>
-      {/* Backdrop */}
-      {open && (
-        <div className="drawer-backdrop" onClick={onClose} />
-      )}
+      {open && <div className="drawer-backdrop" onClick={onClose} />}
 
       {/* Drawer panel */}
       <div className={`proj-drawer${open ? ' open' : ''}`}>
@@ -52,6 +52,7 @@ export default function ProjectDrawer({
           New project
         </button>
 
+        {/* Divider */}
         <div className="pd-divider" />
 
         {/* Site tree */}
@@ -71,9 +72,7 @@ export default function ProjectDrawer({
                     onClick={() => toggle(site.id)}
                     title={isOpen ? 'Collapse' : 'Expand'}
                   >
-                    {dateCount > 0
-                      ? (isOpen ? '▾' : '▸')
-                      : '·'}
+                    {isOpen ? '▾' : '▸'}
                   </button>
 
                   <button
@@ -96,7 +95,7 @@ export default function ProjectDrawer({
                 </div>
 
                 {/* Dates sub-tree */}
-                {isOpen && dateCount > 0 && (
+                {isOpen && (
                   <div className="pd-dates">
                     {site.dates.map(d => (
                       <div key={d.id} className="pd-date-row">
@@ -104,8 +103,38 @@ export default function ProjectDrawer({
                         <span className="pd-date-icon">📅</span>
                         <span className="pd-date-label">{d.label ?? d.id}</span>
                         <span className="pd-date-id">{d.id}</span>
+
+                        {/* Upload buttons */}
+                        <div className="pd-upload-btns">
+                          <button
+                            className={`pd-upload-btn${d.mesh ? ' has-data' : ''}`}
+                            title={d.mesh ? 'Replace mesh tileset' : 'Upload mesh tileset'}
+                            onClick={() => onUpload && onUpload(site, d, 'mesh')}
+                          >
+                            {d.mesh ? '🔁M' : '↑M'}
+                          </button>
+                          <button
+                            className={`pd-upload-btn${d.pointCloud ? ' has-data' : ''}`}
+                            title={d.pointCloud ? 'Replace point cloud tileset' : 'Upload point cloud tileset'}
+                            onClick={() => onUpload && onUpload(site, d, 'pointcloud')}
+                          >
+                            {d.pointCloud ? '🔁P' : '↑P'}
+                          </button>
+                        </div>
                       </div>
                     ))}
+
+                    {/* Add Date button */}
+                    <div className="pd-adddate-row">
+                      <span className="pd-date-line pd-date-line-last" />
+                      <button
+                        className="pd-adddate-btn"
+                        onClick={() => onAddDate && onAddDate(site)}
+                        title="Add a new survey date"
+                      >
+                        <span>+</span> Add Date
+                      </button>
+                    </div>
                   </div>
                 )}
 

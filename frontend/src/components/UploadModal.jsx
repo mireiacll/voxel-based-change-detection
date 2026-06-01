@@ -13,7 +13,7 @@
  *   onUploaded — () => void   called after successful upload (triggers refresh)
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -26,6 +26,19 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
 
   const [dragOver, setDragOver] = useState(false)
 
+  useEffect(() => {
+    if (!open) {
+        setFiles([])
+        setError('')
+        setProgress('')
+        setDragOver(false)
+
+        if (inputRef.current) {
+        inputRef.current.value = ''
+        }
+    }
+  }, [open])
+
   if (!open || !site || !date) return null
 
   const isRemesh = type === 'mesh'
@@ -35,6 +48,18 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
     : `${API_BASE}/api/sites/${site.id}/dates/${date.id}/upload/pointcloud`
 
   const currentPath = isRemesh ? date.mesh : date.pointCloud
+
+  const folderName =
+    files[0]?.webkitRelativePath?.split('/')[0] ||
+    files[0]?.relativePath?.split('/')[0] ||
+    files[0]?.name
+
+  const hasTileset = files.some(
+    f =>
+      f.name.toLowerCase() === 'tileset.json' ||
+      f.webkitRelativePath?.toLowerCase().includes('tileset.json') ||
+      f.relativePath?.toLowerCase().includes('tileset.json')
+  )
 
   function handleFileChange(e) {
     const selected = [...e.target.files]
@@ -52,8 +77,6 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
     setError('')
 
     try {
-    //   const formData = new FormData()
-    //   formData.append('file', file)
     const formData = new FormData()
 
     files.forEach(f => {
@@ -128,19 +151,31 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
         const reader = entry.createReader()
 
         return new Promise(resolve => {
-        reader.readEntries(async entries => {
-            let files = []
+            const allEntries = []
 
-            for (const child of entries) {
-            const childFiles = await readEntry(
-                child,
-                path + entry.name + '/'
-            )
-            files.push(...childFiles)
+            const readBatch = () => {
+                reader.readEntries(async entries => {
+                    if (entries.length === 0) {
+                        let files = []
+
+                        for (const child of allEntries) {
+                            const childFiles = await readEntry(
+                                child,
+                                path + entry.name + '/'
+                            )
+                            files.push(...childFiles)
+                        }
+
+                        resolve(files)
+                        return
+                    }
+
+                    allEntries.push(...entries)
+                    readBatch()
+                })
             }
 
-            resolve(files)
-        })
+            readBatch()
         })
     }
 
@@ -190,7 +225,10 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
               {typeLabel} zip file <span className="modal-hint">(.zip containing tileset.json)</span>
             </label>
             <div
-                className={`upload-dropzone ${dragOver ? 'dragging' : ''}`}
+                className={`upload-dropzone
+                    ${dragOver ? 'dragging' : ''}
+                    ${files.length ? 'has-files' : ''}
+                `}
                 onClick={() => inputRef.current?.click()}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -205,17 +243,26 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
                     disabled={loading}
                 />
 
-                <div>
-                    Drag a ZIP or folder here
-                    <br />
-                    or click to browse
-                </div>
+                {files.length === 0 ? (
+                    <div>
+                        Drag a ZIP or folder here
+                        <br />
+                        or click to browse
+                    </div>
+                ) : (
+                    <div className="upload-selected">
+                        <div className="upload-icon">📁</div>
+                        <div>
+                        <strong>{folderName}</strong>
+                        <br />
+                        {files.length} files
+                        </div>
+                        <div className="upload-replace">
+                        Drop another folder to replace
+                        </div>
+                    </div>
+                )}
             </div>
-            {files.length > 0 && (
-              <div className="modal-hint" style={{ marginTop: 4 }}>
-                Selected: {files.length} files
-              </div>
-            )}
           </div>
 
           <div className="modal-hint" style={{ marginTop: 8, lineHeight: '1.5' }}>

@@ -18,11 +18,13 @@ import { useState, useRef } from 'react'
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 export default function UploadModal({ open, site, date, type, onClose, onUploaded }) {
-  const [file,     setFile]     = useState(null)
+  const [files,     setFiles]     = useState([])
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
   const [progress, setProgress] = useState('')
   const inputRef = useRef(null)
+
+  const [dragOver, setDragOver] = useState(false)
 
   if (!open || !site || !date) return null
 
@@ -35,26 +37,32 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
   const currentPath = isRemesh ? date.mesh : date.pointCloud
 
   function handleFileChange(e) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    if (!f.name.toLowerCase().endsWith('.zip')) {
-      setError('Please select a .zip file.')
-      setFile(null)
-      return
-    }
-    setFile(f)
+    const selected = [...e.target.files]
+
+    if (!selected.length) return
+
+    setFiles(selected)
     setError('')
   }
 
   async function handleUpload() {
-    if (!file) return setError('Please choose a .zip file first.')
+    if (!files.length) return setError('Please choose a .zip file first.')
     setLoading(true)
     setProgress('Uploading…')
     setError('')
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+    //   const formData = new FormData()
+    //   formData.append('file', file)
+    const formData = new FormData()
+
+    files.forEach(f => {
+      formData.append(
+        'files',
+        f,
+        f.webkitRelativePath || f.relativePath || f.name
+      )
+    })
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -66,7 +74,7 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
         return
       }
       setProgress('Done!')
-      setFile(null)
+      setFiles([])
       if (inputRef.current) inputRef.current.value = ''
       setTimeout(() => {
         setProgress('')
@@ -81,6 +89,77 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
 
   function handleBackdropClick(e) {
     if (e.target === e.currentTarget && !loading) onClose()
+  }
+
+  async function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+
+    const items = [...e.dataTransfer.items]
+
+    const droppedFiles = await getDroppedFiles(items)
+
+    if (!droppedFiles.length) return
+
+    setFiles(droppedFiles)
+    setError('')
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  function handleDragLeave() {
+    setDragOver(false)
+  }
+
+  async function readEntry(entry, path = '') {
+    if (entry.isFile) {
+        return new Promise(resolve => {
+        entry.file(file => {
+            file.relativePath = path + file.name
+            resolve([file])
+        })
+        })
+    }
+
+    if (entry.isDirectory) {
+        const reader = entry.createReader()
+
+        return new Promise(resolve => {
+        reader.readEntries(async entries => {
+            let files = []
+
+            for (const child of entries) {
+            const childFiles = await readEntry(
+                child,
+                path + entry.name + '/'
+            )
+            files.push(...childFiles)
+            }
+
+            resolve(files)
+        })
+        })
+    }
+
+    return []
+  }
+
+  async function getDroppedFiles(items) {
+    let files = []
+
+    for (const item of items) {
+        const entry = item.webkitGetAsEntry?.()
+
+        if (entry) {
+        const entryFiles = await readEntry(entry)
+        files.push(...entryFiles)
+        }
+    }
+
+    return files
   }
 
   return (
@@ -110,19 +189,31 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
             <label>
               {typeLabel} zip file <span className="modal-hint">(.zip containing tileset.json)</span>
             </label>
-            <div className="modal-file-row">
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".zip"
-                onChange={handleFileChange}
-                disabled={loading}
-                style={{ flex: 1, minWidth: 0 }}
-              />
+            <div
+                className={`upload-dropzone ${dragOver ? 'dragging' : ''}`}
+                onClick={() => inputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+            >
+                <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    webkitdirectory=""
+                    onChange={handleFileChange}
+                    disabled={loading}
+                />
+
+                <div>
+                    Drag a ZIP or folder here
+                    <br />
+                    or click to browse
+                </div>
             </div>
-            {file && (
+            {files.length > 0 && (
               <div className="modal-hint" style={{ marginTop: 4 }}>
-                Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)
+                Selected: {files.length} files
               </div>
             )}
           </div>
@@ -144,7 +235,7 @@ export default function UploadModal({ open, site, date, type, onClose, onUploade
           <button
             className="modal-btn-primary"
             onClick={handleUpload}
-            disabled={loading || !file}
+            disabled={loading || files.length === 0}
           >
             {loading ? 'Uploading…' : `Upload ${typeLabel}`}
           </button>

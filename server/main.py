@@ -133,10 +133,125 @@ def _validate_zip_structure(extract_dir: Path) -> Path:
     matches = list(extract_dir.rglob("tileset.json"))
     if not matches:
         raise ValueError("No tileset.json found in the uploaded zip file.")
-
-    # Prefer the shallowest one
     matches.sort(key=lambda p: len(p.parts))
     return matches[0].parent
+
+
+async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
+    """
+    Accept either:
+      A) A single .zip file  — extract it, find tileset.json
+      B) Multiple raw files  — the folder contents dropped by the user
+         (browser sends webkitRelativePath so filenames may contain
+          subdirectory segments like "tiles/abc.glb")
+
+    In both cases:
+      - Clears dest_dir of any previous content
+      - Writes all files into dest_dir preserving relative sub-paths
+      - Returns the relative path (from public/) to tileset.json
+    Raises ValueError if no tileset.json is found.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    is_zip = (
+        len(files) == 1
+        and files[0].filename.lower().endswith(".zip")
+    )
+
+    if is_zip:
+        # ── ZIP path ───────────────────────────────────────────────────────
+        tmp_zip = dest_dir / "_upload_tmp.zip"
+        tmp_extract = dest_dir / "_extract_tmp"
+        try:
+            tmp_zip.write_bytes(await files[0].read())
+
+            if tmp_extract.exists():
+                shutil.rmtree(tmp_extract)
+            tmp_extract.mkdir()
+
+            with zipfile.ZipFile(tmp_zip, "r") as zf:
+                zf.extractall(tmp_extract)
+
+            # Validate structure before touching dest_dir
+            _validate_zip_structure(tmp_extract)
+
+            # Clear old content
+            for item in dest_dir.iterdir():
+                if item.name not in ("_extract_tmp", "_upload_tmp.zip"):
+                    shutil.rmtree(item) if item.is_dir() else item.unlink()
+
+            # Move extracted content into dest_dir
+            for item in tmp_extract.iterdir():
+                shutil.move(str(item), str(dest_dir / item.name))
+
+        finally:
+            if tmp_zip.exists():
+                tmp_zip.unlink()
+            if tmp_extract.exists():
+                shutil.rmtree(tmp_extract)
+
+    else:
+        # ── Raw folder path ────────────────────────────────────────────────
+        # Browser sends files with webkitRelativePath as the filename,
+        # e.g. "tiles/abc12345.glb" or "tileset.json"
+        # We write them preserving those relative paths inside dest_dir.
+
+        # Stage into a temp dir first so we can validate before overwriting
+        tmp_stage = dest_dir / "_stage_tmp"
+        if tmp_stage.exists():
+            shutil.rmtree(tmp_stage)
+        tmp_stage.mkdir()
+
+        try:
+            for uf in files:
+                # filename may contain path separators from webkitRelativePath
+                # Normalise separators and strip any leading slashes
+                rel = uf.filename.replace("\\", "/").lstrip("/")
+
+                # Drop a leading folder name if the user dropped a folder
+                # e.g. "tiles_folder/tileset.json" → keep as-is,
+                # but "tiles_folder/tiles/abc.glb" we keep the sub-path
+                # from the first slash onward only when ALL files share
+                # the same root prefix (folder drop).
+                out_path = tmp_stage / rel
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(await uf.read())
+
+            # Validate the staged content
+            matches = sorted(tmp_stage.rglob("tileset.json"), key=lambda p: len(p.parts))
+            if not matches:
+                raise ValueError(
+                    "No tileset.json found in the uploaded files. "
+                    "Make sure you drop the folder containing tileset.json."
+                )
+
+            # If all files are nested under a single sub-folder, unwrap it
+            # e.g. user dropped "tiles/" folder → files arrive as "tiles/tileset.json"
+            top_level = list(tmp_stage.iterdir())
+            if len(top_level) == 1 and top_level[0].is_dir():
+                unwrap_src = top_level[0]
+            else:
+                unwrap_src = tmp_stage
+
+            # Clear old content in dest_dir
+            for item in dest_dir.iterdir():
+                if item.name != "_stage_tmp":
+                    shutil.rmtree(item) if item.is_dir() else item.unlink()
+
+            # Move staged content into dest_dir
+            for item in unwrap_src.iterdir():
+                shutil.move(str(item), str(dest_dir / item.name))
+
+        finally:
+            if tmp_stage.exists():
+                shutil.rmtree(tmp_stage)
+
+    # Find tileset.json after everything is in place
+    matches = sorted(dest_dir.rglob("tileset.json"), key=lambda p: len(p.parts))
+    if not matches:
+        raise ValueError("tileset.json not found after extracting files.")
+
+    return _rel_path(matches[0])
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -346,12 +461,12 @@ async def update_mesh_z_offset(
 async def upload_mesh(
     site_id:   str,
     date_code: str,
-    file:      UploadFile = File(...),
+    files:     list[UploadFile] = File(...),
     db:        AsyncSession = Depends(get_db),
 ):
     """
-    Upload a mesh tileset zip.
-    Extracts into data/{site_id}/{date_code}/3d_mesh/
+    Upload a mesh tileset — accepts either a single .zip or raw folder files.
+    Extracts/copies into data/{site_id}/{date_code}/3d_mesh/
     Updates DB mesh_path to point at tileset.json.
     """
     pk = f"{site_id}_{date_code}"
@@ -359,78 +474,33 @@ async def upload_mesh(
     if survey is None:
         raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
 
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=422, detail="Upload must be a .zip file.")
-
     dest_dir = DATA_ROOT / site_id / date_code / "3d_mesh"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save zip to temp location
-    tmp_zip = dest_dir / "_upload_tmp.zip"
     try:
-        content = await file.read()
-        tmp_zip.write_bytes(content)
-
-        # Extract to a temp subfolder for validation
-        tmp_extract = dest_dir / "_extract_tmp"
-        if tmp_extract.exists():
-            shutil.rmtree(tmp_extract)
-        tmp_extract.mkdir()
-
-        with zipfile.ZipFile(tmp_zip, "r") as zf:
-            zf.extractall(tmp_extract)
-
-        # Find tileset.json
-        tileset_dir = _validate_zip_structure(tmp_extract)
-
-        # Clear old contents (except the tmp folder itself)
-        for item in dest_dir.iterdir():
-            if item.name not in ("_extract_tmp", "_upload_tmp.zip"):
-                if item.is_dir():
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
-
-        # Move extracted content into dest_dir
-        for item in tmp_extract.iterdir():
-            shutil.move(str(item), str(dest_dir / item.name))
-
-        # Re-find tileset.json after move
-        matches = sorted(dest_dir.rglob("tileset.json"), key=lambda p: len(p.parts))
-        tileset_abs = matches[0]
-        tileset_rel = _rel_path(tileset_abs)
-
-        survey.mesh_path = tileset_rel
-        await db.commit()
-
-        return {
-            "ok": True,
-            "mesh_path": tileset_rel,
-            "message": f"Mesh uploaded successfully. tileset.json at: {tileset_rel}"
-        }
-
+        tileset_rel = await _install_tileset(files, dest_dir)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except zipfile.BadZipFile:
         raise HTTPException(status_code=422, detail="Invalid or corrupted zip file.")
-    finally:
-        if tmp_zip.exists():
-            tmp_zip.unlink()
-        tmp_extract = dest_dir / "_extract_tmp"
-        if tmp_extract.exists():
-            shutil.rmtree(tmp_extract)
+
+    survey.mesh_path = tileset_rel
+    await db.commit()
+    return {
+        "ok": True,
+        "mesh_path": tileset_rel,
+        "message": f"Mesh uploaded successfully. tileset.json at: {tileset_rel}",
+    }
 
 
 @app.post("/api/sites/{site_id}/dates/{date_code}/upload/pointcloud")
 async def upload_pointcloud(
     site_id:   str,
     date_code: str,
-    file:      UploadFile = File(...),
+    files:     list[UploadFile] = File(...),
     db:        AsyncSession = Depends(get_db),
 ):
     """
-    Upload a point cloud tileset zip.
-    Extracts into data/{site_id}/{date_code}/point_cloud/
+    Upload a point cloud tileset — accepts either a single .zip or raw folder files.
+    Extracts/copies into data/{site_id}/{date_code}/point_cloud/
     Updates DB point_cloud_path to point at tileset.json.
     """
     pk = f"{site_id}_{date_code}"
@@ -438,60 +508,21 @@ async def upload_pointcloud(
     if survey is None:
         raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
 
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=422, detail="Upload must be a .zip file.")
-
     dest_dir = DATA_ROOT / site_id / date_code / "point_cloud"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    tmp_zip = dest_dir / "_upload_tmp.zip"
     try:
-        content = await file.read()
-        tmp_zip.write_bytes(content)
-
-        tmp_extract = dest_dir / "_extract_tmp"
-        if tmp_extract.exists():
-            shutil.rmtree(tmp_extract)
-        tmp_extract.mkdir()
-
-        with zipfile.ZipFile(tmp_zip, "r") as zf:
-            zf.extractall(tmp_extract)
-
-        tileset_dir = _validate_zip_structure(tmp_extract)
-
-        for item in dest_dir.iterdir():
-            if item.name not in ("_extract_tmp", "_upload_tmp.zip"):
-                if item.is_dir():
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
-
-        for item in tmp_extract.iterdir():
-            shutil.move(str(item), str(dest_dir / item.name))
-
-        matches = sorted(dest_dir.rglob("tileset.json"), key=lambda p: len(p.parts))
-        tileset_abs = matches[0]
-        tileset_rel = _rel_path(tileset_abs)
-
-        survey.point_cloud_path = tileset_rel
-        await db.commit()
-
-        return {
-            "ok": True,
-            "point_cloud_path": tileset_rel,
-            "message": f"Point cloud uploaded successfully. tileset.json at: {tileset_rel}"
-        }
-
+        tileset_rel = await _install_tileset(files, dest_dir)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except zipfile.BadZipFile:
         raise HTTPException(status_code=422, detail="Invalid or corrupted zip file.")
-    finally:
-        if tmp_zip.exists():
-            tmp_zip.unlink()
-        tmp_extract = dest_dir / "_extract_tmp"
-        if tmp_extract.exists():
-            shutil.rmtree(tmp_extract)
+
+    survey.point_cloud_path = tileset_rel
+    await db.commit()
+    return {
+        "ok": True,
+        "point_cloud_path": tileset_rel,
+        "message": f"Point cloud uploaded successfully. tileset.json at: {tileset_rel}",
+    }
 
 
 # ═════════════════════════════════════════════════════════════════════════

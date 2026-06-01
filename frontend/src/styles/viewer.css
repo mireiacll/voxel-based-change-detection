@@ -983,3 +983,28 @@ kbd {
 .pd-adddate-btn:hover {
   color: var(--accent2); border-color: var(--accent2);
 }
+
+.upload-dropzone {
+  border: 2px dashed var(--border2);
+  border-radius: 6px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--surf2);
+  color: var(--muted);
+  transition: .15s;
+}
+
+.upload-dropzone:hover {
+  border-color: var(--accent2);
+}
+
+.upload-dropzone.dragging {
+  border-color: var(--accent2);
+  background: rgba(123,108,247,.08);
+  color: var(--accent2);
+}
+
+.upload-dropzone input {
+  display: none;
+}

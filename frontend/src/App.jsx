@@ -12,9 +12,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
-import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset } from './cesium/layers'
+import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset, renderVoxelDiff } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
+import { loadDiffSnapshots, snapshotToRenderVoxels } from './timelineDiffs'
 
 import TopBar          from './components/TopBar'
 import Panel           from './components/Panel'
@@ -26,6 +27,7 @@ import ProjectDrawer   from './components/ProjectDrawer'
 import NewProjectModal from './components/NewProjectModal'
 import AddDateModal    from './components/AddDateModal'
 import UploadModal     from './components/UploadModal'
+import TimelineBar     from './components/TimelineBar'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -94,6 +96,32 @@ export default function App() {
   const [coords, setCoords] = useState({ lat: '—', lon: '—', height: '—' })
 
   const [meshZOffset, setMeshZOffset] = useState(CONFIG.DEFAULTS.MESH_Z_OFFSET)
+
+  // ── Timeline ──────────────────────────────────────────────────────────
+  const [tlSnapshots,   setTlSnapshots]   = useState(null)
+  const [tlActiveIndex, setTlActiveIndex] = useState(0)
+  const [tlLoading,     setTlLoading]     = useState(false)
+  const [tlPlaying,     setTlPlaying]     = useState(false)
+
+const tlPlayTimer = useRef(null)
+
+  // ── Auto-advance play timer ───────────────────────────────────────────
+  useEffect(() => {
+    if (tlPlayTimer.current) clearInterval(tlPlayTimer.current)
+    if (tlPlaying && tlSnapshots?.length) {
+      tlPlayTimer.current = setInterval(() => {
+        setTlActiveIndex(i => {
+          const next = i + 1
+          if (next >= tlSnapshots.length) {
+            setTlPlaying(false)   // stop at end
+            return i
+          }
+          return next
+        })
+      }, 2500)
+    }
+    return () => clearInterval(tlPlayTimer.current)
+  }, [tlPlaying, tlSnapshots])
 
   const viewerReady = useRef(false)
 
@@ -172,6 +200,75 @@ export default function App() {
     setup()
   }, [addToast, refreshSites])
 
+  // ── Load timeline snapshots when entering timeline mode ───────────────
+  useEffect(() => {
+    
+    if (mode !== 'timeline' || !activeSite) return
+    if (tlSnapshots !== null) return
+
+    setTlLoading(true)
+
+    loadDiffSnapshots(activeSite)
+      .then(snaps => {
+        setTlSnapshots(snaps)
+        setTlActiveIndex(0)
+
+        if (snaps.length > 0) {
+          renderTimelineSnapshot(
+            snaps,
+            0,
+            showAdded,
+            showRemoved
+          )
+        }
+      })
+      .finally(() => setTlLoading(false))
+  }, [mode, activeSite, tlSnapshots, showAdded, showRemoved
+  ])
+
+  // ── Render the active timeline snapshot when index / visibility changes ─
+  function renderTimelineSnapshot(snaps,idx,addedVisible,removedVisible
+  ) {
+    const snap = snaps?.[idx]
+
+    if (!snap) return
+
+    window.diffState = window.diffState ?? {}
+
+    window.diffState.gridDef = {
+      lonStep: snap.grid_def.lon_step,
+      latStep: snap.grid_def.lat_step,
+      hStep: snap.grid_def.h_step,
+    }
+
+    const voxels = snapshotToRenderVoxels(
+      snap,
+      addedVisible,
+      removedVisible
+    )
+
+    renderVoxelDiff(voxels, snap.vox_size)
+  }
+
+  // Re-render when active index changes (scrubbing)
+  useEffect(() => {
+    if (mode !== 'timeline') return
+    if (!tlSnapshots?.length) return
+
+    renderTimelineSnapshot(
+      tlSnapshots,
+      tlActiveIndex,
+      showAdded,
+      showRemoved
+    )
+  }, [
+    tlActiveIndex,
+    mode,
+    tlSnapshots,
+    showAdded,
+    showRemoved
+  ])
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -181,6 +278,12 @@ export default function App() {
       if (e.key === 'a') setShowAdded(v => !v)
       if (e.key === 'r') setShowRemoved(v => !v)
       if (e.key === 'd' && mode === 'compare') togglePolygonDraw()
+      // Timeline navigation
+      if (mode === 'timeline') {
+        if (e.key === 'ArrowLeft')  setTlActiveIndex(i => Math.max(0, i - 1))
+        if (e.key === 'ArrowRight') setTlActiveIndex(i => Math.min((tlSnapshots?.length ?? 1) - 1, i + 1))
+        if (e.key === ' ') { e.preventDefault(); setTlPlaying(v => !v) }
+      }
       if (e.key === 'v') handleModeChange('view')
       if (e.key === 'c') handleModeChange('compare')
       if (e.key === '1') handleCameraSite()
@@ -203,7 +306,27 @@ export default function App() {
     })
   }, [mode, showMesh, showPc, showDateA, showDateB, showTerrain])
 
-  useEffect(() => { reapplyDiffFilter(showAdded, showRemoved) }, [showAdded, showRemoved])
+  //useEffect(() => { reapplyDiffFilter(showAdded, showRemoved) }, [showAdded, showRemoved])
+  useEffect(() => {
+    if (mode === 'timeline') {
+      if (tlSnapshots?.length) {
+        renderTimelineSnapshot(
+          tlSnapshots,
+          tlActiveIndex,
+          showAdded,
+          showRemoved
+        )
+      }
+    } else {
+      reapplyDiffFilter(showAdded, showRemoved)
+    }
+  }, [
+    showAdded,
+    showRemoved,
+    mode,
+    tlSnapshots,
+    tlActiveIndex
+  ])
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
 
   // ── Tint B ────────────────────────────────────────────────────────────
@@ -249,6 +372,9 @@ export default function App() {
     setDrawBtnLabel('✏ Draw Area')
     setCompareIdA(site.dates[0]?.id || '')
     setCompareIdB(site.dates[1]?.id || site.dates[0]?.id || '')
+    setTlSnapshots(null)
+    setTlActiveIndex(0)
+    setTlPlaying(false)
     setActiveSite(site)
     setActiveDate(firstDate)
     window.currentSite = site
@@ -407,7 +533,7 @@ export default function App() {
 
   return (
     <>
-      <div id="cesiumContainer" />
+      <div id="cesiumContainer" className={mode === 'timeline' ? 'tl-mode' : ''} />
 
       {showLauncher && (
         <ProjectLauncher
@@ -469,6 +595,7 @@ export default function App() {
         activeSite={activeSite}
         activeDate={activeDate}
         onDateChange={handleDateChange}
+        onEditSite={() => setAddDateSite(activeSite)}
         // layer toggles
         showMesh={showMesh}    onShowMesh={setShowMesh}
         showPc={showPc}        onShowPc={setShowPc}
@@ -503,10 +630,30 @@ export default function App() {
         // camera
         onCameraSite={handleCameraSite}
         onCameraTop={handleCameraTop}
+        // timeline
+        tlSnapshots={tlSnapshots}
+        tlActiveIndex={tlActiveIndex}
+        tlOnSelect={i => setTlActiveIndex(i)}
+        tlPlaying={tlPlaying}
+        tlOnPlayPause={() => setTlPlaying(v => !v)}
+        tlLoading={tlLoading}
+        tlOnRecompute={() => {
+          setTlSnapshots(null)   // clear cache → triggers reload
+        }}
       />
     )}
 
-      <StatusBar msg={statusMsg} done={statusDone} />
+      {/* Timeline bottom bar — replaces status bar when in timeline mode */}
+      {mode === 'timeline' && tlSnapshots?.length > 0
+        ? <TimelineBar
+            snapshots={tlSnapshots}
+            activeIndex={tlActiveIndex}
+            onSelect={i => setTlActiveIndex(i)}
+            playing={tlPlaying}
+            onPlayPause={() => setTlPlaying(v => !v)}
+          />
+        : <StatusBar msg={statusMsg} done={statusDone} />
+      }
       <Toasts items={toasts} />
     </>
   )

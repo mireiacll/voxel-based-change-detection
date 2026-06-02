@@ -7,14 +7,15 @@
 0. [System overview / Functionalities](#0-system-overview)
 1. [Architecture overview](#1-architecture-overview)
 2. [Frontend — React + CesiumJS](#2-frontend--react--cesiumjs)
-3. [View mode](#3-view-mode)
-4. [Compare mode](#4-compare-mode)
-5. [Polygon area filter](#5-polygon-area-filter)
-6. [Voxel diff algorithm](#6-voxel-diff-algorithm)
-7. [Backend API](#7-backend-api)
-8. [Database layer](#8-database-layer)
-9. [Configuration reference](#9-configuration-reference)
-10. [Known limitations and future work](#10-known-limitations-and-future-work)
+3. [Project management UI](#3-project-management-ui)
+4. [View mode](#4-view-mode)
+5. [Compare mode](#5-compare-mode)
+6. [Polygon area filter](#6-polygon-area-filter)
+7. [Voxel diff algorithm](#7-voxel-diff-algorithm)
+8. [Backend API](#8-backend-api)
+9. [Database layer](#9-database-layer)
+10. [Configuration reference](#10-configuration-reference)
+11. [Known limitations and future work](#11-known-limitations-and-future-work)
 
 ---
 
@@ -32,6 +33,13 @@
 - Multiple sites (locations/projects)
 - Multiple survey dates per site
 - Select and switch datasets dynamically
+
+### 🗂️ Project management (new)
+- **Project Launcher** — full-screen entry screen on startup; shows recent projects as cards plus an "All projects" list for more than 3 sites
+- **Project Drawer** — slide-in sidebar triggered by clicking the logo; file-explorer tree of sites → dates with expand/collapse; shows "open" badge on the active site
+- **New Project modal** — create a site from scratch (ID, display labels, camera position, mesh Z offset) via `POST /api/sites`; new project opens automatically after creation
+- **Add Date modal** — add a survey date (YYMMDD code + label) to any site via `POST /api/sites/{id}/dates`; label auto-generated from the date code
+- **Upload modal** — upload a mesh or point cloud tileset (zip file or raw folder drag-and-drop) for any date via `POST /api/sites/{id}/dates/{code}/upload/{type}`; replaces existing data if already present
 
 ### 🔄 Change detection (core feature)
 - Select two survey dates (A = before, B = after)
@@ -64,6 +72,7 @@
   - Opacity per dataset
   - Point cloud size
   - Color tint per dataset
+  - Mesh Z offset (live numeric input, persisted to DB via `PATCH /api/sites/{id}/z-offset`)
 
 ### ⌨️ Interaction system
 - Keyboard shortcuts for fast navigation:
@@ -134,6 +143,11 @@ Cesium is entirely imperative — it owns the `<div id="cesiumContainer">` and R
 | `cesium/cesiumInit.js` | Creates the Cesium viewer, exposes `flyTo`, `toast`, `requestRender` |
 | `cesium/layers.js` | Loads tilesets, controls visibility, renders voxel boxes |
 | `cesium/polygonDraw.js` | Interactive polygon tool, exposes `togglePolygonDraw`, `getPolygonGeo` |
+| `components/ProjectLauncher.jsx` | Full-screen entry screen; site cards + "New project" card |
+| `components/ProjectDrawer.jsx` | Slide-in sidebar; site tree with expand/collapse, upload buttons per date |
+| `components/NewProjectModal.jsx` | Modal for creating a new site (ID, labels, camera, Z offset) |
+| `components/AddDateModal.jsx` | Modal for adding a survey date (YYMMDD code, label) to a site |
+| `components/UploadModal.jsx` | Modal for uploading mesh/point cloud tilesets (zip or folder drop) |
 | `lib/glbParser.js` | Browser-side GLB parser (not used when server is running) |
 | `lib/voxelizer.js` | Browser-side voxelizer (not used when server is running) |
 | `lib/polygonUtils.js` | Pure `pip()` function — point-in-polygon ray casting |
@@ -162,7 +176,80 @@ The terrain toggle is in the View mode Layers panel. Switching it does not reloa
 
 ---
 
-## 3. View mode
+## 3. Project management UI
+
+The project management layer consists of three entry-point components and three modal forms, all wired through `App.jsx`.
+
+### Application entry flow
+
+When the app starts:
+1. `App.jsx` fetches `/api/sites` and stores the result.
+2. If **more than one site** is found, `ProjectLauncher` is shown over the Cesium globe. The user clicks a card to open a project.
+3. If **exactly one site** is found, the launcher is skipped and the first date loads automatically.
+4. The Cesium viewer initialises in the background regardless, so it is ready the moment the user selects a project.
+
+### ProjectLauncher
+
+Full-screen overlay shown on startup when multiple sites exist.
+
+- Displays up to 3 sites as hero **cards** (survey count + latest date label).
+- An "All projects" compact list shows sites beyond the first 3.
+- A **New project** card is always shown as the last card; clicking it opens `NewProjectModal`.
+- Clicking any site card calls `handleOpenProject(site)` in `App.jsx`, which clears the scene, resets state, loads the first date, and flies the camera.
+
+### ProjectDrawer
+
+Slide-in sidebar panel, toggled by clicking the logo in the top-left `TopBar`.
+
+- Shows a site tree: each site row has an expand/collapse button.
+- Expanded sites show their dates with upload buttons (`↑M` mesh, `↑P` point cloud; `🔁M` / `🔁P` when data already exists).
+- "+ Add Date" button at the bottom of each site's date list.
+- Clicking a site row triggers `handleOpenProject` and closes the drawer.
+- A "+ New project" button at the top of the drawer opens `NewProjectModal`.
+
+### NewProjectModal
+
+Modal form for creating a brand-new site. Fields:
+
+| Field | Description |
+|---|---|
+| Site ID | Short lowercase ASCII key used in file paths (e.g. `mysite`) |
+| Label | Full display label, can include Korean characters |
+| English Label | Used in the status bar |
+| Longitude / Latitude | Camera home position |
+| Camera Height (m) | Altitude of the initial fly-to |
+| Mesh Z Offset (m) | Optional; overrides the global default for this site |
+
+On submit, calls `POST /api/sites`. On success, refreshes the site list and auto-opens the new project.
+
+### AddDateModal
+
+Modal for registering a new survey date under an existing site. Fields:
+
+| Field | Description |
+|---|---|
+| Date Code | 6-digit YYMMDD string (e.g. `260601`) |
+| Label | Human-readable label; auto-generated from the date code on input |
+
+On submit, calls `POST /api/sites/{id}/dates`, which also creates the empty directory structure on disk. The drawer's date tree updates immediately after the modal closes.
+
+### UploadModal
+
+Modal for uploading or replacing a mesh or point cloud tileset for a specific date.
+
+**Accepted input:**
+- Drag-and-drop or browse a **folder** from the OS — the browser sends all files with `webkitRelativePath`; the server preserves the relative sub-path structure.
+- Drag-and-drop or browse a **single `.zip`** file — the server extracts it into the destination directory.
+
+Both flat (`tileset.json` at root) and nested (`tiles/tileset.json`) structures are handled by `_validate_zip_structure` / `_install_tileset` on the server.
+
+If data already exists for that slot, the modal shows the current path and warns that uploading will replace it.
+
+On success, `App.jsx` refreshes the site list and shows a toast notification.
+
+---
+
+## 4. View mode
 
 In View mode the user selects one survey date and sees its 3D mesh and/or point cloud.
 
@@ -171,10 +258,10 @@ In View mode the user selects one survey date and sees its 3D mesh and/or point 
 `loadDate(site, dateObj, mode, checkboxState)` in `layers.js`:
 1. Removes any previously loaded `state.mesh` and `state.pc`
 2. Fetches and adds both tilesets to `viewer.scene.primitives`
-3. Applies a Z offset to the mesh tileset so it sits on the terrain surface (`CONFIG.DEFAULTS.MESH_Z_OFFSET`)
+3. Applies a Z offset to the mesh tileset so it sits on the terrain surface. The offset is read from the site's `meshZOffset` field in the database, falling back to `CONFIG.DEFAULTS.MESH_Z_OFFSET` if not set
 4. Calls `syncVisibility()` with the current mode and checkbox state
 
-The mesh Z offset is a global constant in `config.js` **(needs to modified to be dependent of the site and adjustable for new sites)**. It compensates for the fact that mago3d-tiler outputs coordinates relative to a local origin, not absolute terrain height. Tune this value until the mesh visually aligns with the terrain surface.
+The mesh Z offset compensates for the fact that mago3d-tiler outputs coordinates relative to a local origin, not absolute terrain height. It is editable live in the View panel and can be saved back to the database via `PATCH /api/sites/{id}/z-offset` without reloading the page. The value is also applied at load time via `applyMeshZOffset()` in `layers.js`.
 
 ### Layer controls
 
@@ -184,6 +271,7 @@ The mesh Z offset is a global constant in `config.js` **(needs to modified to be
 | Point Cloud toggle | Shows/hides `state.pc` |
 | Point cloud size slider | Sets `pointCloudShading.maximumAttenuation` |
 | Terrain toggle | Swaps terrain provider |
+| Mesh Z Offset input | Live-adjusts the vertical translation of the mesh; "Save" button persists it to the DB |
 
 ### Camera buttons
 
@@ -194,7 +282,7 @@ The mesh Z offset is a global constant in `config.js` **(needs to modified to be
 
 ---
 
-## 4. Compare mode
+## 5. Compare mode
 
 In Compare mode the user selects two survey dates (A = before, B = after) and runs a volumetric diff to visualise material added or removed between surveys.
 
@@ -227,7 +315,7 @@ If a diff is in progress when Clear is clicked, `cancelVoxelDiff()` sends a canc
 
 ---
 
-## 5. Polygon area filter
+## 6. Polygon area filter
 
 Drawing a polygon restricts the diff computation to a specific geographic area. Without a polygon the diff runs on the full extent of both point clouds.
 
@@ -260,7 +348,7 @@ The server applies a vectorised point-in-polygon test (`voxelizer.py → _pip()`
 
 ---
 
-## 6. Voxel diff algorithm
+## 7. Voxel diff algorithm
 
 The diff runs entirely on the server. The browser only renders the resulting voxel list.
 
@@ -330,11 +418,9 @@ Net change     = added − removed
 
 ---
 
-## 7. Backend API
+## 8. Backend API
 
 Base URL: `http://127.0.0.1:8000` (configurable via `VITE_API_URL` env var in the frontend)
-
-The database part (GET /api/sites) needs to be modified later.
 
 ### `GET /health`
 
@@ -367,6 +453,68 @@ Returns all sites and their survey dates from the database.
       ]
     }
   ]
+}
+```
+
+### `POST /api/sites`
+
+Creates a new site record in the database.
+
+**Request body:**
+```json
+{
+  "id":            "mysite",
+  "label":         "My Site — Waste Site",
+  "label_en":      "My Site",
+  "camera_lon":    127.0067,
+  "camera_lat":    36.9099,
+  "camera_height": 600,
+  "mesh_z_offset": 119.575
+}
+```
+
+**Response:** `{ "site": { ...site object... } }`
+
+`mesh_z_offset` is optional. The ID must be lowercase with no spaces; a 409 is returned if it already exists.
+
+### `PATCH /api/sites/{site_id}/z-offset`
+
+Persists an updated mesh Z offset for a site.
+
+**Request body:** `{ "mesh_z_offset": 119.575 }`
+
+**Response:** `{ "ok": true, "siteId": "dunpo", "meshZOffset": 119.575 }`
+
+### `POST /api/sites/{site_id}/dates`
+
+Creates a new survey date for a site and creates the directory structure on disk (`data/{site_id}/{date_code}/3d_mesh/` and `data/{site_id}/{date_code}/point_cloud/`).
+
+**Request body:**
+```json
+{ "date_code": "260601", "label": "Jun 1, 2026" }
+```
+
+`date_code` must be exactly 6 digits (YYMMDD). Returns 409 if the date already exists for that site.
+
+**Response:** `{ "date": { "id": "260601", "label": "Jun 1, 2026", "mesh": null, "pointCloud": null } }`
+
+### `POST /api/sites/{site_id}/dates/{date_code}/upload/mesh`
+### `POST /api/sites/{site_id}/dates/{date_code}/upload/pointcloud`
+
+Uploads a tileset for a date. Accepts either:
+- A **single `.zip` file** containing `tileset.json` and associated `.glb` files
+- **Raw folder files** via browser `webkitRelativePath` (drag-and-drop of a folder from the OS)
+
+Both flat (`tileset.json` at root) and nested (`tiles/tileset.json`) structures are supported. The uploaded content replaces any previously stored tileset for that slot. The DB `mesh_path` / `point_cloud_path` is updated to point at the discovered `tileset.json`.
+
+**Request:** `multipart/form-data` with field name `files`.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "mesh_path": "data/dunpo/260601/3d_mesh/tiles/tileset.json",
+  "message": "Mesh uploaded successfully. tileset.json at: ..."
 }
 ```
 
@@ -428,7 +576,7 @@ Browser                          Server
 
 ---
 
-## 8. Database layer
+## 9. Database layer
 
 > ⚠️ **Planned migration**: The current local database (SQLite) will be replaced with API calls to a database in backend. The DB schema and seeding approach are designed to make this transition straightforward — only `DATABASE_URL` in `.env` and the `/api/sites` endpoint in `main.py` need to change.
 
@@ -452,6 +600,7 @@ sites
   camera_lat    REAL
   camera_height REAL
   created_at    DATETIME
+  mesh_z_offset    REAL  NULLABLE          overrides global default if set
 
 survey_dates
   id               TEXT  PRIMARY KEY       e.g. "dunpo_251106"
@@ -460,7 +609,6 @@ survey_dates
   label            TEXT                    "Nov 6, 2025"
   mesh_path        TEXT  NULLABLE          relative URL for the frontend
   point_cloud_path TEXT  NULLABLE
-  mesh_z_offset    REAL  NULLABLE          overrides global default if set
   created_at       DATETIME
 ```
 
@@ -505,7 +653,7 @@ async def list_sites():
 
 ---
 
-## 9. Configuration reference
+## 10. Configuration reference
 
 ### `src/config.js`
 
@@ -544,7 +692,7 @@ VITE_API_URL=http://127.0.0.1:8000
 
 ---
 
-## 10. Known limitations and future work
+## 11. Known limitations and future work
 
 ### Current limitations
 
@@ -556,9 +704,8 @@ VITE_API_URL=http://127.0.0.1:8000
 
 - **Server-side diff pre-computation**: run the voxel diff offline when a new survey is uploaded and store the result as a 3D Tiles tileset. This would eliminate the wait time and the memory pressure of on-demand computation.
 - **Shared database**: migrate from local SQLite to shared PostgreSQL instance.
-- **Project management system**: introduce multi-project support: show available projects on entry, allow switching between project dynamically and be able to create new peojects.
 - **Voxelizer readiness state**: expose status in UI (ready/processing/unavailable).
-- **Time series analysis**: compute change evolution accross myultiple survey pairs using precomputed diffs.
-- **Improved reporting view**: dedicated report section for added/removed/net volume, per-date comparision, exportable summaries (for the backend voxelizer).
-- **Fast computation or advanced computation choice**: be able to choose a fast but estimated diff computation (server folder simple voxelizer) or slower(?) but accurate (backend folder fully developed voxelizer).
+- **Time series analysis**: compute change evolution across multiple survey pairs using precomputed diffs.
+- **Improved reporting view**: dedicated report section for added/removed/net volume, per-date comparison, exportable summaries (for the backend voxelizer).
+- **Fast computation or advanced computation choice**: be able to choose a fast but estimated diff computation (server folder simple voxelizer) or slower but accurate (backend folder fully developed voxelizer).
 - **Opacity blending fixes**: resolve layer blending inconsistencies in Date A and Date B meshes.

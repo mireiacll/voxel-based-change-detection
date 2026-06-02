@@ -40,7 +40,12 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 │   │   │   ├── Panel.jsx
 │   │   │   ├── StatusBar.jsx
 │   │   │   ├── Toasts.jsx
-│   │   │   └── TopBar.jsx
+│   │   │   ├── TopBar.jsx
+│   │   │   ├── ProjectLauncher.jsx    ← entry screen (site cards + new project card)
+│   │   │   ├── ProjectDrawer.jsx      ← slide-in sidebar (site tree, upload buttons)
+│   │   │   ├── NewProjectModal.jsx    ← create site form
+│   │   │   ├── AddDateModal.jsx       ← add survey date form
+│   │   │   └── UploadModal.jsx        ← tileset upload (zip or folder drag-drop)
 │   │   │
 │   │   ├── cesium/
 │   │   │   ├── cesiumInit.js          ← viewer init, flyTo, terrain toggle
@@ -65,7 +70,7 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 │   └── package.json
 │
 ├── server/                             ← FastAPI backend (core computation layer)
-│   ├── main.py                         ← API routes: /health, /api/sites, /api/diff
+│   ├── main.py                         ← API routes: /health, /api/sites, /api/diff, upload & project management
 │   ├── glb_parser.py                  ← NumPy GLB → point cloud extraction
 │   ├── voxelizer.py                   ← voxelization + solidification + diff engine
 │   ├── database.py                    ← SQLAlchemy async engine/session
@@ -166,7 +171,16 @@ After converting, run `python seed.py` to register the new date in the database.
 
 ---
 
-## Adding a new survey date
+## Adding a new survey date — two options
+
+### Option A — UI (recommended)
+
+1. Click the logo to open the **Project Drawer**
+2. Expand the target site and click **+ Add Date**
+3. Enter the 6-digit YYMMDD code; the label auto-fills
+4. Use the **↑M** / **↑P** upload buttons (or the Upload modal) to drag-drop the converted tileset folder or zip
+
+### Option B — Manual / seed.py
 
 1. Convert drone data to 3D Tiles (see above)
 2. Place tiles in `public/data/<site>/<date_code>/`

@@ -107,8 +107,7 @@ async def seed():
 
                 date_code = date_dir.name
 
-                mesh_abs = date_dir / "3d_mesh"     / "tiles" / "tileset.json"
-                pc_abs   = date_dir / "point_cloud" / "tiles" / "tileset.json"
+                tileset_abs = date_dir / "tiles" / "tileset.json"
 
                 # Paths relative to DATA_ROOT parent (i.e. public/)
                 def rel(p: Path) -> str | None:
@@ -117,11 +116,10 @@ async def seed():
                     except ValueError:
                         return None
 
-                mesh_path = rel(mesh_abs) if mesh_abs.exists() else None
-                pc_path   = rel(pc_abs)   if pc_abs.exists()   else None
+                tileset_path = rel(tileset_abs) if tileset_abs.exists() else None
 
-                if mesh_path is None and pc_path is None:
-                    print(f"[seed]   {site_id}/{date_code}: no tilesets found — skipping")
+                if tileset_path is None:
+                    print(f"[seed]   {site_id}/{date_code}: no tileset found — skipping")
                     continue
 
                 # Composite PK = site_id + date_code
@@ -133,8 +131,8 @@ async def seed():
                         site_id=site_id,
                         date_code=date_code,
                         label=_date_label(date_code),
-                        mesh_path=mesh_path,
-                        point_cloud_path=pc_path,
+                        dataset_path=tileset_path,
+                        dataset_type="pointcloud",  # Assuming all tilesets are point clouds for now
                     ))
                     print(f"[seed]   Inserted date: {site_id}/{date_code}")
                 else:

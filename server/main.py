@@ -1,5 +1,5 @@
 """
-main.py — FastAPI server for City 3D Change Detection Viewer
+main.py — FastAPI server for 3D Change Detection Viewer
 """
 
 import asyncio
@@ -19,13 +19,11 @@ from pydantic import BaseModel, Field
 from glb_parser import load_all_points
 from voxelizer import build_surface, diff_solid, make_grid_def, solidify
 
-# db related imports
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, engine, AsyncSessionLocal
 from models import Base, Site, SurveyDate
-from fastapi import Depends
 
 load_dotenv()
 
@@ -37,7 +35,7 @@ ALLOWED_ORIGINS = [
     ).split(",")
 ]
 
-app = FastAPI(title="3D Change Detection API", version="1.0.0")
+app = FastAPI(title="3D Change Detection API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -50,19 +48,13 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-# ThreadPoolExecutor — safe to create at module level, no spawning issues
 _executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
-
-# Plain dict is fine for threads (no cross-process boundary)
 _cancel_flags: dict[str, bool] = {}
 
 
 # ═════════════════════════════════════════════════════════════════════════
 #  PYDANTIC MODELS
 # ═════════════════════════════════════════════════════════════════════════
-
-class MeshOffsetUpdate(BaseModel):
-    mesh_z_offset: float
 
 class MeshZOffsetUpdate(BaseModel):
     mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
@@ -100,16 +92,17 @@ class DiffResponse(BaseModel):
 
 class CreateSiteRequest(BaseModel):
     id:            str   = Field(..., description="Short ASCII site ID, e.g. 'dunpo'")
-    label:         str   = Field(..., description="Full display label (Korean + English)")
-    label_en:      str   = Field(..., description="English-only label")
+    label:         str
+    label_en:      str
     camera_lon:    float
     camera_lat:    float
     camera_height: float
     mesh_z_offset: Optional[float] = None
 
 class CreateDateRequest(BaseModel):
-    date_code: str  = Field(..., description="6-digit date code e.g. '260601'")
-    label:     str  = Field(..., description="Human readable label e.g. 'Jun 1, 2026'")
+    date_code:    str  = Field(..., description="6-digit date code e.g. '260601'")
+    label:        str
+    dataset_type: str  = Field(..., description="'mesh' or 'pointcloud'")
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -117,39 +110,13 @@ class CreateDateRequest(BaseModel):
 # ═════════════════════════════════════════════════════════════════════════
 
 def _rel_path(abs_path: Path) -> str:
-    """Return path relative to public/ (i.e. DATA_ROOT parent)."""
     return str(abs_path.relative_to(DATA_ROOT.parent)).replace("\\", "/")
-
-
-def _validate_zip_structure(extract_dir: Path) -> Path:
-    """
-    Find tileset.json inside the extracted zip.
-    Handles two layouts:
-      - tileset.json at root of zip
-      - tileset.json inside a subdirectory (e.g. tiles/)
-    Returns the Path to the directory containing tileset.json.
-    Raises ValueError if not found.
-    """
-    matches = list(extract_dir.rglob("tileset.json"))
-    if not matches:
-        raise ValueError("No tileset.json found in the uploaded zip file.")
-    matches.sort(key=lambda p: len(p.parts))
-    return matches[0].parent
 
 
 async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
     """
-    Accept either:
-      A) A single .zip file  — extract it, find tileset.json
-      B) Multiple raw files  — the folder contents dropped by the user
-         (browser sends webkitRelativePath so filenames may contain
-          subdirectory segments like "tiles/abc.glb")
-
-    In both cases:
-      - Clears dest_dir of any previous content
-      - Writes all files into dest_dir preserving relative sub-paths
-      - Returns the relative path (from public/) to tileset.json
-    Raises ValueError if no tileset.json is found.
+    Accept either a single .zip or raw folder files (webkitRelativePath).
+    Returns the relative path (from public/) to the discovered tileset.json.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -164,18 +131,14 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
         tmp_extract = dest_dir / "_extract_tmp"
         try:
             tmp_zip.write_bytes(await files[0].read())
-
             if tmp_extract.exists():
                 shutil.rmtree(tmp_extract)
             tmp_extract.mkdir()
-
             with zipfile.ZipFile(tmp_zip, "r") as zf:
                 zf.extractall(tmp_extract)
-
-            # Validate structure before touching dest_dir
-            _validate_zip_structure(tmp_extract)
-
-            # Clear old content
+            matches = list(tmp_extract.rglob("tileset.json"))
+            if not matches:
+                raise ValueError("No tileset.json found in the uploaded zip file.")
             for item in dest_dir.iterdir():
                 if item.name not in ("_extract_tmp", "_upload_tmp.zip"):
                     shutil.rmtree(item) if item.is_dir() else item.unlink()
@@ -183,20 +146,10 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
             # Move extracted content into dest_dir
             for item in tmp_extract.iterdir():
                 shutil.move(str(item), str(dest_dir / item.name))
-
         finally:
-            if tmp_zip.exists():
-                tmp_zip.unlink()
-            if tmp_extract.exists():
-                shutil.rmtree(tmp_extract)
-
+            if tmp_zip.exists(): tmp_zip.unlink()
+            if tmp_extract.exists(): shutil.rmtree(tmp_extract)
     else:
-        # ── Raw folder path ────────────────────────────────────────────────
-        # Browser sends files with webkitRelativePath as the filename,
-        # e.g. "tiles/abc12345.glb" or "tileset.json"
-        # We write them preserving those relative paths inside dest_dir.
-
-        # Stage into a temp dir first so we can validate before overwriting
         tmp_stage = dest_dir / "_stage_tmp"
         if tmp_stage.exists():
             shutil.rmtree(tmp_stage)
@@ -207,12 +160,6 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
                 # filename may contain path separators from webkitRelativePath
                 # Normalise separators and strip any leading slashes
                 rel = uf.filename.replace("\\", "/").lstrip("/")
-
-                # Drop a leading folder name if the user dropped a folder
-                # e.g. "tiles_folder/tileset.json" → keep as-is,
-                # but "tiles_folder/tiles/abc.glb" we keep the sub-path
-                # from the first slash onward only when ALL files share
-                # the same root prefix (folder drop).
                 out_path = tmp_stage / rel
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_bytes(await uf.read())
@@ -220,13 +167,7 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
             # Validate the staged content
             matches = sorted(tmp_stage.rglob("tileset.json"), key=lambda p: len(p.parts))
             if not matches:
-                raise ValueError(
-                    "No tileset.json found in the uploaded files. "
-                    "Make sure you drop the folder containing tileset.json."
-                )
-
-            # If all files are nested under a single sub-folder, unwrap it
-            # e.g. user dropped "tiles/" folder → files arrive as "tiles/tileset.json"
+                raise ValueError("No tileset.json found in the uploaded files.")
             top_level = list(tmp_stage.iterdir())
             if len(top_level) == 1 and top_level[0].is_dir():
                 unwrap_src = top_level[0]
@@ -241,7 +182,6 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
             # Move staged content into dest_dir
             for item in unwrap_src.iterdir():
                 shutil.move(str(item), str(dest_dir / item.name))
-
         finally:
             if tmp_stage.exists():
                 shutil.rmtree(tmp_stage)
@@ -250,12 +190,11 @@ async def _install_tileset(files: list[UploadFile], dest_dir: Path) -> str:
     matches = sorted(dest_dir.rglob("tileset.json"), key=lambda p: len(p.parts))
     if not matches:
         raise ValueError("tileset.json not found after extracting files.")
-
     return _rel_path(matches[0])
 
 
 # ═════════════════════════════════════════════════════════════════════════
-#  COMPUTATION (runs in thread pool)
+#  DIFF COMPUTATION (runs in thread pool)
 # ═════════════════════════════════════════════════════════════════════════
 
 def _cancelled(job_id: str) -> bool:
@@ -341,19 +280,13 @@ async def create_site(
     payload: CreateSiteRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new site in the database and create its folder."""
-    # Validate ID format
     if not re.fullmatch(r"[a-z0-9_\-]+", payload.id):
-        raise HTTPException(
-            status_code=422,
-            detail="Site ID must be lowercase letters, digits, underscores or hyphens only."
-        )
+        raise HTTPException(status_code=422, detail="Site ID must be lowercase letters, digits, underscores or hyphens only.")
 
     existing = await db.get(Site, payload.id)
     if existing:
         raise HTTPException(status_code=409, detail=f"Site '{payload.id}' already exists.")
 
-    # Create folder
     site_dir = DATA_ROOT / payload.id
     site_dir.mkdir(parents=True, exist_ok=True)
 
@@ -370,7 +303,6 @@ async def create_site(
     await db.commit()
     await db.refresh(site)
 
-    # Reload with dates relationship
     result = await db.execute(
         select(Site).options(selectinload(Site.dates)).where(Site.id == payload.id)
     )
@@ -393,7 +325,7 @@ async def update_site_z_offset(
 
 
 # ═════════════════════════════════════════════════════════════════════════
-#  ROUTES — date management
+#  ROUTES — date management (single dataset per date)
 # ═════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/sites/{site_id}/dates", status_code=201)
@@ -402,7 +334,7 @@ async def create_date(
     payload: CreateDateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new survey date for a site and create the folder structure."""
+    """Create a new survey date for a site.  No dataset yet — upload separately."""
     site = await db.get(Site, site_id)
     if site is None:
         raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found.")
@@ -410,26 +342,24 @@ async def create_date(
     if not re.fullmatch(r"\d{6}", payload.date_code):
         raise HTTPException(status_code=422, detail="date_code must be 6 digits, e.g. '260601'.")
 
+    if payload.dataset_type not in ("mesh", "pointcloud"):
+        raise HTTPException(status_code=422, detail="dataset_type must be 'mesh' or 'pointcloud'.")
+
     pk = f"{site_id}_{payload.date_code}"
     existing = await db.get(SurveyDate, pk)
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Date '{payload.date_code}' already exists for site '{site_id}'."
-        )
+        raise HTTPException(status_code=409, detail=f"Date '{payload.date_code}' already exists for site '{site_id}'.")
 
-    # Create folder structure
     date_dir = DATA_ROOT / site_id / payload.date_code
-    (date_dir / "3d_mesh").mkdir(parents=True, exist_ok=True)
-    (date_dir / "point_cloud").mkdir(parents=True, exist_ok=True)
+    date_dir.mkdir(parents=True, exist_ok=True)
 
     survey = SurveyDate(
         id=pk,
         site_id=site_id,
         date_code=payload.date_code,
         label=payload.label,
-        mesh_path=None,
-        point_cloud_path=None,
+        dataset_path=None,
+        dataset_type=payload.dataset_type,
     )
     db.add(survey)
     await db.commit()
@@ -437,44 +367,24 @@ async def create_date(
     return {"date": survey.to_dict()}
 
 
-@app.patch("/api/sites/{site_id}/dates/{date_code}/mesh-z-offset")
-async def update_mesh_z_offset(
-    site_id:   str,
-    date_code: str,
-    body:      MeshZOffsetUpdate,
-    db:        AsyncSession = Depends(get_db),
-):
-    pk = f"{site_id}_{date_code}"
-    date_row = await db.get(SurveyDate, pk)
-    if date_row is None:
-        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
-    date_row.mesh_z_offset = body.mesh_z_offset
-    await db.commit()
-    return {"site_id": site_id, "date_code": date_code, "mesh_z_offset": body.mesh_z_offset}
-
-
-# ═════════════════════════════════════════════════════════════════════════
-#  ROUTES — file uploads
-# ═════════════════════════════════════════════════════════════════════════
-
-@app.post("/api/sites/{site_id}/dates/{date_code}/upload/mesh")
-async def upload_mesh(
+@app.post("/api/sites/{site_id}/dates/{date_code}/upload")
+async def upload_dataset(
     site_id:   str,
     date_code: str,
     files:     list[UploadFile] = File(...),
     db:        AsyncSession = Depends(get_db),
 ):
     """
-    Upload a mesh tileset — accepts either a single .zip or raw folder files.
-    Extracts/copies into data/{site_id}/{date_code}/3d_mesh/
-    Updates DB mesh_path to point at tileset.json.
+    Upload the dataset (mesh or point cloud) for a date.
+    Accepts a single .zip or raw folder files.
+    The dataset_type is already stored on the SurveyDate row.
     """
     pk = f"{site_id}_{date_code}"
     survey = await db.get(SurveyDate, pk)
     if survey is None:
         raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
 
-    dest_dir = DATA_ROOT / site_id / date_code / "3d_mesh"
+    dest_dir = DATA_ROOT / site_id / date_code / "tiles"
     try:
         tileset_rel = await _install_tileset(files, dest_dir)
     except ValueError as e:
@@ -482,46 +392,13 @@ async def upload_mesh(
     except zipfile.BadZipFile:
         raise HTTPException(status_code=422, detail="Invalid or corrupted zip file.")
 
-    survey.mesh_path = tileset_rel
+    survey.dataset_path = tileset_rel
     await db.commit()
     return {
         "ok": True,
-        "mesh_path": tileset_rel,
-        "message": f"Mesh uploaded successfully. tileset.json at: {tileset_rel}",
-    }
-
-
-@app.post("/api/sites/{site_id}/dates/{date_code}/upload/pointcloud")
-async def upload_pointcloud(
-    site_id:   str,
-    date_code: str,
-    files:     list[UploadFile] = File(...),
-    db:        AsyncSession = Depends(get_db),
-):
-    """
-    Upload a point cloud tileset — accepts either a single .zip or raw folder files.
-    Extracts/copies into data/{site_id}/{date_code}/point_cloud/
-    Updates DB point_cloud_path to point at tileset.json.
-    """
-    pk = f"{site_id}_{date_code}"
-    survey = await db.get(SurveyDate, pk)
-    if survey is None:
-        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
-
-    dest_dir = DATA_ROOT / site_id / date_code / "point_cloud"
-    try:
-        tileset_rel = await _install_tileset(files, dest_dir)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=422, detail="Invalid or corrupted zip file.")
-
-    survey.point_cloud_path = tileset_rel
-    await db.commit()
-    return {
-        "ok": True,
-        "point_cloud_path": tileset_rel,
-        "message": f"Point cloud uploaded successfully. tileset.json at: {tileset_rel}",
+        "dataset_path": tileset_rel,
+        "dataset_type": survey.dataset_type,
+        "message": f"Dataset uploaded successfully. tileset.json at: {tileset_rel}",
     }
 
 

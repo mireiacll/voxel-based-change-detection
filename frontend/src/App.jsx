@@ -14,7 +14,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
 import { loadDate, syncVisibility, clearLayers, clearCompareLayers,
-         applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset,
+         applyPcStyle, setDateATint, setDateBTint, 
          renderVoxelDiff } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
@@ -61,7 +61,6 @@ export default function App() {
   const [compareIdB, setCompareIdB] = useState('')
   const [pcSize, setPcSize]         = useState(CONFIG.DEFAULTS.POINT_SIZE)
   const [voxelSize, setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
-  const [meshZOffset, setMeshZOffset] = useState(CONFIG.DEFAULTS.MESH_Z_OFFSET)
 
   const [statusMsg,  setStatusMsg]  = useState('Initialising viewer…')
   const [statusDone, setStatusDone] = useState(false)
@@ -137,17 +136,11 @@ export default function App() {
       const firstDate = first.dates[0] ?? null
       setActiveSite(first)
       setActiveDate(firstDate)
-      setMeshZOffset(first.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
       setCompareIdA(firstDate?.id || '')
       setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
       window.currentSite = first
-      if (loadedSites.length === 1) {
-        setNavTab('analysis')
-        if (firstDate) {
-          loadDate(first, firstDate, 'view', { dataset: CONFIG.DEFAULTS.SHOW_DATASET})
-          flyTo(first.camera.lon, first.camera.lat, first.camera.height)
-        }
-      }
+      // Always start on the projects tab so the user sees the launcher.
+      // Auto-loading happens only after they explicitly open a project.
     }
     setup()
   }, [addToast, refreshSites])
@@ -213,7 +206,6 @@ export default function App() {
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
   useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
   useEffect(() => { applyPcStyle(pcSize) }, [pcSize])
-  useEffect(() => { applyMeshZOffset(meshZOffset) }, [meshZOffset])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
 
   // ── Event handlers ────────────────────────────────────────────────────
@@ -234,7 +226,6 @@ export default function App() {
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
     setActiveSite(site); setActiveDate(firstDate)
     window.currentSite = site
-    setMeshZOffset(site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
     setNavTab('analysis')
     if (firstDate) {
       setTimeout(() => {

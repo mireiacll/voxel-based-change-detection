@@ -56,8 +56,8 @@ _cancel_flags: dict[str, bool] = {}
 #  PYDANTIC MODELS
 # ═════════════════════════════════════════════════════════════════════════
 
-class MeshZOffsetUpdate(BaseModel):
-    mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
+# class MeshZOffsetUpdate(BaseModel):
+#     mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
 
 class PolygonPoint(BaseModel):
     lon: float
@@ -310,18 +310,18 @@ async def create_site(
     return {"site": site.to_dict()}
 
 
-@app.patch("/api/sites/{site_id}/z-offset")
-async def update_site_z_offset(
-    site_id: str,
-    payload: MeshZOffsetUpdate,
-):
-    async with AsyncSessionLocal() as session:
-        site = await session.get(Site, site_id)
-        if site is None:
-            raise HTTPException(status_code=404, detail="Site not found")
-        site.mesh_z_offset = payload.mesh_z_offset
-        await session.commit()
-        return {"ok": True, "siteId": site_id, "meshZOffset": site.mesh_z_offset}
+# @app.patch("/api/sites/{site_id}/z-offset")
+# async def update_site_z_offset(
+#     site_id: str,
+#     payload: MeshZOffsetUpdate,
+# ):
+#     async with AsyncSessionLocal() as session:
+#         site = await session.get(Site, site_id)
+#         if site is None:
+#             raise HTTPException(status_code=404, detail="Site not found")
+#         site.mesh_z_offset = payload.mesh_z_offset
+#         await session.commit()
+#         return {"ok": True, "siteId": site_id, "meshZOffset": site.mesh_z_offset}
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -369,20 +369,25 @@ async def create_date(
 
 @app.post("/api/sites/{site_id}/dates/{date_code}/upload")
 async def upload_dataset(
-    site_id:   str,
-    date_code: str,
-    files:     list[UploadFile] = File(...),
-    db:        AsyncSession = Depends(get_db),
+    site_id:      str,
+    date_code:    str,
+    files:        list[UploadFile] = File(...),
+    dataset_type: str | None = None,   # optional query param — overrides stored type
+    db:           AsyncSession = Depends(get_db),
 ):
     """
     Upload the dataset (mesh or point cloud) for a date.
     Accepts a single .zip or raw folder files.
-    The dataset_type is already stored on the SurveyDate row.
+    If dataset_type query param is provided it updates the stored type too
+    (allows changing type when replacing data).
     """
     pk = f"{site_id}_{date_code}"
     survey = await db.get(SurveyDate, pk)
     if survey is None:
         raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
+
+    if dataset_type and dataset_type not in ("mesh", "pointcloud"):
+        raise HTTPException(status_code=422, detail="dataset_type must be 'mesh' or 'pointcloud'.")
 
     dest_dir = DATA_ROOT / site_id / date_code / "tiles"
     try:
@@ -393,6 +398,8 @@ async def upload_dataset(
         raise HTTPException(status_code=422, detail="Invalid or corrupted zip file.")
 
     survey.dataset_path = tileset_rel
+    if dataset_type:
+        survey.dataset_type = dataset_type
     await db.commit()
     return {
         "ok": True,

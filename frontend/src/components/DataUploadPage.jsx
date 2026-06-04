@@ -40,12 +40,14 @@ function DatasetTypeBadge({ type }) {
 // ── Single-date row ───────────────────────────────────────────────────────
 
 function DateRow({ site, date, onUploaded }) {
-  const [open,     setOpen]     = useState(false)
-  const [files,    setFiles]    = useState([])
-  const [dragOver, setDragOver] = useState(false)
-  const [loading,  setLoading]  = useState(false)
-  const [progress, setProgress] = useState('')
-  const [error,    setError]    = useState('')
+  const [open,        setOpen]        = useState(false)
+  const [files,       setFiles]       = useState([])
+  const [dragOver,    setDragOver]    = useState(false)
+  const [loading,     setLoading]     = useState(false)
+  const [progress,    setProgress]    = useState('')
+  const [error,       setError]       = useState('')
+  // Allow changing the type when replacing data
+  const [datasetType, setDatasetType] = useState(date.datasetType || 'pointcloud')
   const inputRef = useRef(null)
 
   function handleFileChange(e) {
@@ -61,9 +63,9 @@ function DateRow({ site, date, onUploaded }) {
     try {
       const formData = new FormData()
       files.forEach(f => formData.append('files', f, f.webkitRelativePath || f.relativePath || f.name))
-      const res  = await fetch(`${API_BASE}/api/sites/${site.id}/dates/${date.id}/upload`, {
-        method: 'POST', body: formData,
-      })
+      // Pass dataset_type as a query param so the server can update it if changed
+      const url = `${API_BASE}/api/sites/${site.id}/dates/${date.id}/upload?dataset_type=${datasetType}`
+      const res  = await fetch(url, { method: 'POST', body: formData })
       const data = await res.json()
       if (!res.ok) { setError(data.detail || `Error ${res.status}`); return }
       setProgress('완료!')
@@ -77,47 +79,51 @@ function DateRow({ site, date, onUploaded }) {
     }
   }
 
-  async function handleDrop(e) {
-    e.preventDefault()
-    setDragOver(false)
-    const items = [...e.dataTransfer.items]
-    const droppedFiles = await getDroppedFiles(items)
-    if (!droppedFiles.length) return
-    setFiles(droppedFiles)
-    setError('')
+  // ── Folder drop — fixed readEntries 100-item limit ────────────────────
+  function readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const all = []
+      function readBatch() {
+        reader.readEntries(entries => {
+          if (!entries.length) { resolve(all); return }
+          all.push(...entries)
+          readBatch()
+        }, reject)
+      }
+      readBatch()
+    })
   }
 
   async function readEntry(entry, path = '') {
-    if (entry.isFile) return new Promise(resolve => {
-      entry.file(file => { file.relativePath = path + file.name; resolve([file]) })
+    if (entry.isFile) return new Promise((resolve, reject) => {
+      entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
     })
     if (entry.isDirectory) {
-      const reader = entry.createReader()
-      return new Promise(resolve => {
-        const all = []
-        const readBatch = () => reader.readEntries(async entries => {
-          if (!entries.length) {
-            let fs = []
-            for (const child of all) fs.push(...await readEntry(child, path + entry.name + '/'))
-            resolve(fs)
-            return
-          }
-          all.push(...entries)
-          readBatch()
-        })
-        readBatch()
-      })
+      const entries = await readAllEntries(entry.createReader())
+      const results = []
+      for (const child of entries)
+        results.push(...await readEntry(child, path + entry.name + '/'))
+      return results
     }
     return []
   }
 
   async function getDroppedFiles(items) {
-    let fs = []
+    const fs = []
     for (const item of items) {
       const entry = item.webkitGetAsEntry?.()
       if (entry) fs.push(...await readEntry(entry))
     }
     return fs
+  }
+
+  async function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    const droppedFiles = await getDroppedFiles([...e.dataTransfer.items])
+    if (!droppedFiles.length) return
+    setFiles(droppedFiles)
+    setError('')
   }
 
   const folderName =
@@ -152,6 +158,27 @@ function DateRow({ site, date, onUploaded }) {
               <code>{date.datasetPath}</code>
             </div>
           )}
+
+          {/* Type selector — shown when no data yet, or to change type on replace */}
+          <div className="modal-field" style={{ marginBottom: 10 }}>
+            <label>데이터 유형</label>
+            <div className="dup-type-toggle">
+              <button
+                className={`dup-type-btn${datasetType === 'pointcloud' ? ' active' : ''}`}
+                onClick={() => setDatasetType('pointcloud')}
+                disabled={loading}
+              >
+                ☁ Point Cloud
+              </button>
+              <button
+                className={`dup-type-btn${datasetType === 'mesh' ? ' active' : ''}`}
+                onClick={() => setDatasetType('mesh')}
+                disabled={loading}
+              >
+                ◈ 3D Mesh
+              </button>
+            </div>
+          </div>
           <div
             className={`upload-dropzone${dragOver ? ' dragging' : ''}${files.length ? ' has-files' : ''}`}
             onClick={() => inputRef.current?.click()}
@@ -258,36 +285,41 @@ function NewDateCard({ site, onCreated }) {
 
   async function handleDrop(e) {
     e.preventDefault(); setDragOver(false)
-    const items = [...e.dataTransfer.items]
-    const droppedFiles = await getDroppedFiles(items)
+    const droppedFiles = await getDroppedFiles([...e.dataTransfer.items])
     if (!droppedFiles.length) return
     setFiles(droppedFiles); setError('')
   }
 
+  function readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const all = []
+      function readBatch() {
+        reader.readEntries(entries => {
+          if (!entries.length) { resolve(all); return }
+          all.push(...entries)
+          readBatch()
+        }, reject)
+      }
+      readBatch()
+    })
+  }
+
   async function readEntry(entry, path = '') {
-    if (entry.isFile) return new Promise(resolve => {
-      entry.file(file => { file.relativePath = path + file.name; resolve([file]) })
+    if (entry.isFile) return new Promise((resolve, reject) => {
+      entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
     })
     if (entry.isDirectory) {
-      const reader = entry.createReader()
-      return new Promise(resolve => {
-        const all = []
-        const readBatch = () => reader.readEntries(async entries => {
-          if (!entries.length) {
-            let fs = []
-            for (const child of all) fs.push(...await readEntry(child, path + entry.name + '/'))
-            resolve(fs); return
-          }
-          all.push(...entries); readBatch()
-        })
-        readBatch()
-      })
+      const entries = await readAllEntries(entry.createReader())
+      const results = []
+      for (const child of entries)
+        results.push(...await readEntry(child, path + entry.name + '/'))
+      return results
     }
     return []
   }
 
   async function getDroppedFiles(items) {
-    let fs = []
+    const fs = []
     for (const item of items) {
       const entry = item.webkitGetAsEntry?.()
       if (entry) fs.push(...await readEntry(entry))

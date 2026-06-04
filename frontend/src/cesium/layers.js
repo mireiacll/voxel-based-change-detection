@@ -125,7 +125,7 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
   const useZOffset = isMesh ? zOffset : null
 
   const result = await Promise.allSettled([
-    _loadTileset(dateObj.datasetPath, true, maxSSE, useZOffset),
+    _loadTileset(dateObj.datasetPath, true, maxSSE, dateObj.datasetType, useZOffset),
   ])
 
   if (result[0].value) {
@@ -154,8 +154,8 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
   const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
 
   const [r0, r1] = await Promise.allSettled([
-    _loadTileset(dateA.datasetPath, true, 8, zOffset),
-    _loadTileset(dateB.datasetPath, true, 8, zOffset),
+    _loadTileset(dateA.datasetPath, true, 8, dateA.datasetType, zOffset),
+    _loadTileset(dateB.datasetPath, true, 8, dateB.datasetType, zOffset),
   ])
 
   state.meshA = r0.value || null
@@ -176,7 +176,7 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
 //  GENERIC TILESET LOADER  (internal)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function _loadTileset(url, show, maxSSE, zOffset) {
+async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
   if (!url) return null
   try {
     const Cesium = window.Cesium
@@ -186,7 +186,7 @@ async function _loadTileset(url, show, maxSSE, zOffset) {
     window.viewer.scene.primitives.add(ts)
     ts.show = show
 
-    if (url.includes('mesh') && zOffset != null) {
+    if (datasetType === 'mesh' && zOffset != null) {
       const center = ts.boundingSphere.center
       const carto  = Cesium.Cartographic.fromCartesian(center)
       const offset = Cesium.Cartesian3.fromRadians(
@@ -218,33 +218,6 @@ export function setPointSize(ts, size) {
 export function applyPcStyle(pointSize) {
   _pointSize = pointSize
   if (state.pc) setPointSize(state.pc, pointSize)
-  requestRender()
-}
-
-/**
- * Re-apply mesh Z-offset to the currently loaded mesh without reloading.
- * Called when the user edits the offset in the panel.
- */
-export function applyMeshZOffset(zOffset) {
-  if (!state.mesh) return
-  const Cesium = window.Cesium
-  const center = state.mesh.boundingSphere.center
-  const carto  = Cesium.Cartographic.fromCartesian(center)
-
-  // Re-compute translation from the tileset's natural centre
-  // We need the ORIGINAL centre (before any modelMatrix), so reset first
-  state.mesh.modelMatrix = Cesium.Matrix4.IDENTITY.clone()
-  const origCenter = state.mesh.boundingSphere.center
-  const origCarto  = Cesium.Cartographic.fromCartesian(origCenter)
-
-  const offset = Cesium.Cartesian3.fromRadians(
-    origCarto.longitude, origCarto.latitude,
-    origCarto.height + zOffset
-  )
-  const translation = Cesium.Cartesian3.subtract(
-    offset, origCenter, new Cesium.Cartesian3()
-  )
-  state.mesh.modelMatrix = Cesium.Matrix4.fromTranslation(translation)
   requestRender()
 }
 

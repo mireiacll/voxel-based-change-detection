@@ -84,8 +84,9 @@ export const CONFIG = {
   // ── Visual defaults ───────────────────────────────────────────────────────
   DEFAULTS: {
     //USE_TERRAIN:   true,
-    SHOW_MESH:     true,
-    SHOW_PC:       false,
+    SHOW_DATASET:  true,
+    // SHOW_MESH:     true,
+    // SHOW_PC:       false,
     POINT_SIZE:    1,
     PC_COLOR:      'rgb',
     SHOW_ADDED:    true,

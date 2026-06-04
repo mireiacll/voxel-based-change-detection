@@ -705,7 +705,6 @@ kbd {
 }
 
 /* Site row */
-.pd-site { }
 
 .pd-site-row {
   display: flex; align-items: center; gap: 4px;
@@ -1155,3 +1154,365 @@ kbd {
   font-size: 11px; cursor: pointer; transition: .15s;
 }
 .btn-edit-site:hover { border-color: var(--border2); color: var(--text); }
+
+/* ================================================================
+   viewer-additions.css
+   Paste these rules into viewer.css (or @import this file).
+   They add styles for the new NavBar, tab overlays, DataUploadPage,
+   and remove the old TopBar/ProjectDrawer patterns.
+   ================================================================ */
+
+/* ── Reset body/app layout to account for NavBar ── */
+#cesiumContainer {
+  position: fixed;
+  top: var(--nav-h, 44px);
+  left: 0; right: 0; bottom: 0;
+}
+#cesiumContainer.cesium-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── NavBar ── */
+:root {
+  --nav-h: 44px;
+  --nav-bg: #0e0e14;
+  --nav-border: rgba(255,255,255,0.07);
+}
+
+#nav-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--nav-h);
+  background: var(--nav-bg);
+  border-bottom: 1px solid var(--nav-border);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 900;
+  padding: 0 12px;
+  backdrop-filter: blur(8px);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg, #e8e8f0);
+  padding-right: 20px;
+  flex-shrink: 0;
+}
+.nav-logo-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.nav-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: 2px;
+  flex: 1;
+}
+
+.nav-tab {
+  position: relative;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted, #8888aa);
+  font-size: 12.5px;
+  padding: 0 14px;
+  height: 100%;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.nav-tab:hover:not(:disabled) { color: var(--fg, #e8e8f0); }
+.nav-tab.active {
+  color: var(--fg, #e8e8f0);
+  border-bottom-color: #5c8fff;
+}
+.nav-tab:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.nav-tab-dot {
+  position: absolute;
+  top: 8px; right: 6px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #5c8fff;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+.nav-site-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--nav-border);
+  border-radius: 4px;
+  padding: 3px 9px;
+  max-width: 200px;
+  overflow: hidden;
+}
+.nav-site-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #4caf82;
+  flex-shrink: 0;
+}
+.nav-site-label {
+  font-size: 11px;
+  color: var(--fg, #e8e8f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-coords {
+  font-size: 10.5px;
+  color: var(--muted, #8888aa);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: 3px;
+}
+.nav-coords-sep { opacity: 0.4; }
+
+/* ── Tab overlays ── */
+.tab-overlay {
+  position: fixed;
+  top: var(--nav-h, 44px);
+  left: 0; right: 0; bottom: 0;
+  background: #07070d;
+  overflow-y: auto;
+  z-index: 800;
+}
+
+/* ProjectLauncher inside a tab-overlay needs no extra backdrop */
+.tab-overlay .launcher-overlay {
+  position: static;
+  min-height: 100%;
+  background: transparent;
+}
+
+/* ── DataUploadPage ── */
+.dup-overlay {
+  min-height: 100%;
+  padding: 32px 0;
+  display: flex;
+  justify-content: center;
+}
+.dup-inner {
+  width: 100%;
+  max-width: 680px;
+  padding: 0 24px;
+}
+.dup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+.dup-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg, #e8e8f0);
+  margin-bottom: 4px;
+}
+.dup-subtitle {
+  font-size: 12px;
+  color: var(--muted, #8888aa);
+}
+.dup-hint {
+  font-size: 11px;
+  color: var(--muted, #8888aa);
+  max-width: 260px;
+  text-align: right;
+  line-height: 1.5;
+}
+
+.dup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dup-date-card {
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 6px;
+  background: var(--card-bg, #12121c);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.dup-date-card-open {
+  border-color: rgba(92,143,255,0.3);
+}
+
+.dup-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.dup-date-header:hover { background: rgba(255,255,255,0.02); }
+
+.dup-date-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dup-date-label {
+  font-size: 13px;
+  color: var(--fg, #e8e8f0);
+  font-weight: 500;
+}
+.dup-date-code {
+  font-size: 10.5px;
+  color: var(--muted, #8888aa);
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.dup-badge-none    { background: rgba(255,255,255,0.05); color: var(--muted, #8888aa); }
+.dup-badge-mesh    { background: rgba(212,144,80,0.15);  color: #d49050; }
+.dup-badge-pc      { background: rgba(140,100,220,0.15); color: #a07aee; }
+
+.dup-upload-toggle {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  background: rgba(255,255,255,0.04);
+  color: var(--muted, #8888aa);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dup-upload-toggle:hover { background: rgba(255,255,255,0.08); color: var(--fg, #e8e8f0); }
+.dup-upload-toggle.has-data { border-color: rgba(212,144,80,0.3); color: #d49050; }
+
+.dup-upload-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+}
+.dup-current {
+  font-size: 10.5px;
+  color: var(--muted, #8888aa);
+  margin-bottom: 10px;
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.dup-current code { word-break: break-all; color: #8898cc; }
+.dup-current-label { flex-shrink: 0; padding-top: 1px; }
+
+.dup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* New date card */
+.dup-new-card {
+  border-style: dashed;
+  border-color: rgba(255,255,255,0.1);
+}
+.dup-new-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px;
+  background: none;
+  border: none;
+  color: var(--muted, #8888aa);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.dup-new-trigger:hover { color: var(--fg, #e8e8f0); }
+.dup-new-plus {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px dashed currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.dup-new-form {
+  padding: 14px;
+}
+.dup-new-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg, #e8e8f0);
+  margin-bottom: 12px;
+}
+
+/* Dataset type toggle */
+.dup-type-toggle {
+  display: flex;
+  gap: 6px;
+}
+.dup-type-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  background: rgba(255,255,255,0.03);
+  color: var(--muted, #8888aa);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dup-type-btn:hover { background: rgba(255,255,255,0.06); color: var(--fg, #e8e8f0); }
+.dup-type-btn.active {
+  border-color: #5c8fff;
+  background: rgba(92,143,255,0.12);
+  color: #8ab4ff;
+}
+
+/* ── date type tag in panel date list ── */
+.date-type-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-left: auto;
+}
+
+/* ── Adjust panel/statusbar to sit below NavBar ── */
+#panel {
+  top: var(--nav-h, 44px);
+}
+#statusbar {
+  bottom: 0;
+  /* already positioned absolute/fixed in base css */
+}
+#draw-banner {
+  top: var(--nav-h, 44px);
+}

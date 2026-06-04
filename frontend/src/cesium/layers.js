@@ -34,16 +34,15 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 export function syncVisibility(mode, checkboxState) {
   // checkboxState is passed from React so we don't read the DOM directly
   const {
-    mesh    = true,
-    pc      = false,
+    dataset = true,
     dateA   = true,
     dateB   = true,
   } = checkboxState || {}
 
   const inCompare = mode === 'compare'
 
-  if (state.mesh)  state.mesh.show  = mesh
-  if (state.pc)    state.pc.show    = pc
+  if (state.mesh)  state.mesh.show  = dataset
+  if (state.pc)    state.pc.show    = dataset
   if (state.meshA) state.meshA.show = inCompare && dateA
   if (state.meshB) state.meshB.show = inCompare && dateB
   if (state.diffPrim) state.diffPrim.show = true
@@ -120,24 +119,26 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
   // meshZOffset: per-date DB value → site default → global config default
   const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
 
-  const [meshRes, pcRes] = await Promise.allSettled([
-    _loadTileset(dateObj.mesh,       true, 8, zOffset),
-    _loadTileset(dateObj.pointCloud, true, 2, null),
+  // Single dataset per date — type determines rendering settings
+  const isMesh = dateObj.datasetType === 'mesh'
+  const maxSSE = isMesh ? 8 : 2
+  const useZOffset = isMesh ? zOffset : null
+
+  const result = await Promise.allSettled([
+    _loadTileset(dateObj.datasetPath, true, maxSSE, useZOffset),
   ])
 
-  if (meshRes.value) {
-    state.mesh = meshRes.value
-    toast('✓ 3D Mesh loaded', 'ok')
-  } else if (dateObj.mesh) {
-    toast('Mesh not found — check path in config.js', 'warn')
-  }
-
-  if (pcRes.value) {
-    state.pc = pcRes.value
-    setPointSize(state.pc, _pointSize)
-    toast('✓ Point Cloud loaded', 'ok')
-  } else if (dateObj.pointCloud) {
-    toast('Point cloud not found — check path in config.js', 'warn')
+  if (result[0].value) {
+    if (isMesh) {
+      state.mesh = result[0].value
+      toast('✓ 3D Mesh loaded', 'ok')
+    } else {
+      state.pc = result[0].value
+      setPointSize(state.pc, _pointSize)
+      toast('✓ Point Cloud loaded', 'ok')
+    }
+  } else if (dateObj.datasetPath) {
+    toast('Dataset not found — check path', 'warn')
   }
 
   syncVisibility(currentMode || 'view', checkboxState)
@@ -153,8 +154,8 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
   const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
 
   const [r0, r1] = await Promise.allSettled([
-    _loadTileset(dateA.mesh, true, 8, zOffset),
-    _loadTileset(dateB.mesh, true, 8, zOffset),
+    _loadTileset(dateA.datasetPath, true, 8, zOffset),
+    _loadTileset(dateB.datasetPath, true, 8, zOffset),
   ])
 
   state.meshA = r0.value || null

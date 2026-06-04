@@ -1,121 +1,95 @@
 /**
  * App.jsx — root React component
  *
- * Holds all UI state and wires it to the imperative Cesium layer.
+ * Navigation model:
+ *   navTab === 'projects'  → ProjectLauncher overlay (full screen)
+ *   navTab === 'upload'    → DataUploadPage overlay  (full screen)
+ *   navTab === 'analysis'  → Cesium viewer + Panel
  *
- * Pattern:
- *   React state change → re-renders panel UI
- *                      → calls imperative function (loadDate, syncVisibility…)
- *                      → Cesium scene updates
+ * Mesh Z offset is read from DB on site load and applied silently —
+ * no UI control.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
-import { loadDate, syncVisibility, clearLayers, clearCompareLayers, applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset, renderVoxelDiff } from './cesium/layers'
+import { loadDate, syncVisibility, clearLayers, clearCompareLayers,
+         applyPcStyle, setDateATint, setDateBTint, applyMeshZOffset,
+         renderVoxelDiff } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
 import { loadDiffSnapshots, snapshotToRenderVoxels } from './timelineDiffs'
 
-import TopBar          from './components/TopBar'
+import NavBar          from './components/NavBar'
 import Panel           from './components/Panel'
 import DrawBanner      from './components/DrawBanner'
 import StatusBar       from './components/StatusBar'
 import Toasts          from './components/Toasts'
 import ProjectLauncher from './components/ProjectLauncher'
-import ProjectDrawer   from './components/ProjectDrawer'
 import NewProjectModal from './components/NewProjectModal'
-import AddDateModal    from './components/AddDateModal'
-import UploadModal     from './components/UploadModal'
+import DataUploadPage  from './components/DataUploadPage'
 import TimelineBar     from './components/TimelineBar'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
-// ═════════════════════════════════════════════════════════════════════════
-
 export default function App() {
-  // ── Project launcher / drawer ─────────────────────────────────────────
-  const [showLauncher,  setShowLauncher]  = useState(true)
+  // Navigation: 'projects' | 'upload' | 'analysis'
+  const [navTab,        setNavTab]        = useState('projects')
   const [launcherReady, setLauncherReady] = useState(false)
-  const [drawerOpen,    setDrawerOpen]    = useState(false)
-
-  // ── Modal state ───────────────────────────────────────────────────────
   const [showNewProject, setShowNewProject] = useState(false)
-  const [addDateSite,    setAddDateSite]    = useState(null)   // site to add a date to
-  const [uploadState,    setUploadState]    = useState(null)   // { site, date, type }
 
-  // ── Site / date ──────────────────────────────────────────────────────
   const [activeSite, setActiveSite] = useState(null)
   const [activeDate, setActiveDate] = useState(null)
   const [sites,      setSites]      = useState([])
   const [mode,       setMode]       = useState('view')
 
-  // ── Layer visibility toggles ─────────────────────────────────────────
-  const [showMesh,    setShowMesh]    = useState(CONFIG.DEFAULTS.SHOW_MESH)
-  const [showPc,      setShowPc]      = useState(CONFIG.DEFAULTS.SHOW_PC)
+  // const [showMesh,    setShowMesh]    = useState(CONFIG.DEFAULTS.SHOW_MESH)
+  // const [showPc,      setShowPc]      = useState(CONFIG.DEFAULTS.SHOW_PC)
+  const [showDataset, setShowDataset] = useState(CONFIG.DEFAULTS.SHOW_DATASET)
   const [showTerrain, setShowTerrain] = useState(CONFIG.TERRAIN.ENABLED)
   const [showDateA,   setShowDateA]   = useState(true)
   const [showDateB,   setShowDateB]   = useState(true)
   const [showAdded,   setShowAdded]   = useState(CONFIG.DEFAULTS.SHOW_ADDED)
   const [showRemoved, setShowRemoved] = useState(CONFIG.DEFAULTS.SHOW_REMOVED)
 
-  // ── Tint controls ────────────────────────────────────────────────────
   const [colorA, setColorA] = useState('#d49050')
   const [alphaA, setAlphaA] = useState(0.9)
   const [colorB, setColorB] = useState('#4d9fff')
   const [alphaB, setAlphaB] = useState(0.9)
 
-  // ── Compare selects ──────────────────────────────────────────────────
   const [compareIdA, setCompareIdA] = useState('')
   const [compareIdB, setCompareIdB] = useState('')
+  const [pcSize, setPcSize]         = useState(CONFIG.DEFAULTS.POINT_SIZE)
+  const [voxelSize, setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
+  const [meshZOffset, setMeshZOffset] = useState(CONFIG.DEFAULTS.MESH_Z_OFFSET)
 
-  // ── Point cloud size ─────────────────────────────────────────────────
-  const [pcSize, setPcSize] = useState(CONFIG.DEFAULTS.POINT_SIZE)
-
-  // ── Voxel size input ─────────────────────────────────────────────────
-  const [voxelSize, setVoxelSize] = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
-
-  // ── Status bar ───────────────────────────────────────────────────────
   const [statusMsg,  setStatusMsg]  = useState('Initialising viewer…')
   const [statusDone, setStatusDone] = useState(false)
+  const [toasts,     setToasts]     = useState([])
 
-  // ── Toasts ───────────────────────────────────────────────────────────
-  const [toasts, setToasts] = useState([])
-
-  // ── Draw banner + button label ────────────────────────────────────────
   const [drawBanner,   setDrawBanner]   = useState(false)
   const [drawInfo,     setDrawInfo]     = useState('No area selected — diff runs on full extent')
   const [drawBtnLabel, setDrawBtnLabel] = useState('✏ Draw Area')
 
-  // ── Diff ─────────────────────────────────────────────────────────────
   const [diffStatus,  setDiffStatus]  = useState({ state: '', msg: '' })
   const [diffRunning, setDiffRunning] = useState(false)
   const [stats,       setStats]       = useState(null)
+  const [coords,      setCoords]      = useState({ lat: '—', lon: '—', height: '—' })
 
-  // ── Coordinates ──────────────────────────────────────────────────────
-  const [coords, setCoords] = useState({ lat: '—', lon: '—', height: '—' })
-
-  const [meshZOffset, setMeshZOffset] = useState(CONFIG.DEFAULTS.MESH_Z_OFFSET)
-
-  // ── Timeline ──────────────────────────────────────────────────────────
   const [tlSnapshots,   setTlSnapshots]   = useState(null)
   const [tlActiveIndex, setTlActiveIndex] = useState(0)
   const [tlLoading,     setTlLoading]     = useState(false)
   const [tlPlaying,     setTlPlaying]     = useState(false)
+  const tlPlayTimer = useRef(null)
+  const viewerReady = useRef(false)
 
-const tlPlayTimer = useRef(null)
-
-  // ── Auto-advance play timer ───────────────────────────────────────────
   useEffect(() => {
     if (tlPlayTimer.current) clearInterval(tlPlayTimer.current)
     if (tlPlaying && tlSnapshots?.length) {
       tlPlayTimer.current = setInterval(() => {
         setTlActiveIndex(i => {
           const next = i + 1
-          if (next >= tlSnapshots.length) {
-            setTlPlaying(false)   // stop at end
-            return i
-          }
+          if (next >= tlSnapshots.length) { setTlPlaying(false); return i }
           return next
         })
       }, 2500)
@@ -123,76 +97,54 @@ const tlPlayTimer = useRef(null)
     return () => clearInterval(tlPlayTimer.current)
   }, [tlPlaying, tlSnapshots])
 
-  const viewerReady = useRef(false)
-
-  // ── Build checkbox state object ───────────────────────────────────────
   const checkboxState = useCallback(() => ({
-    mesh:    showMesh,
-    pc:      showPc,
-    dateA:   showDateA,
-    dateB:   showDateB,
-    added:   showAdded,
-    removed: showRemoved,
-    terrain: showTerrain,
-  }), [showMesh, showPc, showDateA, showDateB, showAdded, showRemoved, showTerrain])
+    dataset: showDataset, dateA: showDateA, dateB: showDateB,
+    added: showAdded, removed: showRemoved, terrain: showTerrain,
+  }), [showDataset, showDateA, showDateB, showAdded, showRemoved, showTerrain])
 
-  // ── Toasts helper ────────────────────────────────────────────────────
   const addToast = useCallback((msg, type = 'ok') => {
     const id = Date.now() + Math.random()
     setToasts(prev => [...prev, { id, msg, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
   }, [])
 
-  // ── Fetch sites from backend ─────────────────────────────────────────
   const refreshSites = useCallback(async () => {
     try {
       const res  = await fetch(`${API_BASE}/api/sites`)
       const data = await res.json()
       return data.sites || []
-    } catch (e) {
-      console.error('[refreshSites]', e)
-      return []
-    }
+    } catch (e) { console.error('[refreshSites]', e); return [] }
   }, [])
 
   useEffect(() => {
     async function setup() {
       setDrawCallbacks(
-        (visible) => setDrawBanner(visible),
-        (info)    => setDrawInfo(info),
-        (label)   => setDrawBtnLabel(label),
+        (v) => setDrawBanner(v),
+        (i) => setDrawInfo(i),
+        (l) => setDrawBtnLabel(l),
       )
       await initViewer({
         onReady:  () => { viewerReady.current = true },
-        onStatus: (msg, done) => {
-          setStatusMsg(msg)
-          setStatusDone(!!done)
-        },
+        onStatus: (msg, done) => { setStatusMsg(msg); setStatusDone(!!done) },
         onToast:  addToast,
         onCoords: setCoords,
       })
-
       const loadedSites = await refreshSites()
       setSites(loadedSites)
       setLauncherReady(true)
-
-      if (loadedSites.length === 0) return
-
+      if (!loadedSites.length) return
       const first     = loadedSites[0]
       const firstDate = first.dates[0] ?? null
-
       setActiveSite(first)
       setActiveDate(firstDate)
       setMeshZOffset(first.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
       setCompareIdA(firstDate?.id || '')
       setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
       window.currentSite = first
-
-      // Skip launcher when there is only one site
       if (loadedSites.length === 1) {
-        setShowLauncher(false)
+        setNavTab('analysis')
         if (firstDate) {
-          loadDate(first, firstDate, 'view', { mesh: CONFIG.DEFAULTS.SHOW_MESH, pc: CONFIG.DEFAULTS.SHOW_PC })
+          loadDate(first, firstDate, 'view', { dataset: CONFIG.DEFAULTS.SHOW_DATASET})
           flyTo(first.camera.lon, first.camera.lat, first.camera.height)
         }
       }
@@ -200,85 +152,37 @@ const tlPlayTimer = useRef(null)
     setup()
   }, [addToast, refreshSites])
 
-  // ── Load timeline snapshots when entering timeline mode ───────────────
   useEffect(() => {
-    
-    if (mode !== 'timeline' || !activeSite) return
-    if (tlSnapshots !== null) return
-
+    if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) return
     setTlLoading(true)
-
     loadDiffSnapshots(activeSite)
       .then(snaps => {
-        setTlSnapshots(snaps)
-        setTlActiveIndex(0)
-
-        if (snaps.length > 0) {
-          renderTimelineSnapshot(
-            snaps,
-            0,
-            showAdded,
-            showRemoved
-          )
-        }
+        setTlSnapshots(snaps); setTlActiveIndex(0)
+        if (snaps.length > 0) renderTimelineSnapshot(snaps, 0, showAdded, showRemoved)
       })
       .finally(() => setTlLoading(false))
-  }, [mode, activeSite, tlSnapshots, showAdded, showRemoved
-  ])
+  }, [mode, activeSite, tlSnapshots, showAdded, showRemoved])
 
-  // ── Render the active timeline snapshot when index / visibility changes ─
-  function renderTimelineSnapshot(snaps,idx,addedVisible,removedVisible
-  ) {
-    const snap = snaps?.[idx]
-
-    if (!snap) return
-
+  function renderTimelineSnapshot(snaps, idx, addedV, removedV) {
+    const snap = snaps?.[idx]; if (!snap) return
     window.diffState = window.diffState ?? {}
-
-    window.diffState.gridDef = {
-      lonStep: snap.grid_def.lon_step,
-      latStep: snap.grid_def.lat_step,
-      hStep: snap.grid_def.h_step,
-    }
-
-    const voxels = snapshotToRenderVoxels(
-      snap,
-      addedVisible,
-      removedVisible
-    )
-
-    renderVoxelDiff(voxels, snap.vox_size)
+    window.diffState.gridDef = { lonStep: snap.grid_def.lon_step, latStep: snap.grid_def.lat_step, hStep: snap.grid_def.h_step }
+    renderVoxelDiff(snapshotToRenderVoxels(snap, addedV, removedV), snap.vox_size)
   }
 
-  // Re-render when active index changes (scrubbing)
   useEffect(() => {
-    if (mode !== 'timeline') return
-    if (!tlSnapshots?.length) return
+    if (mode !== 'timeline' || !tlSnapshots?.length) return
+    renderTimelineSnapshot(tlSnapshots, tlActiveIndex, showAdded, showRemoved)
+  }, [tlActiveIndex, mode, tlSnapshots, showAdded, showRemoved])
 
-    renderTimelineSnapshot(
-      tlSnapshots,
-      tlActiveIndex,
-      showAdded,
-      showRemoved
-    )
-  }, [
-    tlActiveIndex,
-    mode,
-    tlSnapshots,
-    showAdded,
-    showRemoved
-  ])
-
-  // ── Keyboard shortcuts ────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return
-      if (e.key === 'm') setShowMesh(v => !v)
-      if (e.key === 'p') setShowPc(v => !v)
+      if (navTab !== 'analysis') return
+      if (e.key === 'm') setShowDataset(v => !v)
       if (e.key === 'a') setShowAdded(v => !v)
       if (e.key === 'r') setShowRemoved(v => !v)
       if (e.key === 'd' && mode === 'compare') togglePolygonDraw()
-      // Timeline navigation
       if (mode === 'timeline') {
         if (e.key === 'ArrowLeft')  setTlActiveIndex(i => Math.max(0, i - 1))
         if (e.key === 'ArrowRight') setTlActiveIndex(i => Math.min((tlSnapshots?.length ?? 1) - 1, i + 1))
@@ -292,110 +196,52 @@ const tlPlayTimer = useRef(null)
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, activeSite])
+  }, [mode, activeSite, navTab])
 
-  // ── Sync Cesium visibility ────────────────────────────────────────────
   useEffect(() => {
     if (!viewerReady.current) return
-    syncVisibility(mode, {
-      mesh:  showMesh,
-      pc:    showPc,
-      dateA: showDateA,
-      dateB: showDateB,
-      terrain: showTerrain,
-    })
-  }, [mode, showMesh, showPc, showDateA, showDateB, showTerrain])
+    syncVisibility(mode, { dataset: showDataset, dateA: showDateA, dateB: showDateB, terrain: showTerrain })
+  }, [mode, showDataset, showDateA, showDateB, showTerrain])
 
-  //useEffect(() => { reapplyDiffFilter(showAdded, showRemoved) }, [showAdded, showRemoved])
   useEffect(() => {
-    if (mode === 'timeline') {
-      if (tlSnapshots?.length) {
-        renderTimelineSnapshot(
-          tlSnapshots,
-          tlActiveIndex,
-          showAdded,
-          showRemoved
-        )
-      }
-    } else {
+    if (mode === 'timeline' && tlSnapshots?.length)
+      renderTimelineSnapshot(tlSnapshots, tlActiveIndex, showAdded, showRemoved)
+    else
       reapplyDiffFilter(showAdded, showRemoved)
-    }
-  }, [
-    showAdded,
-    showRemoved,
-    mode,
-    tlSnapshots,
-    tlActiveIndex
-  ])
-  useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
+  }, [showAdded, showRemoved, mode, tlSnapshots, tlActiveIndex])
 
-  // ── Tint B ────────────────────────────────────────────────────────────
+  useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
   useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
   useEffect(() => { applyPcStyle(pcSize) }, [pcSize])
   useEffect(() => { applyMeshZOffset(meshZOffset) }, [meshZOffset])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
 
-  // ════════════════════════════════════════════════════════════════════
-  //  EVENT HANDLERS
-  // ════════════════════════════════════════════════════════════════════
+  // ── Event handlers ────────────────────────────────────────────────────
 
-  // ── Open a project (from launcher card or drawer row) ────────────────
   function handleOpenProject(site) {
     const isSame = site.id === activeSite?.id
-    setShowLauncher(false)
-    setDrawerOpen(false)
-    if (isSame && !showLauncher) return
-
+    if (isSame && navTab === 'analysis') return
     const firstDate = site.dates[0] || null
-
-    // ── 1. Cancel any running diff ────────────────────────────────────────
-    if (diffRunning) {
-      cancelVoxelDiff()
-      setDiffRunning(false)
-    }
-
-    // ── 2. Clear Cesium scene ─────────────────────────────────────────────
+    if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
     clearLayers()
-    if (window.diffState) {
-      window.diffState.voxels  = []
-      window.diffState.gridDef = null
-    }
-
-    // ── 3. Clear drawn polygon ────────────────────────────────────────────
+    if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
     clearPolygon()
-
-    // ── 4. Reset React UI state ───────────────────────────────────────────
-    setMode('view')
-    setStats(null)
-    setDiffStatus({ state: '', msg: '' })
+    setMode('view'); setStats(null); setDiffStatus({ state: '', msg: '' })
     setDrawInfo('No area selected — diff runs on full extent')
     setDrawBtnLabel('✏ Draw Area')
     setCompareIdA(site.dates[0]?.id || '')
     setCompareIdB(site.dates[1]?.id || site.dates[0]?.id || '')
-    setTlSnapshots(null)
-    setTlActiveIndex(0)
-    setTlPlaying(false)
-    setActiveSite(site)
-    setActiveDate(firstDate)
+    setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
+    setActiveSite(site); setActiveDate(firstDate)
     window.currentSite = site
-
     setMeshZOffset(site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET)
-
-    // ── 5. Load first date + fly ──────────────────────────────────────────
-    // Deferred one tick so the React state flush and clearLayers complete
-    // before we start adding new primitives to the scene.
+    setNavTab('analysis')
     if (firstDate) {
       setTimeout(() => {
-        loadDate(site, firstDate, 'view', { mesh: showMesh, pc: showPc })
+        loadDate(site, firstDate, 'view', { dataset: showDataset })
         flyTo(site.camera.lon, site.camera.lat - 0.006, site.camera.height)
       }, 0)
     }
-  }
-
-  // ── New project modal ────────────────────────────────────────────────
-  function handleNewProject() {
-    setDrawerOpen(false)
-    setShowNewProject(true)
   }
 
   async function handleProjectCreated(newSite) {
@@ -403,257 +249,129 @@ const tlPlayTimer = useRef(null)
     const updated = await refreshSites()
     setSites(updated)
     addToast(`Project "${newSite.label}" created`, 'ok')
-    // Auto-open new project
     const full = updated.find(s => s.id === newSite.id)
     if (full) handleOpenProject(full)
   }
 
-  // ── Add date modal ───────────────────────────────────────────────────
-  function handleAddDate(site) {
-    setAddDateSite(site)
-  }
-
-  async function handleDateCreated(newDate) {
-    const site = addDateSite
-    setAddDateSite(null)
+  async function handleDataChanged() {
     const updated = await refreshSites()
     setSites(updated)
-
-    // If the site is currently active, update activeSite too
-    if (activeSite && activeSite.id === site.id) {
-      const updatedSite = updated.find(s => s.id === site.id)
-      if (updatedSite) setActiveSite(updatedSite)
+    if (activeSite) {
+      const updatedSite = updated.find(s => s.id === activeSite.id)
+      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
     }
-    addToast(`Date "${newDate.label}" added to ${site.label ?? site.id}`, 'ok')
-  }
-
-  // ── Upload modal ─────────────────────────────────────────────────────
-  function handleUpload(site, date, type) {
-    setUploadState({ site, date, type })
-  }
-
-  async function handleUploaded() {
-    const { site, type } = uploadState
-    setUploadState(null)
-    const updated = await refreshSites()
-    setSites(updated)
-
-    // Update activeSite if it's the one we just uploaded to
-    if (activeSite && activeSite.id === site.id) {
-      const updatedSite = updated.find(s => s.id === site.id)
-      if (updatedSite) {
-        setActiveSite(updatedSite)
-        window.currentSite = updatedSite
-      }
-    }
-    const label = type === 'mesh' ? 'Mesh' : 'Point cloud'
-    addToast(`${label} uploaded successfully`, 'ok')
+    addToast('데이터가 업데이트되었습니다', 'ok')
   }
 
   function handleDateChange(d) {
     if (mode === 'compare') return
     if (d.id === activeDate?.id) return
     setActiveDate(d)
-    loadDate(activeSite, d, mode, { mesh: showMesh, pc: showPc })
+    loadDate(activeSite, d, mode, { dataset: showDataset })
   }
 
-  function handleModeChange(newMode) {
-    setMode(newMode)
-  }
+  function handleModeChange(newMode) { setMode(newMode) }
 
   async function handleRunDiff() {
     if (diffRunning) return
     const dA = activeSite.dates.find(d => d.id === compareIdA)
     const dB = activeSite.dates.find(d => d.id === compareIdB)
-
-    if (!compareIdA || !compareIdB) { addToast('Select both dates first', 'warn'); return }
-    if (compareIdA === compareIdB)  { addToast('Select two different dates', 'warn'); return }
-    if (!dA || !dB)                 { addToast('Date not found in config', 'warn'); return }
-
+    if (!compareIdA || !compareIdB) { addToast('두 날짜를 먼저 선택하세요', 'warn'); return }
+    if (compareIdA === compareIdB)  { addToast('서로 다른 날짜를 선택하세요', 'warn'); return }
+    if (!dA || !dB)                 { addToast('날짜를 찾을 수 없습니다', 'warn'); return }
+    if (!dA.datasetPath || !dB.datasetPath) { addToast('선택한 날짜 중 데이터가 없습니다', 'warn'); return }
     setDiffRunning(true)
     try {
       await runVoxelDiff(
-        activeSite, dA, dB, mode,
-        voxelSize,
-        { hex: colorA, alpha: alphaA },
-        { hex: colorB, alpha: alphaB },
+        activeSite, dA, dB, mode, voxelSize,
+        { hex: colorA, alpha: alphaA }, { hex: colorB, alpha: alphaB },
         checkboxState(),
         (st, msg) => setDiffStatus({ state: st, msg }),
-        (s)       => setStats(s),
+        (s) => setStats(s),
       )
-    } finally {
-      setDiffRunning(false)
-    }
+    } finally { setDiffRunning(false) }
   }
 
   function handleClearDiff() {
-    // If a diff is currently computing, cancel it first
-    if (diffRunning) {
-      cancelVoxelDiff()
-      setDiffRunning(false)
-    }
-    clearCompareLayers()
-    setStats(null)
+    if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
+    clearCompareLayers(); setStats(null)
     setDiffStatus({ state: '', msg: '' })
     setDrawInfo('No area selected — diff runs on full extent')
   }
 
-  async function handleSaveMeshZOffset() {
-    if (!activeSite) return
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/sites/${activeSite.id}/z-offset`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mesh_z_offset: meshZOffset }),
-        }
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  function handleCameraSite() { flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40) }
+  function handleCameraTop()  { flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height * 1.2, -90) }
 
-      setActiveSite(prev => ({ ...prev, meshZOffset }))
-      setSites(prev => prev.map(s => s.id === activeSite.id ? { ...s, meshZOffset } : s))
-      addToast('Mesh Z offset saved', 'ok')
-    } catch (err) {
-      console.error(err)
-      addToast('Failed to save mesh Z offset', 'warn')
-    }
+  function handleNavTab(tab) {
+    if ((tab === 'upload' || tab === 'analysis') && !activeSite) return
+    setNavTab(tab)
   }
 
-  function handleCameraSite() {
-    flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40)
-  }
-  function handleCameraTop() {
-    flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height * 1.2, -90)
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════════════════════════════════════════
+  const showAnalysis = navTab === 'analysis'
 
   return (
     <>
-      <div id="cesiumContainer" className={mode === 'timeline' ? 'tl-mode' : ''} />
+      <div id="cesiumContainer" className={`${mode === 'timeline' ? 'tl-mode' : ''}${showAnalysis ? '' : ' cesium-hidden'}`} />
 
-      {showLauncher && (
-        <ProjectLauncher
-          sites={sites}
-          loading={!launcherReady}
-          onSelect={handleOpenProject}
-          onNewProject={handleNewProject}
-        />
+      <NavBar tab={navTab} onTab={handleNavTab} activeSite={activeSite} coords={showAnalysis ? coords : null} />
+
+      {navTab === 'projects' && (
+        <div className="tab-overlay">
+          <ProjectLauncher
+            sites={sites}
+            loading={!launcherReady}
+            onSelect={handleOpenProject}
+            onNewProject={() => setShowNewProject(true)}
+          />
+        </div>
       )}
 
-      <ProjectDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        sites={sites}
-        activeSite={activeSite}
-        onSelectSite={handleOpenProject}
-        onNewProject={handleNewProject}
-        onAddDate={handleAddDate}
-        onUpload={handleUpload}
-      />
+      {navTab === 'upload' && activeSite && (
+        <div className="tab-overlay">
+          <DataUploadPage site={activeSite} onUploaded={handleDataChanged} onCreated={handleDataChanged} />
+        </div>
+      )}
 
-      {/* ── Modals ── */}
-      <NewProjectModal
-        open={showNewProject}
-        onClose={() => setShowNewProject(false)}
-        onCreated={handleProjectCreated}
-      />
+      <NewProjectModal open={showNewProject} onClose={() => setShowNewProject(false)} onCreated={handleProjectCreated} />
 
-      <AddDateModal
-        open={!!addDateSite}
-        site={addDateSite}
-        onClose={() => setAddDateSite(null)}
-        onCreated={handleDateCreated}
-      />
+      {showAnalysis && (
+        <>
+          <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
+          {activeSite && (
+            <Panel
+              mode={mode}             onModeChange={handleModeChange}
+              activeSite={activeSite} activeDate={activeDate}   onDateChange={handleDateChange}
+              pcSize={pcSize}         onPcSize={setPcSize}
+              showDataset={showDataset} onShowDataset={setShowDataset}
+              showTerrain={showTerrain} onShowTerrain={setShowTerrain}
+              compareIdA={compareIdA} onCompareIdA={setCompareIdA}
+              compareIdB={compareIdB} onCompareIdB={setCompareIdB}
+              showDateA={showDateA}   onShowDateA={setShowDateA}
+              showDateB={showDateB}   onShowDateB={setShowDateB}
+              colorA={colorA}         onColorA={setColorA}
+              alphaA={alphaA}         onAlphaA={setAlphaA}
+              colorB={colorB}         onColorB={setColorB}
+              alphaB={alphaB}         onAlphaB={setAlphaB}
+              showAdded={showAdded}     onShowAdded={setShowAdded}
+              showRemoved={showRemoved} onShowRemoved={setShowRemoved}
+              voxelSize={voxelSize}     onVoxelSize={setVoxelSize}
+              drawInfo={drawInfo}       drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
+              diffRunning={diffRunning} onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}
+              diffStatus={diffStatus}   stats={stats}
+              onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
+              tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
+              tlOnSelect={i => setTlActiveIndex(i)}
+              tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
+              tlLoading={tlLoading}           tlOnRecompute={() => setTlSnapshots(null)}
+            />
+          )}
+          {mode === 'timeline' && tlSnapshots?.length > 0
+            ? <TimelineBar snapshots={tlSnapshots} activeIndex={tlActiveIndex} onSelect={i => setTlActiveIndex(i)} playing={tlPlaying} onPlayPause={() => setTlPlaying(v => !v)} />
+            : <StatusBar msg={statusMsg} done={statusDone} />
+          }
+        </>
+      )}
 
-      <UploadModal
-        open={!!uploadState}
-        site={uploadState?.site}
-        date={uploadState?.date}
-        type={uploadState?.type}
-        onClose={() => setUploadState(null)}
-        onUploaded={handleUploaded}
-      />
-
-      <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
-
-      <TopBar
-        activeSite={activeSite}
-        coords={coords}
-        onLogoClick={() => setDrawerOpen(v => !v)}
-      />
-
-    {activeSite && (
-      <Panel
-        // mode
-        mode={mode}
-        onModeChange={handleModeChange}
-        // dates
-        activeSite={activeSite}
-        activeDate={activeDate}
-        onDateChange={handleDateChange}
-        onEditSite={() => setAddDateSite(activeSite)}
-        // layer toggles
-        showMesh={showMesh}    onShowMesh={setShowMesh}
-        showPc={showPc}        onShowPc={setShowPc}
-        pcSize={pcSize}        onPcSize={setPcSize}
-
-        meshZOffset={meshZOffset}
-        onMeshZOffset={setMeshZOffset}
-        onSaveMeshZOffset={handleSaveMeshZOffset}
-
-        showTerrain={showTerrain} onShowTerrain={setShowTerrain}
-        // compare
-        compareIdA={compareIdA} onCompareIdA={setCompareIdA}
-        compareIdB={compareIdB} onCompareIdB={setCompareIdB}
-        showDateA={showDateA}  onShowDateA={setShowDateA}
-        showDateB={showDateB}  onShowDateB={setShowDateB}
-        colorA={colorA}        onColorA={setColorA}
-        alphaA={alphaA}        onAlphaA={setAlphaA}
-        colorB={colorB}        onColorB={setColorB}
-        alphaB={alphaB}        onAlphaB={setAlphaB}
-        // change detection
-        showAdded={showAdded}     onShowAdded={setShowAdded}
-        showRemoved={showRemoved} onShowRemoved={setShowRemoved}
-        voxelSize={voxelSize}     onVoxelSize={setVoxelSize}
-        drawInfo={drawInfo}
-        drawBtnLabel={drawBtnLabel}
-        onDrawArea={togglePolygonDraw}
-        diffRunning={diffRunning}
-        onRunDiff={handleRunDiff}
-        onClearDiff={handleClearDiff}
-        diffStatus={diffStatus}
-        stats={stats}
-        // camera
-        onCameraSite={handleCameraSite}
-        onCameraTop={handleCameraTop}
-        // timeline
-        tlSnapshots={tlSnapshots}
-        tlActiveIndex={tlActiveIndex}
-        tlOnSelect={i => setTlActiveIndex(i)}
-        tlPlaying={tlPlaying}
-        tlOnPlayPause={() => setTlPlaying(v => !v)}
-        tlLoading={tlLoading}
-        tlOnRecompute={() => {
-          setTlSnapshots(null)   // clear cache → triggers reload
-        }}
-      />
-    )}
-
-      {/* Timeline bottom bar — replaces status bar when in timeline mode */}
-      {mode === 'timeline' && tlSnapshots?.length > 0
-        ? <TimelineBar
-            snapshots={tlSnapshots}
-            activeIndex={tlActiveIndex}
-            onSelect={i => setTlActiveIndex(i)}
-            playing={tlPlaying}
-            onPlayPause={() => setTlPlaying(v => !v)}
-          />
-        : <StatusBar msg={statusMsg} done={statusDone} />
-      }
       <Toasts items={toasts} />
     </>
   )

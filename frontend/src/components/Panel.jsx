@@ -1,8 +1,10 @@
 /**
- * Panel.jsx — the entire left sidebar
+ * Panel.jsx — left sidebar for the Analysis view
+ * Z offset controls removed (handled via DB only).
+ * Single dataset per date — no separate mesh/PC toggles in Compare.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import TimelinePanel from './TimelinePanel'
 
 function Toggle({ id, checked, onChange }) {
@@ -22,26 +24,16 @@ function fmt(n, voxSize) {
 
 export default function Panel({
   mode, onModeChange,
-  // dates (view mode)
   activeSite, activeDate, onDateChange,
-  // layer toggles
-  showMesh, onShowMesh,
-  showPc,   onShowPc,
+  showDataset, onShowDataset,
   pcSize,   onPcSize,
   showTerrain, onShowTerrain,
-
-  meshZOffset, onMeshZOffset,
-  onSaveMeshZOffset,
-
-  // compare selects
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
-  // compare layer toggles + tints
   showDateA, onShowDateA,
   showDateB, onShowDateB,
   colorA, onColorA, alphaA, onAlphaA,
   colorB, onColorB, alphaB, onAlphaB,
-  // change detection
   showAdded,   onShowAdded,
   showRemoved, onShowRemoved,
   voxelSize,   onVoxelSize,
@@ -49,7 +41,6 @@ export default function Panel({
   diffRunning, onRunDiff, onClearDiff,
   diffStatus, stats,
   onCameraSite, onCameraTop,
-  // ── Timeline props ─────────────────────────────────────────────────────
   tlSnapshots, tlActiveIndex, tlOnSelect,
   tlPlaying,   tlOnPlayPause,
   tlLoading,   tlOnRecompute,
@@ -58,19 +49,11 @@ export default function Panel({
   const inCompare  = mode === 'compare'
   const inTimeline = mode === 'timeline'
 
-  const [meshOffsetInput, setMeshOffsetInput] = useState(meshZOffset)
-
-  useEffect(() => { setMeshOffsetInput(meshZOffset) }, [meshZOffset])
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const v = parseFloat(meshOffsetInput)
-      if (!Number.isNaN(v)) onMeshZOffset(v)
-    }, 400)
-    return () => clearTimeout(t)
-  }, [meshOffsetInput, onMeshZOffset])
-
   const netM3 = stats ? (stats.added - stats.removed) * stats.voxSize ** 3 : 0
+
+  const currentType = activeDate?.datasetType
+  const isPointCloud = currentType === 'pointcloud'
+  const isMesh = currentType === 'mesh'
 
   return (
     <aside id="panel">
@@ -87,7 +70,7 @@ export default function Panel({
         <div className="p-label">Survey Date</div>
         <div id="date-list">
           {activeSite.dates.length === 0
-            ? <div className="no-dates">No dates configured</div>
+            ? <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
             : activeSite.dates.map(d => (
                 <button
                   key={d.id}
@@ -96,6 +79,11 @@ export default function Panel({
                 >
                   <span className="date-label">{d.label}</span>
                   <span className="date-id">{d.id}</span>
+                  {d.datasetType && (
+                    <span className={`date-type-tag ${d.datasetType === 'mesh' ? 'ltag-amber' : 'ltag-purple'}`}>
+                      {d.datasetType === 'mesh' ? '3DT' : 'PC'}
+                    </span>
+                  )}
                 </button>
               ))
           }
@@ -105,27 +93,21 @@ export default function Panel({
       <div className={`p-section${!inView ? ' hidden' : ''}`} id="section-layers">
         <div className="p-label">Layers</div>
         <div className="layer-row">
-          <Toggle id="chk-mesh" checked={showMesh} onChange={onShowMesh} />
+          <Toggle id="chk-dataset" checked={showDataset} onChange={onShowDataset} />
           <div className="layer-body">
-            <div className="layer-name">3D Mesh</div>
-            <div className="layer-type">3D Tiles · mago3d-tiler</div>
+            <div className="layer-name">3D Tiles</div>
+            <div className="layer-type">3D Tiles</div>
           </div>
-          <span className="ltag ltag-amber">3DT</span>
+          <span className={`ltag ${isMesh ? 'ltag-amber' : 'ltag-purple'}`}>{isMesh ? '3DT' : 'PC'}</span>
         </div>
-        <div className="layer-row">
-          <Toggle id="chk-pc" checked={showPc} onChange={onShowPc} />
-          <div className="layer-body">
-            <div className="layer-name">Point Cloud</div>
-            <div className="layer-type">3D Tiles · py3dtiles</div>
+        {isPointCloud && (
+          <div className="sub-row">
+            <span className="sub-label">Size</span>
+            <input type="range" id="sl-pc-size" min="1" max="20" step="0.5"
+              value={pcSize} onChange={e => onPcSize(parseFloat(e.target.value))} />
+            <span className="sub-val">{pcSize}</span>
           </div>
-          <span className="ltag ltag-purple">PC</span>
-        </div>
-        <div className="sub-row">
-          <span className="sub-label">Size</span>
-          <input type="range" id="sl-pc-size" min="1" max="20" step="0.5"
-            value={pcSize} onChange={e => onPcSize(parseFloat(e.target.value))} />
-          <span className="sub-val">{pcSize}</span>
-        </div>
+        )}
         <div className="layer-row">
           <Toggle id="chk-terrain" checked={showTerrain} onChange={onShowTerrain} />
           <div className="layer-body">
@@ -134,26 +116,17 @@ export default function Panel({
           </div>
           <span className="ltag ltag-green">DEM</span>
         </div>
-        <div className="p-label" style={{ marginTop: 12 }}>Mesh Height Offset</div>
-        <div className="voxel-size-row">
-          <label htmlFor="mesh-z-offset-input">Offset</label>
-          <input type="number" id="mesh-z-offset-input" min="-500" max="500" step="0.01"
-            value={meshOffsetInput} className="mesh-offset-input"
-            onChange={e => setMeshOffsetInput(e.target.value)} />
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>m</span>
-        </div>
-        <button className="pbtn" style={{ marginTop: 8 }} onClick={onSaveMeshZOffset}>Save to DB</button>
       </div>
 
       {/* ══════════════════ COMPARE MODE ══════════════════ */}
       <div className={`p-section${!inCompare ? ' hidden' : ''}`} id="section-compare">
-        <div className="p-label">Select Two Dates</div>
+        <div className="p-label">날짜 선택</div>
         <div className="compare-pair">
           <div className="compare-row">
             <span className="compare-dot dot-a" />
             <span style={{ fontSize: 11, color: 'var(--muted)', width: 14, flexShrink: 0 }}>A</span>
             <select value={compareIdA} onChange={e => onCompareIdA(e.target.value)}>
-              <option value="">— select date —</option>
+              <option value="">— 날짜 선택 —</option>
               {activeSite.dates.map(d => <option key={d.id} value={d.id}>{d.label} ({d.id})</option>)}
             </select>
           </div>
@@ -161,13 +134,13 @@ export default function Panel({
             <span className="compare-dot dot-b" />
             <span style={{ fontSize: 11, color: 'var(--muted)', width: 14, flexShrink: 0 }}>B</span>
             <select value={compareIdB} onChange={e => onCompareIdB(e.target.value)}>
-              <option value="">— select date —</option>
+              <option value="">— 날짜 선택 —</option>
               {activeSite.dates.map(d => <option key={d.id} value={d.id}>{d.label} ({d.id})</option>)}
             </select>
           </div>
         </div>
 
-        <div className="p-label" style={{ marginTop: 10 }}>Area Filter</div>
+        <div className="p-label" style={{ marginTop: 10 }}>영역 필터</div>
         <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
         <div id="draw-info">{drawInfo}</div>
 
@@ -180,31 +153,23 @@ export default function Panel({
 
         <div className="compare-action-buttons">
           <button id="btn-run-diff" disabled={diffRunning} onClick={onRunDiff}>
-            {diffRunning ? '⟳ Computing…' : '⚡ Run diff'}
+            {diffRunning ? '⟳ 계산 중…' : '⚡ 차이 계산'}
           </button>
           <button id="btn-clear-diff"
             style={diffRunning ? { borderColor: '#d49050', color: '#d49050' } : {}}
             onClick={onClearDiff}>
-            {diffRunning ? '⏹ Stop computation' : '✖ Clear comparison'}
+            {diffRunning ? '⏹ 중지' : '✖ 초기화'}
           </button>
         </div>
 
         <div id="diff-status" data-state={diffStatus.state}>{diffStatus.msg}</div>
-
-        <div className="legend" style={{ marginTop: 10 }}>
-          <div className="p-label" style={{ marginBottom: 6 }}>Legend</div>
-          <div className="legend-row"><span className="compare-dot dot-a" style={{ background: colorA }} />Date A — amber tint (before)</div>
-          <div className="legend-row"><span className="compare-dot dot-b" style={{ background: colorB }} />Date B — blue tint (after)</div>
-          <div className="legend-row"><span className="legend-swatch" style={{ background: 'var(--added)' }} />Added volume (B − A)</div>
-          <div className="legend-row"><span className="legend-swatch" style={{ background: 'var(--removed)' }} />Removed volume (A − B)</div>
-        </div>
       </div>
 
       <div className={`p-section${!inCompare ? ' hidden' : ''}`} id="section-changedetection">
         <div className="p-label">Datasets</div>
         <div className="layer-row">
           <Toggle id="chk-date-a" checked={showDateA} onChange={onShowDateA} />
-          <div className="layer-body"><div className="layer-name">Date A</div><div className="layer-type">Before — amber tint</div></div>
+          <div className="layer-body"><div className="layer-name">Date A</div><div className="layer-type">Before</div></div>
           <div className="dataset-tools">
             <input type="color" id="color-date-a" value={colorA} className="dataset-color" onChange={e => onColorA(e.target.value)} />
           </div>
@@ -216,7 +181,7 @@ export default function Panel({
         </div>
         <div className="layer-row">
           <Toggle id="chk-date-b" checked={showDateB} onChange={onShowDateB} />
-          <div className="layer-body"><div className="layer-name">Date B</div><div className="layer-type">After — blue tint</div></div>
+          <div className="layer-body"><div className="layer-name">Date B</div><div className="layer-type">After</div></div>
           <div className="dataset-tools">
             <input type="color" id="color-date-b" value={colorB} className="dataset-color" onChange={e => onColorB(e.target.value)} />
           </div>
@@ -228,34 +193,34 @@ export default function Panel({
         </div>
 
         <div className="cd-divider" />
-        <div className="p-label">Change Detection</div>
+        <div className="p-label">변화 감지</div>
         <div className="layer-row">
           <Toggle id="chk-added" checked={showAdded} onChange={onShowAdded} />
-          <div className="layer-body"><div className="layer-name">Volume Added</div><div className="layer-type">Voxel diff — B present, A absent</div></div>
+          <div className="layer-body"><div className="layer-name">추가된 부피</div><div className="layer-type">Voxel diff — B 존재, A 부재</div></div>
           <span className="ltag" style={{ background: '#2a1010', color: 'var(--added)' }}>ADD</span>
         </div>
         <div className="layer-row">
           <Toggle id="chk-removed" checked={showRemoved} onChange={onShowRemoved} />
-          <div className="layer-body"><div className="layer-name">Volume Removed</div><div className="layer-type">Voxel diff — A present, B absent</div></div>
+          <div className="layer-body"><div className="layer-name">제거된 부피</div><div className="layer-type">Voxel diff — A 존재, B 부재</div></div>
           <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
         </div>
 
         <div id="stats-box">
-          <div className="stat-row"><span className="stat-k">Added</span><span className="stat-v" style={{ color: 'var(--added)' }}>{stats ? fmt(stats.added, stats.voxSize) : '—'}</span></div>
-          <div className="stat-row"><span className="stat-k">Removed</span><span className="stat-v" style={{ color: 'var(--removed)' }}>{stats ? fmt(stats.removed, stats.voxSize) : '—'}</span></div>
+          <div className="stat-row"><span className="stat-k">추가</span><span className="stat-v" style={{ color: 'var(--added)' }}>{stats ? fmt(stats.added, stats.voxSize) : '—'}</span></div>
+          <div className="stat-row"><span className="stat-k">제거</span><span className="stat-v" style={{ color: 'var(--removed)' }}>{stats ? fmt(stats.removed, stats.voxSize) : '—'}</span></div>
           <div className="stat-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 6 }}>
-            <span className="stat-k">Net change</span>
+            <span className="stat-k">순 변화</span>
             <span className="stat-v" style={{ color: stats ? (netM3 >= 0 ? 'var(--added)' : 'var(--removed)') : 'inherit' }}>
               {stats ? (netM3 >= 0 ? '+' : '') + (Math.abs(netM3) < 10000 ? netM3.toFixed(1) + ' m³' : (netM3 / 1000).toFixed(2) + 'k m³') : '—'}
             </span>
           </div>
-          <div className="stat-row" style={{ marginTop: 2 }}>
-            <span className="stat-k">Resolution</span>
+          <div className="stat-row">
+            <span className="stat-k">해상도</span>
             <span className="stat-v" style={{ fontSize: 10, color: 'var(--muted)' }}>
               {stats ? `${stats.added + stats.removed} voxels @ ${stats.voxSize}m` + (stats.clipped ? ' (polygon)' : '') : '—'}
             </span>
           </div>
-          {!stats && <div id="stats-note">Switch to Compare mode and run a diff</div>}
+          {!stats && <div id="stats-note">비교 모드에서 차이를 계산하세요</div>}
         </div>
       </div>
 
@@ -276,7 +241,7 @@ export default function Panel({
         />
       )}
 
-      {/* ── Camera (always visible) ── */}
+      {/* ── Camera ── */}
       <div className="p-section">
         <div className="p-label">Camera</div>
         <div className="btn-row">
@@ -288,11 +253,11 @@ export default function Panel({
       {/* ── Shortcuts ── */}
       <div className="key-hints">
         <div className="p-label">Shortcuts</div>
-        <div className="key-hint-row"><kbd>M</kbd> Toggle mesh &nbsp; <kbd>P</kbd> Toggle point cloud</div>
+        <div className="key-hint-row"><kbd>M</kbd> Dataset </div>
         <div className="key-hint-row"><kbd>A</kbd> Added &nbsp; <kbd>R</kbd> Removed</div>
-        <div className="key-hint-row"><kbd>D</kbd> Draw area (compare mode)</div>
-        <div className="key-hint-row"><kbd>← →</kbd> Step timeline &nbsp; <kbd>Space</kbd> Play</div>
-        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top </div>
+        <div className="key-hint-row"><kbd>D</kbd> Draw area (compare)</div>
+        <div className="key-hint-row"><kbd>← →</kbd> Step &nbsp; <kbd>Space</kbd> Play</div>
+        <div className="key-hint-row"><kbd>1</kbd> Site &nbsp; <kbd>2</kbd> Top</div>
       </div>
 
     </aside>

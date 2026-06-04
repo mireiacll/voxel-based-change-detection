@@ -132,13 +132,14 @@ export default function App() {
       setSites(loadedSites)
       setLauncherReady(true)
       if (!loadedSites.length) return
-      const first     = loadedSites[0]
-      const firstDate = first.dates[0] ?? null
-      setActiveSite(first)
-      setActiveDate(firstDate)
-      setCompareIdA(firstDate?.id || '')
-      setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
-      window.currentSite = first
+
+      // const first     = loadedSites[0]
+      // const firstDate = first.dates[0] ?? null
+      // setActiveSite(first)
+      // setActiveDate(firstDate)
+      // setCompareIdA(firstDate?.id || '')
+      // setCompareIdB(first.dates?.[1]?.id || firstDate?.id || '')
+      // window.currentSite = first
       // Always start on the projects tab so the user sees the launcher.
       // Auto-loading happens only after they explicitly open a project.
     }

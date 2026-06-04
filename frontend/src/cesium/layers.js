@@ -39,7 +39,6 @@ export function syncVisibility(mode, checkboxState) {
   } = checkboxState || {}
 
   const inCompare  = mode === 'compare'
-  const inTimeline = mode === 'timeline'
 
   // In all modes the background date tileset stays visible (gated by its toggle).
   // Only in compare mode do we show the A/B pair.
@@ -49,7 +48,9 @@ export function syncVisibility(mode, checkboxState) {
   if (state.meshB) state.meshB.show = inCompare && dateB
   if (state.diffPrim) state.diffPrim.show = true
 
-  requestRender()
+  requestAnimationFrame(() => {
+    requestRender()
+  })
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

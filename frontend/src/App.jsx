@@ -14,8 +14,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible } from './cesium/cesiumInit'
 import { loadDate, syncVisibility, clearLayers, clearCompareLayers,
-         applyPcStyle, setDateATint, setDateBTint, 
-         renderVoxelDiff } from './cesium/layers'
+         applyPcStyle, setDateATint, setDateBTint,
+         renderVoxelDiff, invalidateTilesetUrl } from './cesium/layers'
 import { runVoxelDiff, reapplyDiffFilter, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon } from './cesium/polygonDraw'
 import { loadDiffSnapshots, snapshotToRenderVoxels } from './timelineDiffs'
@@ -249,7 +249,25 @@ export default function App() {
     setSites(updated)
     if (activeSite) {
       const updatedSite = updated.find(s => s.id === activeSite.id)
-      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+
+      if (updatedSite) {
+        setActiveSite(updatedSite)
+
+        window.currentSite = updatedSite
+
+        const updatedDate = updatedSite.dates.find(d => d.id === activeDate?.id)
+
+        // Always sync activeDate so Panel badge reflects new datasetType immediately
+        if (updatedDate) setActiveDate(updatedDate)
+
+        if (updatedDate && navTab === 'upload') {
+          // Invalidate Cesium's URL cache so it fetches fresh data, not the
+          // old tileset that was served from the same path before re-upload.
+          if (updatedDate.datasetPath) invalidateTilesetUrl(updatedDate.datasetPath)
+          clearLayers()
+          loadDate(updatedSite, updatedDate, mode, { dataset: showDataset })
+        }
+      }
     }
     addToast('데이터가 업데이트되었습니다', 'ok')
   }
@@ -261,7 +279,7 @@ export default function App() {
     loadDate(activeSite, d, mode, { dataset: showDataset })
   }
 
-  function handleModeChange(newMode) { setMode(newMode) }
+  function handleModeChange(newMode) {setMode(newMode)}
 
   async function handleRunDiff() {
     if (diffRunning) return

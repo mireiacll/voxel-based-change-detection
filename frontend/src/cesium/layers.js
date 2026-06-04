@@ -32,15 +32,17 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function syncVisibility(mode, checkboxState) {
-  // checkboxState is passed from React so we don't read the DOM directly
   const {
     dataset = true,
     dateA   = true,
     dateB   = true,
   } = checkboxState || {}
 
-  const inCompare = mode === 'compare'
+  const inCompare  = mode === 'compare'
+  const inTimeline = mode === 'timeline'
 
+  // In all modes the background date tileset stays visible (gated by its toggle).
+  // Only in compare mode do we show the A/B pair.
   if (state.mesh)  state.mesh.show  = dataset
   if (state.pc)    state.pc.show    = dataset
   if (state.meshA) state.meshA.show = inCompare && dateA
@@ -173,6 +175,30 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  URL CACHE INVALIDATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Tracks how many times each URL has been explicitly invalidated (re-uploaded).
+// _loadTileset appends ?v=N so Cesium's internal resource cache is bypassed.
+const _urlVersion = new Map()
+
+/**
+ * Call after a dataset at `url` has been replaced on disk (e.g. post-upload).
+ * The next load of that URL will fetch fresh data instead of Cesium's cache.
+ */
+export function invalidateTilesetUrl(url) {
+  if (!url) return
+  const base = url.split('?')[0]
+  _urlVersion.set(base, (_urlVersion.get(base) ?? 0) + 1)
+  console.log(
+    '[INVALIDATE]',
+    base,
+    'version=',
+    _urlVersion.get(base)
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  GENERIC TILESET LOADER  (internal)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -180,7 +206,14 @@ async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
   if (!url) return null
   try {
     const Cesium = window.Cesium
-    const ts = await Cesium.Cesium3DTileset.fromUrl(url, {
+
+    // Append a version nonce when the URL has been invalidated so Cesium's
+    // internal resource cache doesn't serve a stale tileset.json.
+    const base     = url.split('?')[0]
+    const version  = _urlVersion.get(base) ?? 0
+    const finalUrl = version > 0 ? `${base}?v=${version}` : base
+
+    const ts = await Cesium.Cesium3DTileset.fromUrl(finalUrl, {
       maximumScreenSpaceError: maxSSE,
     })
     window.viewer.scene.primitives.add(ts)

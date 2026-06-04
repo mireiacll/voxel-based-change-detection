@@ -109,12 +109,7 @@ function _buildDummySnapshots(site) {
  */
 export async function loadDiffSnapshots(site) {
 
-  console.log("Timeline site:", site)
-  console.log("Timeline dates:", site.dates)
   if (_cache.has(site.id)) return _cache.get(site.id)
-
-    console.log("Timeline site:", site)
-    console.log("Timeline dates:", site.dates)
 
   if (!USE_DUMMY) {
     try {

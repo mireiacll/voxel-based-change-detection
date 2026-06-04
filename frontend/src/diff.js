@@ -57,8 +57,8 @@ export async function runVoxelDiff(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         job_id:  _jobId,
-        path_a:  dateA.pointCloud,
-        path_b:  dateB.pointCloud,
+        path_a:  dateA.datasetPath,
+        path_b:  dateB.datasetPath,
         vox_size: voxSize,
         polygon: polygon ?? undefined,
       }),

@@ -56,9 +56,6 @@ _cancel_flags: dict[str, bool] = {}
 #  PYDANTIC MODELS
 # ═════════════════════════════════════════════════════════════════════════
 
-# class MeshZOffsetUpdate(BaseModel):
-#     mesh_z_offset: float = Field(..., description="Z offset in metres for mesh alignment")
-
 class PolygonPoint(BaseModel):
     lon: float
     lat: float

@@ -63,16 +63,17 @@ export default function BottomBar({
 
       <div className="bb-sep" />
 
-      {/* Shortcuts — two mini columns */}
+      {/* Shortcuts — two rows */}
       <div className="bb-shortcuts-block">
         <span className="bb-section-label">단축키</span>
         <div className="bb-shortcuts-cols">
-          <div className="bb-shortcuts-col">
+          <div className="bb-shortcuts-row">
             <span className="bb-key-item"><kbd>A</kbd>추가 토글</span>
             <span className="bb-key-item"><kbd>R</kbd>제거 토글</span>
             <span className="bb-key-item"><kbd>D</kbd>영역 그리기</span>
+            <span className="bb-key-item"><kbd>M</kbd>레이어 토글</span>
           </div>
-          <div className="bb-shortcuts-col">
+          <div className="bb-shortcuts-row">
             <span className="bb-key-item"><kbd>1</kbd>현장 뷰</span>
             <span className="bb-key-item"><kbd>2</kbd>수직 뷰</span>
             {mode === 'timeline' && (

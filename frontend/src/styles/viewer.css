@@ -28,7 +28,7 @@
   --rpw:   280px;   /* right panel width */
   --nav-h: 44px;
   --mshh:  38px;    /* map sub-header height */
-  --bbh:   54px;    /* bottom bar height (taller for vertical layout) */
+  --bbh:   64px;    /* bottom bar height */
   /* Type */
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'IBM Plex Sans', sans-serif;
@@ -486,12 +486,12 @@ select {
 .bb-sep {
   width: 1px; height: 32px;
   background: var(--border);
-  margin: 0 12px; flex-shrink: 0;
+  margin: 0 15px; flex-shrink: 0;
 }
 
 /* Legend block — vertical */
 .bb-legend-block {
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 5px;
   flex-shrink: 0;
 }
 .bb-section-label {
@@ -505,20 +505,21 @@ select {
   border-radius: 2px; flex-shrink: 0;
 }
 
-/* Shortcuts block — two columns */
+/* Shortcuts block — two rows */
 .bb-shortcuts-block {
   display: flex; flex-direction: column; gap: 3px;
   flex-shrink: 0;
 }
 .bb-shortcuts-cols {
-  display: flex; gap: 12px;
+  display: flex; flex-direction: column; gap: 3px;
 }
-.bb-shortcuts-col {
-  display: flex; flex-direction: column; gap: 2px;
+.bb-shortcuts-row {
+  display: flex; align-items: center; gap: 10px;
 }
 .bb-key-item {
   display: flex; align-items: center; gap: 4px;
   font-size: 10px; color: var(--muted);
+  white-space: nowrap;
 }
 .bb-key-item kbd {
   font-size: 9px; padding: 1px 4px;

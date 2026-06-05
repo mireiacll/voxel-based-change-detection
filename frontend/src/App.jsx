@@ -417,7 +417,7 @@ export default function App() {
       <div
         id="cesiumContainer"
         className={[
-          mode === 'timeline' ? 'tl-mode' : '',
+          '',
           showAnalysis ? '' : 'cesium-hidden',
         ].join(' ').trim()}
       />

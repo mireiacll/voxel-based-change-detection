@@ -192,16 +192,17 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'compare') return
     if (lastCompareDiffRef.current) {
-      // Re-render with only the visible types — each type is baked into the
-      // Primitive so we must rebuild it; can't just toggle show on a sub-set
+      // Voxel types are baked into one Primitive — must rebuild to filter by type
       const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
       window.diffState = window.diffState ?? {}
       window.diffState.gridDef = gridDef
-      const filtered = voxels.filter(v =>
-        (v.type === 'added'   && showAdded) ||
-        (v.type === 'removed' && showRemoved)
+      renderVoxelDiff(
+        voxels.filter(v =>
+          (v.type === 'added'   && showAdded) ||
+          (v.type === 'removed' && showRemoved)
+        ),
+        vs
       )
-      renderVoxelDiff(filtered, vs)
     } else {
       syncVisibility(mode, checkState())
     }
@@ -342,7 +343,8 @@ export default function App() {
     } else if (newMode === 'compare') {
       // Restore polygon visibility
       setPolygonVisible(true)
-      // Restore the compare diff — must restore gridDef first since timeline overwrites it
+      // Restore gridDef first — timeline overwrites window.diffState.gridDef
+      // with its snapshot grid, so voxel positions would be wrong without this
       if (lastCompareDiffRef.current) {
         const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
         window.diffState = window.diffState ?? {}
@@ -370,11 +372,12 @@ export default function App() {
         (st, msg) => setDiffStatus({ state: st, msg }),
         s => {
           setStats(s)
-          // Deep-copy voxels + gridDef so timeline can't mutate them
+          // Deep-copy voxels + gridDef — timeline overwrites window.diffState so
+          // we must snapshot everything now to restore correctly later
           if (s && window.diffState?.voxels?.length && window.diffState?.gridDef) {
             lastCompareDiffRef.current = {
-              voxels:   window.diffState.voxels.map(v => ({ type: v.type, voxel: { ...v.voxel } })),
-              gridDef:  { ...window.diffState.gridDef },
+              voxels:    window.diffState.voxels.map(v => ({ type: v.type, voxel: { ...v.voxel } })),
+              gridDef:   { ...window.diffState.gridDef },
               voxelSize: s.voxSize,
             }
           }
@@ -462,23 +465,23 @@ export default function App() {
 
           <Panel
             activeSite={activeSite}
-            compareIdA={compareIdA}     onCompareIdA={setCompareIdA}
-            compareIdB={compareIdB}     onCompareIdB={setCompareIdB}
-            colorA={colorA}             onColorA={setColorA}
-            alphaA={alphaA}             onAlphaA={setAlphaA}
-            colorB={colorB}             onColorB={setColorB}
-            alphaB={alphaB}             onAlphaB={setAlphaB}
-            drawInfo={drawInfo}         drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
-            voxelSize={voxelSize}       onVoxelSize={setVoxelSize}
-            diffRunning={diffRunning}   onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}
-            diffStatus={diffStatus}
+            visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
           />
 
           <RightPanel
             mode={mode}
             activeSite={activeSite}
-            visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
+            compareIdA={compareIdA}         onCompareIdA={setCompareIdA}
+            compareIdB={compareIdB}         onCompareIdB={setCompareIdB}
+            colorA={colorA}                 onColorA={setColorA}
+            alphaA={alphaA}                 onAlphaA={setAlphaA}
+            colorB={colorB}                 onColorB={setColorB}
+            alphaB={alphaB}                 onAlphaB={setAlphaB}
+            drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
+            voxelSize={voxelSize}           onVoxelSize={setVoxelSize}
+            diffRunning={diffRunning}       onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}
+            diffStatus={diffStatus}
             showAdded={showAdded}           onShowAdded={setShowAdded}
             showRemoved={showRemoved}       onShowRemoved={setShowRemoved}
             stats={stats}

@@ -1,11 +1,12 @@
 /**
  * RightPanel.jsx — RIGHT sidebar (analysis view only)
  *
- * · Date list — each row is a toggle: clicking shows/hides that date's layer
- *   (multiple can be visible at once, like the old date-btn list)
- * · C. 분석 결과 — switches content based on mode:
- *     'compare'  → diff stats (added / removed / net / resolution)
- *     'timeline' → TimelinePanel mini chart + period stats + playback
+ * Order:
+ *   [compare mode only]
+ *     1. 날짜 비교   (A/B date selectors + tint + opacity)
+ *     2. 분석 설정   (draw area, voxel size, run/clear diff)
+ *   [always]
+ *     3. 분석 결과   — compare → stats/toggles | timeline → TimelinePanel
  */
 
 import TimelinePanel from './TimelinePanel'
@@ -15,20 +16,19 @@ function fmt(n, voxSize) {
   return m3 < 10000 ? `${m3.toFixed(1)} m³` : `${(m3 / 1000).toFixed(2)}k m³`
 }
 
-function TypeTag({ type }) {
-  if (!type) return null
-  return (
-    <span className={`date-type-tag ${type === 'mesh' ? 'ltag-amber' : 'ltag-purple'}`}>
-      {type === 'mesh' ? '3DT' : 'PC'}
-    </span>
-  )
-}
-
 export default function RightPanel({
   mode,
   activeSite,
-  // visibleDateIds: Set of date ids currently toggled ON
-  visibleDateIds, onToggleDate,
+  // compare-only props (날짜 비교 + 분석 설정)
+  compareIdA, onCompareIdA,
+  compareIdB, onCompareIdB,
+  colorA, onColorA, alphaA, onAlphaA,
+  colorB, onColorB, alphaB, onAlphaB,
+  drawInfo, drawBtnLabel, onDrawArea,
+  voxelSize, onVoxelSize,
+  diffRunning, onRunDiff, onClearDiff,
+  diffStatus,
+  // 분석 결과 props
   showAdded, onShowAdded,
   showRemoved, onShowRemoved,
   stats,
@@ -37,7 +37,7 @@ export default function RightPanel({
   tlPlaying, tlOnPlayPause,
   tlLoading, tlOnRecompute,
 }) {
-  const dates = activeSite?.dates ?? []
+  const dates      = activeSite?.dates ?? []
   const inCompare  = mode === 'compare'
   const inTimeline = mode === 'timeline'
 
@@ -46,38 +46,95 @@ export default function RightPanel({
   return (
     <aside id="right-panel">
 
-      {/* ── A. 관측 데이터 ── */}
-      <div className="p-section">
-        <div className="p-label">관측 데이터</div>
-        <div id="date-list" className="rp-date-list">
-          {dates.length === 0 && (
-            <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
-          )}
-          {dates.map(d => {
-            const isOn = visibleDateIds.has(d.id)
-            return (
-              <button
-                key={d.id}
-                className={`date-btn${isOn ? ' active' : ''}`}
-                onClick={() => onToggleDate(d)}
-              >
-                <span className="date-label">{d.label}</span>
-                <span className="date-id">{d.id}</span>
-                <TypeTag type={d.datasetType} />
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {/* ── 날짜 비교 + 분석 설정 — compare mode only ── */}
+      {inCompare && (
+        <>
+          {/* 날짜 비교 */}
+          <div className="p-section">
+            <div className="p-label">날짜 비교</div>
+            <div className="compare-pair">
 
-      {/* ── C. 분석 결과 ── */}
+              <div className="compare-row">
+                <span className="compare-dot" style={{ background: colorA }} />
+                <span className="compare-ab-lbl">A</span>
+                <select value={compareIdA} onChange={e => onCompareIdA(e.target.value)}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => (
+                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
+                  ))}
+                </select>
+                <input type="color" value={colorA} onChange={e => onColorA(e.target.value)}
+                  className="dataset-color" title="색상 A" />
+              </div>
+              <div className="sub-row dataset-opacity">
+                <span className="sub-label">투명도</span>
+                <input type="range" min="0" max="1" step="0.05"
+                  value={alphaA} onChange={e => onAlphaA(parseFloat(e.target.value))} />
+                <span className="sub-val">{alphaA.toFixed(2)}</span>
+              </div>
+
+              <div className="compare-row" style={{ marginTop: 8 }}>
+                <span className="compare-dot" style={{ background: colorB }} />
+                <span className="compare-ab-lbl">B</span>
+                <select value={compareIdB} onChange={e => onCompareIdB(e.target.value)}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => (
+                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
+                  ))}
+                </select>
+                <input type="color" value={colorB} onChange={e => onColorB(e.target.value)}
+                  className="dataset-color" title="색상 B" />
+              </div>
+              <div className="sub-row dataset-opacity">
+                <span className="sub-label">투명도</span>
+                <input type="range" min="0" max="1" step="0.05"
+                  value={alphaB} onChange={e => onAlphaB(parseFloat(e.target.value))} />
+                <span className="sub-val">{alphaB.toFixed(2)}</span>
+              </div>
+
+            </div>
+          </div>
+
+          {/* 분석 설정 */}
+          <div className="p-section">
+            <div className="p-label">분석 설정</div>
+
+            <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
+            <div id="draw-info">{drawInfo}</div>
+
+            <div className="voxel-size-row" style={{ marginTop: 10 }}>
+              <label htmlFor="voxel-size-input">Voxel 크기</label>
+              <input
+                type="number" id="voxel-size-input"
+                min="0.1" max="10" step="0.1"
+                value={voxelSize}
+                onChange={e => onVoxelSize(parseFloat(e.target.value) || 0.5)}
+              />
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>m</span>
+            </div>
+
+            <div className="compare-action-buttons" style={{ marginTop: 10 }}>
+              <button id="btn-run-diff" disabled={diffRunning} onClick={onRunDiff}>
+                {diffRunning ? '⟳ 계산 중…' : '⚡ 차이 계산'}
+              </button>
+              <button id="btn-clear-diff"
+                style={diffRunning ? { borderColor: '#d49050', color: '#d49050' } : {}}
+                onClick={onClearDiff}>
+                {diffRunning ? '⏹ 중지' : '✖ 초기화'}
+              </button>
+            </div>
+
+            <div id="diff-status" data-state={diffStatus.state}>{diffStatus.msg}</div>
+          </div>
+        </>
+      )}
+
+      {/* ── 분석 결과 ── */}
       <div className="p-section">
         <div className="p-label">분석 결과</div>
 
-        {/* ── Compare results ── */}
         {inCompare && (
           <>
-            {/* Added / Removed voxel visibility toggles */}
             <div className="layer-row">
               <label className="sw">
                 <input type="checkbox" checked={showAdded}
@@ -141,7 +198,6 @@ export default function RightPanel({
           </>
         )}
 
-        {/* ── Timeline results ── */}
         {inTimeline && (
           <TimelinePanel
             snapshots={tlSnapshots}

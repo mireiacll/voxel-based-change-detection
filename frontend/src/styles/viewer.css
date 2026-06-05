@@ -185,7 +185,7 @@ html, body {
 /* ── Left panel ─────────────────────────────────────────────── */
 #panel {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh));
+  top: var(--nav-h);
   left: 0; bottom: var(--bbh);
   width: var(--pw);
   background: var(--surf);
@@ -198,7 +198,7 @@ html, body {
 /* ── Right panel ────────────────────────────────────────────── */
 #right-panel {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh));
+  top: var(--nav-h);
   right: 0; bottom: var(--bbh);
   width: var(--rpw);
   background: var(--surf);

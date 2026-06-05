@@ -191,7 +191,20 @@ export default function App() {
   // ── Re-sync visibility when showAdded/showRemoved toggle in compare ───
   useEffect(() => {
     if (mode !== 'compare') return
-    syncVisibility(mode, checkState())
+    if (lastCompareDiffRef.current) {
+      // Re-render with only the visible types — each type is baked into the
+      // Primitive so we must rebuild it; can't just toggle show on a sub-set
+      const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
+      window.diffState = window.diffState ?? {}
+      window.diffState.gridDef = gridDef
+      const filtered = voxels.filter(v =>
+        (v.type === 'added'   && showAdded) ||
+        (v.type === 'removed' && showRemoved)
+      )
+      renderVoxelDiff(filtered, vs)
+    } else {
+      syncVisibility(mode, checkState())
+    }
   }, [showAdded, showRemoved, mode])
 
   // ── Sync side-effects ────────────────────────────────────────────────
@@ -329,9 +342,11 @@ export default function App() {
     } else if (newMode === 'compare') {
       // Restore polygon visibility
       setPolygonVisible(true)
-      // Restore the compare diff if one was computed
+      // Restore the compare diff — must restore gridDef first since timeline overwrites it
       if (lastCompareDiffRef.current) {
-        const { voxels, voxelSize: vs } = lastCompareDiffRef.current
+        const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
+        window.diffState = window.diffState ?? {}
+        window.diffState.gridDef = gridDef
         renderVoxelDiff(voxels, vs)
       }
       syncVisibility('compare', checkState())
@@ -355,10 +370,11 @@ export default function App() {
         (st, msg) => setDiffStatus({ state: st, msg }),
         s => {
           setStats(s)
-          // Store the rendered voxels so we can restore them after timeline mode
-          if (s && window.diffState?.voxels) {
+          // Deep-copy voxels + gridDef so timeline can't mutate them
+          if (s && window.diffState?.voxels?.length && window.diffState?.gridDef) {
             lastCompareDiffRef.current = {
-              voxels:    window.diffState.voxels,
+              voxels:   window.diffState.voxels.map(v => ({ type: v.type, voxel: { ...v.voxel } })),
+              gridDef:  { ...window.diffState.gridDef },
               voxelSize: s.voxSize,
             }
           }

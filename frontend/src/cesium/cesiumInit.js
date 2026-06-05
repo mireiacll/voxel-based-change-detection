@@ -147,59 +147,61 @@ export function setTerrainVisible(show) {
 
 // ── Add this function to cesiumInit.js ───────────────────────────────────
 
-export function setBasemap(id) {
+export async function setBasemap(id) {
   if (!viewer) return
 
   const layers = viewer.imageryLayers
-
-  // Remove all existing imagery layers
   layers.removeAll()
 
-  switch (id) {
-    case 'aerial':
-      layers.addImageryProvider(
-        new Cesium.IonImageryProvider({ assetId: 2 }) // Bing Aerial
-      )
-      break
+  try {
+    switch (id) {
+      case 'aerial':
+        layers.add(new Cesium.ImageryLayer(
+          await Cesium.IonImageryProvider.fromAssetId(2)
+        ))
+        break
 
-    case 'aerial_roads':
-      layers.addImageryProvider(
-        new Cesium.IonImageryProvider({ assetId: 3 }) // Bing Aerial with Labels
-      )
-      break
+      case 'aerial_roads':
+        layers.add(new Cesium.ImageryLayer(
+          await Cesium.IonImageryProvider.fromAssetId(3)
+        ))
+        break
 
-    case 'osm':
-      layers.addImageryProvider(
-        new Cesium.OpenStreetMapImageryProvider({
-          url: 'https://tile.openstreetmap.org/',
-        })
-      )
-      break
-
-    case 'dark':
-      // Cesium Ion asset 3812 = Mapbox Dark (if you have access),
-      // fallback to a dark-tinted OSM
-      layers.addImageryProvider(
-        new Cesium.OpenStreetMapImageryProvider({
-          url: 'https://tile.openstreetmap.org/',
-        })
-      )
-      // Darken it with a colour filter
-      if (layers.length > 0) {
-        layers.get(0).colorToAlpha = new Cesium.Color(1, 1, 1, 0.5)
-        layers.get(0).brightness   = 0.3
-        layers.get(0).contrast     = 1.8
+      case 'osm': {
+        let provider
+        try {
+          provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
+        } catch (_) {
+          provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
+        }
+        layers.add(new Cesium.ImageryLayer(provider))
+        break
       }
-      break
 
-    case 'none':
-      // Leave layers empty — shows the plain globe
-      break
+      case 'dark': {
+        let provider
+        try {
+          provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
+        } catch (_) {
+          provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
+        }
+        const layer = new Cesium.ImageryLayer(provider)
+        layer.brightness = 0.3
+        layer.contrast   = 1.8
+        layers.add(layer)
+        break
+      }
 
-    default:
-      layers.addImageryProvider(
-        new Cesium.IonImageryProvider({ assetId: 2 })
-      )
+      case 'none':
+        break
+
+      default:
+        layers.add(new Cesium.ImageryLayer(
+          await Cesium.IonImageryProvider.fromAssetId(2)
+        ))
+    }
+  } catch (e) {
+    console.warn('[setBasemap] imagery provider failed:', id, e)
   }
 
   viewer.scene.requestRender()

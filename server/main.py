@@ -2,6 +2,16 @@
 main.py — FastAPI server for 3D Change Detection Viewer
 """
 
+# ── Patch Starlette's form() default limits BEFORE anything else loads ────
+import starlette.requests as _sr
+_original_form = _sr.Request.form
+
+def _patched_form(self, *, max_files=100_000, max_fields=100_000):
+    return _original_form(self, max_files=max_files, max_fields=max_fields)
+
+_sr.Request.form = _patched_form
+# ─────────────────────────────────────────────────────────────────────────
+
 import asyncio
 import os
 import re
@@ -305,20 +315,6 @@ async def create_site(
     )
     site = result.scalar_one()
     return {"site": site.to_dict()}
-
-
-# @app.patch("/api/sites/{site_id}/z-offset")
-# async def update_site_z_offset(
-#     site_id: str,
-#     payload: MeshZOffsetUpdate,
-# ):
-#     async with AsyncSessionLocal() as session:
-#         site = await session.get(Site, site_id)
-#         if site is None:
-#             raise HTTPException(status_code=404, detail="Site not found")
-#         site.mesh_z_offset = payload.mesh_z_offset
-#         await session.commit()
-#         return {"ok": True, "siteId": site_id, "meshZOffset": site.mesh_z_offset}
 
 
 # ═════════════════════════════════════════════════════════════════════════

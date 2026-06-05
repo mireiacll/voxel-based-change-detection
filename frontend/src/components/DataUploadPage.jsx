@@ -199,11 +199,10 @@ function DateRow({ site, date, onUploaded }) {
             ) : (
               <div className="upload-selected">
                 <div className="upload-icon">📁</div>
-                <div>
-                  <strong>{folderName}</strong><br/>
-                  {files.length}개 파일
+                <div className="upload-selected-info">
+                  <strong>{folderName}</strong>
+                  <span className="upload-count">{files.length}개 파일</span>
                 </div>
-                <div className="upload-replace">다른 폴더를 드롭하여 교체</div>
               </div>
             )}
           </div>
@@ -405,8 +404,7 @@ function NewDateCard({ site, onCreated }) {
               ) : (
                 <div className="upload-selected">
                   <div className="upload-icon">📁</div>
-                  <div><strong>{folderName}</strong><br/>{files.length}개 파일</div>
-                  <div className="upload-replace">다른 폴더를 드롭하여 교체</div>
+                  <div className="upload-selected-info"><strong>{folderName}</strong><span className="upload-count">{files.length}개 파일</span></div>
                 </div>
               )}
             </div>

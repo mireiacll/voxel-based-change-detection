@@ -932,9 +932,12 @@ select {
   background: rgba(123,108,247,.08); color: var(--accent2);
 }
 .upload-dropzone input { display: none; }
-.upload-selected { display: flex; align-items: center; gap: 10px; text-align: left; font-size: 12px; }
+.upload-selected { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; font-size: 12px; }
 .upload-icon { font-size: 22px; }
-.upload-replace { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.upload-selected-info { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.upload-selected-info strong { font-size: 12px; color: var(--text); display: block; }
+.upload-selected-info .upload-count { font-size: 10px; color: var(--muted); display: block; }
+.upload-replace { display: none; }
 
 /* ── DataUploadPage ─────────────────────────────────────────── */
 .dup-overlay { min-height: 100%; padding: 32px 0; display: flex; justify-content: center; }

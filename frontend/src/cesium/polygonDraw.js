@@ -27,6 +27,17 @@ export function clearPolygon() {
   _onDrawInfo('No area selected — diff runs on full extent')
 }
 
+/**
+ * Show or hide all polygon entities without destroying them.
+ * Used when switching between compare ↔ timeline modes.
+ */
+export function setPolygonVisible(visible) {
+  _poly.entities.forEach(e => {
+    try { e.show = visible } catch (_) {}
+  })
+  if (window.viewer) requestRender()
+}
+
 export function togglePolygonDraw() {
   if (_poly.drawing || _poly.closed) {
     _clearPoly()

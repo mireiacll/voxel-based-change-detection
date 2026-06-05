@@ -1,15 +1,15 @@
 /**
- * layers.js — ES module version
+ * layers.js — ES module
  *
- * All Cesium calls use the globally available window.Cesium (set by cesiumInit.js).
- * All viewer calls use window.viewer (set by cesiumInit.js).
+ * VISIBILITY RULES:
+ *   view/compare  → mesh or pc  (the "background" single-date layer)
+ *   compare only  → meshA, meshB  (hidden in timeline)
+ *   all modes     → diffPrim (voxel diff boxes; hidden in timeline, shown in compare)
+ *   timeline      → only diffPrim shown (meshA/meshB hidden, mesh/pc hidden)
  *
- * VISIBILITY RULES (enforced by syncVisibility):
- *   mesh      — view mode; gated by chk-mesh
- *   pc        — view mode; gated by chk-pc
- *   meshA     — compare mode; gated by chk-date-a
- *   meshB     — compare mode; gated by chk-date-b
- *   diffPrim  — both modes; always shown, filtered by reapplyDiffFilter()
+ * Per-date toggle: each toggled date loads into state.mesh/pc (only one at a time
+ * for now — multi-date toggle is a future enhancement; the Set in App tracks UI state
+ * but layers.js only holds the last loaded single date layer).
  */
 
 import { CONFIG } from '../config'
@@ -18,11 +18,11 @@ import { setStatus, toast, requestRender } from './cesiumInit'
 export const state = {
   siteId:   null,
   dateId:   null,
-  mesh:     null,
-  pc:       null,
-  meshA:    null,
-  meshB:    null,
-  diffPrim: null,
+  mesh:     null,   // single-date view layer (mesh)
+  pc:       null,   // single-date view layer (point cloud)
+  meshA:    null,   // compare A
+  meshB:    null,   // compare B
+  diffPrim: null,   // voxel diff primitive
 }
 
 let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
@@ -31,22 +31,35 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 //  VISIBILITY SYNC
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * @param {string}  mode           — 'compare' | 'timeline'
+ * @param {object}  checkboxState  — { dataset, dateA, dateB, added, removed }
+ */
 export function syncVisibility(mode, checkboxState) {
   const {
-    dataset = true,
-    dateA   = true,
-    dateB   = true,
+    dataset  = true,
+    dateA    = true,
+    dateB    = true,
+    added    = true,
+    removed  = true,
   } = checkboxState || {}
 
   const inCompare  = mode === 'compare'
+  const inTimeline = mode === 'timeline'
 
-  // In all modes the background date tileset stays visible (gated by its toggle).
-  // Only in compare mode do we show the A/B pair.
-  if (state.mesh)  state.mesh.show  = dataset
-  if (state.pc)    state.pc.show    = dataset
+  // Single-date background layer 
+  if (state.mesh) state.mesh.show = dataset
+  if (state.pc)   state.pc.show   = dataset
+
+  // A/B comparison layers — only in compare mode
   if (state.meshA) state.meshA.show = inCompare && dateA
   if (state.meshB) state.meshB.show = inCompare && dateB
-  if (state.diffPrim) state.diffPrim.show = true
+
+  // Diff primitive — shown in compare (if exists) and timeline
+  // In compare: controlled by showAdded/showRemoved 
+  if (state.diffPrim) {
+    state.diffPrim.show = inCompare || inTimeline
+  }
 
   requestAnimationFrame(() => {
     requestRender()
@@ -68,19 +81,18 @@ function _hexToRgb(hex) {
 function _makeTintStyle(hex, alpha) {
   const { r, g, b } = _hexToRgb(hex)
   return new window.Cesium.Cesium3DTileStyle({
-    //color: `color("rgba(${r},${g},${b},${alpha})")`,
     color: `rgba(${r}, ${g}, ${b}, ${alpha})`
   })
 }
 
 export function setDateATint(hex, alpha) {
   if (state.meshA) state.meshA.style = _makeTintStyle(hex, alpha)
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }
 
 export function setDateBTint(hex, alpha) {
   if (state.meshB) state.meshB.style = _makeTintStyle(hex, alpha)
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -97,14 +109,14 @@ export function clearLayers() {
   _rm(state.diffPrim)
   state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = null
   if (window.diffState) window.diffState.voxels = []
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }
 
 export function clearCompareLayers() {
   _rm(state.meshA); _rm(state.meshB); _rm(state.diffPrim)
   state.meshA = state.meshB = state.diffPrim = null
   if (window.diffState) window.diffState.voxels = []
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -117,42 +129,39 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
 
   state.siteId = site.id
   state.dateId = dateObj.id
-  setStatus(`Loading ${site.labelEn} — ${dateObj.label}…`)
+  setStatus(`Loading ${site.labelEn ?? site.label} — ${dateObj.label}…`)
 
-  // meshZOffset: per-date DB value → site default → global config default
-  const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
+  const zOffset  = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
+  const isMesh   = dateObj.datasetType === 'mesh'
+  const maxSSE   = isMesh ? 8 : 2
+  const useZOff  = isMesh ? zOffset : null
 
-  // Single dataset per date — type determines rendering settings
-  const isMesh = dateObj.datasetType === 'mesh'
-  const maxSSE = isMesh ? 8 : 2
-  const useZOffset = isMesh ? zOffset : null
-
-  const result = await Promise.allSettled([
-    _loadTileset(dateObj.datasetPath, true, maxSSE, dateObj.datasetType, useZOffset),
+  const [result] = await Promise.allSettled([
+    _loadTileset(dateObj.datasetPath, true, maxSSE, dateObj.datasetType, useZOff),
   ])
 
-  if (result[0].value) {
+  if (result.value) {
     if (isMesh) {
-      state.mesh = result[0].value
-      toast('✓ 3D Mesh loaded', 'ok')
+      state.mesh = result.value
+      toast('✓ 3D Mesh 로드됨', 'ok')
     } else {
-      state.pc = result[0].value
+      state.pc = result.value
       setPointSize(state.pc, _pointSize)
-      toast('✓ Point Cloud loaded', 'ok')
+      toast('✓ 포인트 클라우드 로드됨', 'ok')
     }
   } else if (dateObj.datasetPath) {
-    toast('Dataset not found — check path', 'warn')
+    toast('데이터셋을 찾을 수 없습니다 — 경로를 확인하세요', 'warn')
   }
 
-  syncVisibility(currentMode || 'view', checkboxState)
-  setStatus(`${site.labelEn} — ${dateObj.label} ready`, true)
+  syncVisibility(currentMode || 'compare', checkboxState)
+  setStatus(`${site.labelEn ?? site.label} — ${dateObj.label} 준비됨`, true)
 }
 
 export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB, checkboxState) {
   _rm(state.meshA); _rm(state.meshB)
   state.meshA = state.meshB = null
 
-  setStatus(`Loading comparison: ${dateA.label} vs ${dateB.label}…`)
+  setStatus(`비교 로드 중: ${dateA.label} vs ${dateB.label}…`)
 
   const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
 
@@ -164,54 +173,39 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
   state.meshA = r0.value || null
   state.meshB = r1.value || null
 
-  // Apply tint colours supplied by React state
   const ta = tintA || { hex: '#d49050', alpha: 0.9 }
   const tb = tintB || { hex: '#4d9fff', alpha: 0.9 }
   if (state.meshA) state.meshA.style = _makeTintStyle(ta.hex, ta.alpha)
   if (state.meshB) state.meshB.style = _makeTintStyle(tb.hex, tb.alpha)
 
   syncVisibility(currentMode || 'compare', checkboxState)
-  setStatus(`Compare: ${dateA.label} vs ${dateB.label}`, true)
-  requestRender()
+  setStatus(`비교: ${dateA.label} vs ${dateB.label}`, true)
+  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  URL CACHE INVALIDATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Tracks how many times each URL has been explicitly invalidated (re-uploaded).
-// _loadTileset appends ?v=N so Cesium's internal resource cache is bypassed.
 const _urlVersion = new Map()
 
-/**
- * Call after a dataset at `url` has been replaced on disk (e.g. post-upload).
- * The next load of that URL will fetch fresh data instead of Cesium's cache.
- */
 export function invalidateTilesetUrl(url) {
   if (!url) return
   const base = url.split('?')[0]
   _urlVersion.set(base, (_urlVersion.get(base) ?? 0) + 1)
-  console.log(
-    '[INVALIDATE]',
-    base,
-    'version=',
-    _urlVersion.get(base)
-  )
+  console.log('[INVALIDATE]', base, 'v=', _urlVersion.get(base))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERIC TILESET LOADER  (internal)
+//  GENERIC TILESET LOADER (internal)
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
   if (!url) return null
   try {
-    const Cesium = window.Cesium
-
-    // Append a version nonce when the URL has been invalidated so Cesium's
-    // internal resource cache doesn't serve a stale tileset.json.
-    const base     = url.split('?')[0]
-    const version  = _urlVersion.get(base) ?? 0
+    const Cesium  = window.Cesium
+    const base    = url.split('?')[0]
+    const version = _urlVersion.get(base) ?? 0
     const finalUrl = version > 0 ? `${base}?v=${version}` : base
 
     const ts = await Cesium.Cesium3DTileset.fromUrl(finalUrl, {
@@ -232,6 +226,12 @@ async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
       )
       ts.modelMatrix = Cesium.Matrix4.fromTranslation(translation)
     }
+
+    // Fix the render-glitch: force a render after the tileset geometry arrives
+    ts.allTilesLoaded.addEventListener(() => {
+      requestAnimationFrame(() => requestRender())
+    })
+
     return ts
   } catch (e) {
     console.warn('[tileset] Failed:', url, e)
@@ -252,7 +252,7 @@ export function setPointSize(ts, size) {
 export function applyPcStyle(pointSize) {
   _pointSize = pointSize
   if (state.pc) setPointSize(state.pc, pointSize)
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -264,72 +264,42 @@ export function renderVoxelDiff(voxels, voxelSize) {
   state.diffPrim = null
 
   if (!voxels?.length) {
-    requestRender()
+    requestAnimationFrame(() => requestRender())
     return
   }
 
-  const Cesium = window.Cesium
-
+  const Cesium   = window.Cesium
   const addedC   = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.ADDED)
   const removedC = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.REMOVED)
 
-  const {
-    lonStep,
-    latStep,
-    hStep,
-  } = window.diffState.gridDef
+  const { lonStep, latStep, hStep } = window.diffState.gridDef
 
   const instances = voxels.map(v => {
     const { iLon, iLat, iH } = v.voxel
-
-    const lon = (iLon + 0.5) * lonStep
-    const lat = (iLat + 0.5) * latStep
-    const h   = (iH   + 0.5) * hStep
-
+    const lon    = (iLon + 0.5) * lonStep
+    const lat    = (iLat + 0.5) * latStep
+    const h      = (iH   + 0.5) * hStep
     const center = Cesium.Cartesian3.fromDegrees(lon, lat, h)
-
-    const col = (
-      v.type === 'added'
-        ? addedC
-        : removedC
-    ).withAlpha(0.85)
+    const col    = (v.type === 'added' ? addedC : removedC).withAlpha(0.85)
 
     return new Cesium.GeometryInstance({
       geometry: Cesium.BoxGeometry.fromDimensions({
-        dimensions: new Cesium.Cartesian3(
-          voxelSize,
-          voxelSize,
-          voxelSize
-        ),
-        vertexFormat:
-          Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
+        dimensions:   new Cesium.Cartesian3(voxelSize, voxelSize, voxelSize),
+        vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
       }),
-
-      modelMatrix:
-        Cesium.Transforms.eastNorthUpToFixedFrame(center),
-
-      attributes: {
-        color:
-          Cesium.ColorGeometryInstanceAttribute.fromColor(col),
-      },
+      modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(center),
+      attributes:  { color: Cesium.ColorGeometryInstanceAttribute.fromColor(col) },
     })
   })
 
-  state.diffPrim =
-    window.viewer.scene.primitives.add(
-      new Cesium.Primitive({
-        geometryInstances: instances,
+  state.diffPrim = window.viewer.scene.primitives.add(
+    new Cesium.Primitive({
+      geometryInstances:        instances,
+      appearance:               new Cesium.PerInstanceColorAppearance({ translucent: true, closed: true }),
+      releaseGeometryInstances: true,
+      compressVertices:         false,
+    })
+  )
 
-        appearance:
-          new Cesium.PerInstanceColorAppearance({
-            translucent: true,
-            closed: true,
-          }),
-
-        releaseGeometryInstances: true,
-        compressVertices: false,
-      })
-    )
-
-  requestRender()
+  requestAnimationFrame(() => requestRender())
 }

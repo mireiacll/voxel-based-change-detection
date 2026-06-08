@@ -22,7 +22,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
     camera_lon:    '',
     camera_lat:    '',
     camera_height: '600',
-    mesh_z_offset: '',
   })
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
@@ -57,7 +56,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
           camera_lon:    parseFloat(camera_lon),
           camera_lat:    parseFloat(camera_lat),
           camera_height: parseFloat(camera_height),
-          mesh_z_offset: form.mesh_z_offset ? parseFloat(form.mesh_z_offset) : null,
         }),
       })
       const data = await res.json()
@@ -66,7 +64,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
         return
       }
       // Reset form
-      setForm({ id: '', label: '', label_en: '', camera_lon: '', camera_lat: '', camera_height: '600', mesh_z_offset: '' })
+      setForm({ id: '', label: '', label_en: '', camera_lon: '', camera_lat: '', camera_height: '600' })
       onCreated(data.site)
     } catch (e) {
       setError('Network error: ' + e.message)
@@ -145,8 +143,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
             </div>
           </div>
 
-          <div className="modal-row">
-            <div className="modal-field">
+          <div className="modal-field">
               <label>Camera Height (m)</label>
               <input
                 type="number"
@@ -156,17 +153,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
                 placeholder="600"
               />
             </div>
-            <div className="modal-field">
-              <label>Mesh Z Offset (m) <span className="modal-hint">optional</span></label>
-              <input
-                type="number"
-                step="any"
-                value={form.mesh_z_offset}
-                onChange={e => update('mesh_z_offset', e.target.value)}
-                placeholder="e.g. 119.575"
-              />
-            </div>
-          </div>
 
           {error && <div className="modal-error">{error}</div>}
         </div>

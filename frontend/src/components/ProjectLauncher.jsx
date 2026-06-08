@@ -88,7 +88,6 @@ function EditSiteModal({ site, onClose, onSaved }) {
   const [lon,     setLon]     = useState(String(site.camera?.lon    ?? ''))
   const [lat,     setLat]     = useState(String(site.camera?.lat    ?? ''))
   const [height,  setHeight]  = useState(String(site.camera?.height ?? ''))
-  const [zOffset, setZOffset] = useState(String(site.meshZOffset    ?? ''))
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
 
@@ -102,7 +101,6 @@ function EditSiteModal({ site, onClose, onSaved }) {
       if (lon    !== '')   body.camera_lon    = parseFloat(lon)
       if (lat    !== '')   body.camera_lat    = parseFloat(lat)
       if (height !== '')   body.camera_height = parseFloat(height)
-      if (zOffset !== '')  body.mesh_z_offset = parseFloat(zOffset)
 
       const res = await fetch(`${API_BASE}/api/sites/${site.id}`, {
         method: 'PATCH',
@@ -154,10 +152,6 @@ function EditSiteModal({ site, onClose, onSaved }) {
               <label>Camera Height</label>
               <input type="number" step="any" value={height} onChange={e => setHeight(e.target.value)} disabled={saving} />
             </div>
-          </div>
-          <div className="modal-field" style={{ maxWidth: 160 }}>
-            <label>Mesh Z-Offset <span className="modal-hint">(선택)</span></label>
-            <input type="number" step="any" value={zOffset} onChange={e => setZOffset(e.target.value)} disabled={saving} />
           </div>
           {error && <div className="modal-error">{error}</div>}
         </div>

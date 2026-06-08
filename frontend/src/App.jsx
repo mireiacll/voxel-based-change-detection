@@ -307,6 +307,33 @@ export default function App() {
     addToast('데이터가 업데이트되었습니다', 'ok')
   }
 
+  async function handleSiteEdited() {
+    const updated = await refreshSites()
+    setSites(updated)
+    // If the edited site is currently open, sync the activeSite reference
+    if (activeSite) {
+      const updatedSite = updated.find(s => s.id === activeSite.id)
+      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+    }
+    addToast('프로젝트 정보가 업데이트되었습니다', 'ok')
+  }
+
+  async function handleSiteDeleted(siteId) {
+    const updated = await refreshSites()
+    setSites(updated)
+    // If the deleted site was open, close it back to the launcher
+    if (activeSite?.id === siteId) {
+      if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
+      clearLayers()
+      clearPolygon()
+      lastCompareDiffRef.current = null
+      setActiveSite(null)
+      window.currentSite = null
+      setNavTab('projects')
+    }
+    addToast('프로젝트가 삭제되었습니다', 'ok')
+  }
+
   // Core toggle logic — usable from click and keyboard M
   function handleToggleDateById(site, d, currentIds) {
     setVisibleDateIds(prev => {
@@ -431,6 +458,8 @@ export default function App() {
             loading={!launcherReady}
             onSelect={handleOpenProject}
             onNewProject={() => setShowNewProject(true)}
+            onSiteEdited={handleSiteEdited}
+            onSiteDeleted={handleSiteDeleted}
           />
         </div>
       )}

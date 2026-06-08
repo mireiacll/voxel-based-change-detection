@@ -29,7 +29,6 @@ export default function NavBar({ tab, onTab, activeSite }) {
         </div>
         <div className="nav-brand-text">
           <span className="nav-brand-title">변화탐지 플랫폼</span>
-          <span className="nav-brand-sub">시공간 데이터를 시간 단위로 관리하고 변화 정보를 분석하는 플랫폼</span>
         </div>
       </div>
 

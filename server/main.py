@@ -106,10 +106,21 @@ class CreateSiteRequest(BaseModel):
     camera_height: float
     mesh_z_offset: Optional[float] = None
 
+class UpdateSiteRequest(BaseModel):
+    label:         Optional[str]   = None
+    label_en:      Optional[str]   = None
+    camera_lon:    Optional[float] = None
+    camera_lat:    Optional[float] = None
+    camera_height: Optional[float] = None
+    mesh_z_offset: Optional[float] = None
+
 class CreateDateRequest(BaseModel):
     date_code:    str  = Field(..., description="6-digit date code e.g. '260601'")
     label:        str
     dataset_type: str  = Field(..., description="'mesh' or 'pointcloud'")
+
+class UpdateDateRequest(BaseModel):
+    label: str
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -317,6 +328,58 @@ async def create_site(
     return {"site": site.to_dict()}
 
 
+@app.patch("/api/sites/{site_id}")
+async def update_site(
+    site_id: str,
+    payload: UpdateSiteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update site metadata (label, camera position, z-offset)."""
+    site = await db.get(Site, site_id)
+    if site is None:
+        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found.")
+
+    if payload.label         is not None: site.label         = payload.label
+    if payload.label_en      is not None: site.label_en      = payload.label_en
+    if payload.camera_lon    is not None: site.camera_lon    = payload.camera_lon
+    if payload.camera_lat    is not None: site.camera_lat    = payload.camera_lat
+    if payload.camera_height is not None: site.camera_height = payload.camera_height
+    if payload.mesh_z_offset is not None: site.mesh_z_offset = payload.mesh_z_offset
+
+    await db.commit()
+
+    result = await db.execute(
+        select(Site).options(selectinload(Site.dates)).where(Site.id == site_id)
+    )
+    site = result.scalar_one()
+    return {"site": site.to_dict()}
+
+
+@app.delete("/api/sites/{site_id}", status_code=200)
+async def delete_site(
+    site_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a site and all its survey dates + data files."""
+    site = await db.get(Site, site_id, options=[selectinload(Site.dates)])
+    if site is None:
+        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found.")
+
+    # Delete all child SurveyDate rows first
+    for date in site.dates:
+        await db.delete(date)
+
+    await db.delete(site)
+    await db.commit()
+
+    # Remove data files from disk
+    site_dir = DATA_ROOT / site_id
+    if site_dir.exists():
+        shutil.rmtree(site_dir)
+
+    return {"ok": True, "deleted": site_id}
+
+
 # ═════════════════════════════════════════════════════════════════════════
 #  ROUTES — date management (single dataset per date)
 # ═════════════════════════════════════════════════════════════════════════
@@ -358,6 +421,48 @@ async def create_date(
     await db.commit()
     await db.refresh(survey)
     return {"date": survey.to_dict()}
+
+
+@app.patch("/api/sites/{site_id}/dates/{date_code}")
+async def update_date(
+    site_id:   str,
+    date_code: str,
+    payload:   UpdateDateRequest,
+    db:        AsyncSession = Depends(get_db),
+):
+    """Update survey date label."""
+    pk = f"{site_id}_{date_code}"
+    survey = await db.get(SurveyDate, pk)
+    if survey is None:
+        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
+
+    survey.label = payload.label
+    await db.commit()
+    await db.refresh(survey)
+    return {"date": survey.to_dict()}
+
+
+@app.delete("/api/sites/{site_id}/dates/{date_code}", status_code=200)
+async def delete_date(
+    site_id:   str,
+    date_code: str,
+    db:        AsyncSession = Depends(get_db),
+):
+    """Delete a survey date and its data files from disk."""
+    pk = f"{site_id}_{date_code}"
+    survey = await db.get(SurveyDate, pk)
+    if survey is None:
+        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
+
+    await db.delete(survey)
+    await db.commit()
+
+    # Remove data files from disk
+    date_dir = DATA_ROOT / site_id / date_code
+    if date_dir.exists():
+        shutil.rmtree(date_dir)
+
+    return {"ok": True, "deleted": pk}
 
 
 @app.post("/api/sites/{site_id}/dates/{date_code}/upload")

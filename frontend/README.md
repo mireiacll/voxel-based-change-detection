@@ -20,69 +20,64 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 
 ---
 
-## Front-end and server Repository layout
+## Repository layout
+
 ```
 3d-change-detection/
-├── frontend/                          ← React + CesiumJS application (previous "cesium-viewer-react")
+├── frontend/                          ← React + CesiumJS application
 │
 │   ├── public/
-│   │   └── data/                      ← 3D Tiles served statically by Vite (DEV / fallback)
-│   │       ├── <site_id>/
-│   │       │   ├── <date_code>/
-│   │       │   │   ├── 3d_mesh/tiles/      ← tileset.json + *.glb (mago3d-tiler)
-│   │       │   │   └── point_cloud/tiles/  ← tileset.json + *.glb (mago3d-tiler)
-│   │       │   └── ...
-│   │       └── ...
+│   │   └── data/                      ← 3D Tiles served statically by Vite
+│   │       └── <site_id>/
+│   │           └── <date_code>/
+│   │               └── tiles/         ← tileset.json + *.glb (mago3d-tiler)
 │
-│   ├── src/                           ← React + Cesium frontend
+│   ├── src/
 │   │   ├── components/
-│   │   │   ├── DrawBanner.jsx
-│   │   │   ├── Panel.jsx
-│   │   │   ├── StatusBar.jsx
-│   │   │   ├── Toasts.jsx
-│   │   │   ├── TopBar.jsx
-│   │   │   ├── ProjectLauncher.jsx    ← entry screen (site cards + new project card)
-│   │   │   ├── ProjectDrawer.jsx      ← slide-in sidebar (site tree, upload buttons)
-│   │   │   ├── NewProjectModal.jsx    ← create site form
-│   │   │   ├── AddDateModal.jsx       ← add survey date form
-│   │   │   └── UploadModal.jsx        ← tileset upload (zip or folder drag-drop)
+│   │   │   ├── NavBar.jsx             ← top nav: tabs + active site chip
+│   │   │   ├── MapSubHeader.jsx       ← "A vs B" / "시계열" mode tabs
+│   │   │   ├── Panel.jsx              ← left sidebar: site info + date list + camera
+│   │   │   ├── RightPanel.jsx         ← right sidebar: compare controls + results
+│   │   │   ├── MapOverlayControls.jsx ← floating basemap thumbnail picker + terrain toggle
+│   │   │   ├── BottomBar.jsx          ← status + legend + keyboard shortcuts + coords
+│   │   │   ├── TimelineBar.jsx        ← scrubber bar shown in timeline mode
+│   │   │   ├── TimelinePanel.jsx      ← timeline stats panel inside RightPanel
+│   │   │   ├── ProjectLauncher.jsx    ← full-screen project selection page
+│   │   │   ├── DataUploadPage.jsx     ← data upload tab (date list + upload per date)
+│   │   │   ├── NewProjectModal.jsx    ← create new site form
+│   │   │   ├── DrawBanner.jsx         ← polygon drawing overlay banner
+│   │   │   └── Toasts.jsx             ← toast notification stack
 │   │   │
 │   │   ├── cesium/
-│   │   │   ├── cesiumInit.js          ← viewer init, flyTo, terrain toggle
-│   │   │   ├── layers.js              ← tileset loading, visibility, voxel rendering
+│   │   │   ├── cesiumInit.js          ← viewer init, flyTo, basemap switcher, terrain toggle
+│   │   │   ├── layers.js              ← tileset loading, visibility sync, voxel rendering
 │   │   │   └── polygonDraw.js         ← interactive polygon drawing tool
-│   │   │
-│   │   ├── lib/
-│   │   │   ├── glbParser.js           ← browser-side GLB parser (fallback / dev)
-│   │   │   ├── voxelizer.js           ← browser-side voxelizer (fallback / dev)
-│   │   │   └── polygonUtils.js        ← point-in-polygon utility
 │   │   │
 │   │   ├── styles/
 │   │   │   └── viewer.css
 │   │   │
-│   │   ├── App.jsx                    ← root component (UI state + orchestration)
-│   │   ├── config.js                  ← Cesium config, defaults, terrain settings
-│   │   ├── diff.js                    ← calls /api/diff and handles results
+│   │   ├── App.jsx                    ← root component (all UI state + orchestration)
+│   │   ├── config.js                  ← Cesium ion token, visual defaults
+│   │   ├── diff.js                    ← calls /api/diff, cancellation, voxel state
+│   │   ├── TimelineDiffs.js           ← pre-computed diff snapshot loader + cache
 │   │   └── main.jsx
 │   │
 │   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
 │
-├── server/                             ← FastAPI backend (core computation layer)
-│   ├── main.py                         ← API routes: /health, /api/sites, /api/diff, upload & project management
-│   ├── glb_parser.py                  ← NumPy GLB → point cloud extraction
-│   ├── voxelizer.py                   ← voxelization + solidification + diff engine
-│   ├── database.py                    ← SQLAlchemy async engine/session
-│   ├── models.py                      ← ORM models (Site, SurveyDate)
-│   ├── seed.py                        ← filesystem → DB importer
-│   ├── requirements.txt
-│   ├── .env                           ← local config (NOT committed)
-│   └── alembic/                       ← database migrations
-│       ├── env.py
-│       └── versions/
-│
-└── backend/                           
+└── server/                            ← FastAPI backend
+    ├── main.py                        ← API routes: sites, dates, upload, diff
+    ├── glb_parser.py                  ← NumPy GLB → geodetic point cloud
+    ├── voxelizer.py                   ← voxelization + solidification + diff engine
+    ├── database.py                    ← SQLAlchemy async engine/session
+    ├── models.py                      ← ORM models (Site, SurveyDate)
+    ├── seed.py                        ← filesystem → DB importer
+    ├── requirements.txt
+    ├── .env                           ← local config (NOT committed)
+    └── alembic/                       ← database migrations
+        ├── env.py
+        └── versions/
 ```
 
 ---
@@ -120,7 +115,7 @@ cd server
 # Install Python dependencies
 pip install -r requirements.txt
 
-# Copy environment config and edit DATA_ROOT to point at your public/data folder
+# Copy and edit config
 cp .env.example .env
 
 # Set up the database (first time only)
@@ -132,10 +127,10 @@ uvicorn main:app --reload
 # → http://127.0.0.1:8000
 ```
 
-Create a `.env` file with at minimum:
+Minimum `.env`:
 
 ```
-DATA_ROOT=../public/data
+DATA_ROOT=../frontend/public/data
 DATABASE_URL=sqlite+aiosqlite:///./3dchange_detection.db
 ALLOWED_ORIGINS=http://localhost:5173
 ```
@@ -144,48 +139,59 @@ ALLOWED_ORIGINS=http://localhost:5173
 
 ### 3 — Convert raw drone data to 3D Tiles
 
-Raw `.obj` mesh and `.las`/`.laz` point cloud files cannot be loaded by CesiumJS directly. Convert them once with mago3d-tiler:
+Raw `.obj`, `.fbx`, `.las`, or `.laz` files must be converted once with mago3d-tiler before the viewer can load them.
 
-**Mesh:**
+**Mesh (3D Tiles from .fbx / .obj):**
 ```bash
 pip install mago3d-tiler --break-system-packages
 
 mago3d-tiler \
-  -i "simplified_3d_mesh.fbx" ^ \
-  -o ".\tiles" ^ \
-  -pg ^ \
-  -rx 90 ^ \
+  -i "simplified_3d_mesh.fbx" \
+  -o "./tiles" \
+  -pg \
+  -rx 90 \
   -lon 127.00669157 -lat 36.90993259 -zo 119.575
 ```
 
-**Point cloud:**
+**Point cloud (3D Tiles from .las / .laz):**
 ```bash
 mago3d-tiler \
-  -i "densified_point_cloud.las" ^ \ 
-  -o ".\tiles" ^\
+  -i "densified_point_cloud.las" \
+  -o "./tiles" \
   -c 5186
-
 ```
 
-After converting, run `python seed.py` to register the new date in the database.
+After converting, place the output `tiles/` folder in `public/data/<site_id>/<date_code>/tiles/` and run `python seed.py` (or use the UI upload).
 
 ---
 
-## Adding a new survey date — two options
+## Data model
+
+Each **site** (physical location) has multiple **survey dates**. Each survey date has exactly **one dataset** — either a 3D mesh or a point cloud (different dates within the same project can have different types). The dataset type and path are stored in the database and drive which rendering and computation path is used.
+
+```
+Site
+ └─ SurveyDate  (date_code + label + dataset_path + dataset_type)
+ └─ SurveyDate
+ └─ ...
+```
+
+---
+
+## Adding a new survey date
 
 ### Option A — UI (recommended)
 
-1. Click the logo to open the **Project Drawer**
-2. Expand the target site and click **+ Add Date**
-3. Enter the 6-digit YYMMDD code; the label auto-fills
-4. Use the **↑M** / **↑P** upload buttons (or the Upload modal) to drag-drop the converted tileset folder or zip
+1. Open the **데이터 업로드** tab while a project is selected
+2. Click **+ 새 날짜 추가** and enter the 6-digit YYMMDD code
+3. Select the dataset type (Point Cloud or 3D Mesh)
+4. Drag-drop the converted `tiles/` folder or a `.zip` of it
 
-### Option B — Manual / seed.py
+### Option B — seed.py
 
-1. Convert drone data to 3D Tiles (see above)
-2. Place tiles in `public/data/<site>/<date_code>/`
-3. Run `python seed.py` — the new date appears in the UI automatically
-4. No code changes needed
+1. Convert drone data to 3D Tiles
+2. Place tiles in `public/data/<site_id>/<date_code>/tiles/`
+3. Run `python seed.py`
 
 ---
 
@@ -193,12 +199,58 @@ After converting, run `python seed.py` to register the new date in the database.
 
 | Key | Action |
 |---|---|
-| `M` | Toggle 3D mesh |
-| `P` | Toggle point cloud |
-| `A` | Toggle added volume |
-| `R` | Toggle removed volume |
-| `D` | Draw area (compare mode) |
-| `V` | Switch to View mode |
-| `C` | Switch to Compare mode |
+| `A` | Toggle added voxels |
+| `R` | Toggle removed voxels |
+| `D` | Draw polygon area (compare mode) |
+| `M` | Toggle active date layer |
 | `1` | Site camera |
 | `2` | Top-down camera |
+| `← →` | Step through timeline (timeline mode) |
+| `Space` | Play / pause timeline |
+
+---
+
+## UI overview
+
+### Navigation tabs
+
+| Tab | Description |
+|---|---|
+| 프로젝트 | Full-screen project selection page |
+| 데이터 업로드 | Upload or replace datasets per date |
+| 변화탐지 | Analysis view with map + panels |
+
+### Analysis view layout
+
+```
+┌──────────────────────────────────────────────────┐
+│ NavBar                                           │
+├──────────────────────────────────────────────────┤
+│  Left panel  │  Cesium map  │  Right panel       │
+│              │              │                    │
+│  Site info   │  [map]       │  A vs B compare    │
+│  Date list   │              │  Draw area         │
+│  Camera btns │  [basemap    │  Voxel size        │
+│              │   picker]    │  Run diff / Clear  │
+│              │              │  Results + stats   │
+│              │              │  (or timeline      │
+│              │              │   panel)           │
+├──────────────┴──────────────┴────────────────────┤
+│  [Timeline bar — timeline mode only]             │
+├──────────────────────────────────────────────────┤
+│  BottomBar: status · legend · shortcuts · coords │
+└──────────────────────────────────────────────────┘
+```
+
+### Modes
+
+- **A vs B 비교** — select two dates, run a voxel diff, visualise added/removed volumes
+- **시계열 변화탐지** — scrub through pre-computed diff snapshots across all date pairs; timeline bar shown at bottom
+
+---
+
+## Known limitations
+
+- **Mixed-type diff not yet supported** — both datasets sent to `/api/diff` must be point clouds. Mesh-vs-mesh or mesh-vs-pointcloud comparison is not yet implemented.
+- **Voxel accuracy** — column-fill solidification over-estimates volume for concave or overhanging shapes.
+- **Single-threaded diff** — large point clouds at fine voxel sizes (< 0.3 m) can take several minutes.

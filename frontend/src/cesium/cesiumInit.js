@@ -153,52 +153,55 @@ export async function setBasemap(id) {
   const layers = viewer.imageryLayers
   layers.removeAll()
 
+  // Ion asset IDs confirmed in this account:
+  //   2        Bing Maps Aerial
+  //   3        Bing Maps Aerial with Labels
+  //   4        Bing Maps Road
+  //   3830182  Google Maps 2D Satellite
+  //   3830183  Google Maps 2D Satellite with Labels
+  //   3830184  Google Maps 2D Roadmap
+  //   3830186  Google Maps 2D Contour
+  const ION_ASSETS = {
+    aerial:            2,
+    aerial_labels:     3,
+    roads:             4,
+    gmaps_sat:         3830182,
+    gmaps_sat_labels:  3830183,
+    gmaps_road:        3830184,
+    gmaps_contour:     3830186,
+  }
+
   try {
-    switch (id) {
-      case 'aerial':
-        layers.add(new Cesium.ImageryLayer(
-          await Cesium.IonImageryProvider.fromAssetId(2)
-        ))
-        break
-
-      case 'aerial_roads':
-        layers.add(new Cesium.ImageryLayer(
-          await Cesium.IonImageryProvider.fromAssetId(3)
-        ))
-        break
-
-      case 'osm': {
-        let provider
-        try {
-          provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
-        } catch (_) {
-          provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
-        }
-        layers.add(new Cesium.ImageryLayer(provider))
-        break
+    if (id in ION_ASSETS) {
+      layers.add(new Cesium.ImageryLayer(
+        await Cesium.IonImageryProvider.fromAssetId(ION_ASSETS[id])
+      ))
+    } else if (id === 'osm') {
+      let provider
+      try {
+        provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
+      } catch (_) {
+        provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
       }
-
-      case 'dark': {
-        let provider
-        try {
-          provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
-        } catch (_) {
-          provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
-        }
-        const layer = new Cesium.ImageryLayer(provider)
-        layer.brightness = 0.3
-        layer.contrast   = 1.8
-        layers.add(layer)
-        break
+      layers.add(new Cesium.ImageryLayer(provider))
+    } else if (id === 'dark') {
+      let provider
+      try {
+        provider = await Cesium.OpenStreetMapImageryProvider.fromUrl('https://tile.openstreetmap.org/')
+      } catch (_) {
+        provider = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
       }
-
-      case 'none':
-        break
-
-      default:
-        layers.add(new Cesium.ImageryLayer(
-          await Cesium.IonImageryProvider.fromAssetId(2)
-        ))
+      const layer = new Cesium.ImageryLayer(provider)
+      layer.brightness = 0.3
+      layer.contrast   = 1.8
+      layers.add(layer)
+    } else if (id === 'none') {
+      // intentionally empty
+    } else {
+      // fallback to Bing Aerial
+      layers.add(new Cesium.ImageryLayer(
+        await Cesium.IonImageryProvider.fromAssetId(2)
+      ))
     }
   } catch (e) {
     console.warn('[setBasemap] imagery provider failed:', id, e)

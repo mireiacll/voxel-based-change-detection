@@ -280,6 +280,64 @@ html, body {
 .ltag-amber  { background: #2a1e0a; color: #d4914a; }
 .ltag-purple { background: #1a1030; color: #9b7cf4; }
 .ltag-green  { background: #0f2a18; color: #6dff9d; }
+.ltag-teal   { background: #0a2228; color: #4dd9d9; }
+
+/* ── Date row wrapper (button + layer pill stacked) ── */
+.date-row-wrap {
+  display: flex; flex-direction: column;
+  gap: 3px; margin-bottom: 4px;
+}
+.date-row-wrap:last-child { margin-bottom: 0; }
+.date-row-wrap .date-btn  { margin-bottom: 0; }
+
+/* PC | VOX layer mode pill */
+.date-layer-pill {
+  display: flex; align-self: flex-end;
+  background: var(--surf3);
+  border: 1px solid var(--border);
+  border-radius: 4px; overflow: hidden;
+}
+.dlp-btn {
+  padding: 2px 9px;
+  background: none; border: none;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: .05em; font-family: var(--mono);
+  color: var(--muted); cursor: pointer;
+  line-height: 1.7;
+  transition: color .12s, background .12s;
+}
+.dlp-btn + .dlp-btn { border-left: 1px solid var(--border); }
+.dlp-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.05); }
+.dlp-btn:disabled { opacity: .32; cursor: not-allowed; }
+.dlp-btn.dlp-active                { background: rgba(92,143,255,.15); color: #8ab4ff; }
+.dlp-btn.dlp-active.dlp-vox        { background: rgba(77,217,217,.12); color: #4dd9d9; }
+
+/* ── Voxel compute section (inside Panel) ── */
+.vox-date-select {
+  width: 100%; margin-bottom: 7px;
+}
+.vox-compute-btn {
+  width: 100%; padding: 8px;
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  color: var(--text); border-radius: var(--r);
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+}
+.vox-compute-btn:hover:not(:disabled) {
+  background: rgba(77,217,217,.08);
+  border-color: #4dd9d9; color: #4dd9d9;
+}
+.vox-compute-btn:disabled { opacity: .45; cursor: not-allowed; }
+.vox-compute-btn.vox-computing { border-color: var(--amber); color: var(--amber); }
+.vox-compute-msg {
+  font-size: 10px; color: var(--muted);
+  font-family: var(--mono); margin-top: 6px;
+}
+.vox-compute-hint {
+  font-size: 10px; color: var(--muted);
+  margin-top: 5px; line-height: 1.4;
+}
 
 /* Sub rows */
 .sub-row {

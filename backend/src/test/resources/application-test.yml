@@ -10,6 +10,22 @@ spring:
 
 voxelizer:
   jar-path: ./build/test-fixtures/voxelizer.jar
+  storage-root: ./build/test-storage/data
+  mock-execution: true
   temp-path: ./build/test-storage/temp
   visualization-tiles-path: ./build/test-storage/3dtiles
   voxel-set-output-path: ./build/test-storage/voxelsets
+  default-create:
+    max-level: 17
+    visualize: true
+    visualize-color: grey
+    cube-data-type: BYTE
+    recursive: true
+  default-diff:
+    max-level: 17
+    diff-operation: ADD_AND_REMOVE
+    visualize: true
+    interior-only: true
+    mass-summary: true
+    cube-data-type: BYTE
+    recursive: true

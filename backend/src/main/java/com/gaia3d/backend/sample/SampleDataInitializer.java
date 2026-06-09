@@ -12,8 +12,8 @@ public class SampleDataInitializer {
         return args -> {
             if (sampleRepository.count() == 0) {
                 sampleRepository.save(new Sample("sample-1", "Initial sample resource test"));
+                sampleRepository.save(new Sample("sample-2", "Second sample resource"));
             }
-            sampleRepository.save(new Sample("sample-2", "Second sample resource"));
         };
     }
 }

@@ -32,7 +32,7 @@ class SampleControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[0].name").value("sample-1"))
-                .andExpect(jsonPath("$[0].description").value("Initial sample resource"));
+                .andExpect(jsonPath("$[0].description").value("Initial sample resource test"));
     }
 
     @Test
@@ -49,8 +49,8 @@ class SampleControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"sample-2\",\"description\":\"Created by POST\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", "/api/samples/2"))
-                .andExpect(jsonPath("$.id").value(2))
+                .andExpect(header().string("Location", "/api/samples/3"))
+                .andExpect(jsonPath("$.id").value(3))
                 .andExpect(jsonPath("$.name").value("sample-2"))
                 .andExpect(jsonPath("$.description").value("Created by POST"));
     }

@@ -29,4 +29,19 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'manual.observation.seed', System.getProperty('manual.observation.seed', 'false')
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+tasks.register('generateApiDocs', Copy) {
+    dependsOn tasks.named('test')
+    from layout.buildDirectory.dir('api-docs')
+    into layout.buildDirectory.dir('docs/api')
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('generateApiDocs')
 }

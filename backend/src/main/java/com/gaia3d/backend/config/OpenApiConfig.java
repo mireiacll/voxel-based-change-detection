@@ -12,8 +12,8 @@ public class OpenApiConfig {
     public OpenAPI backendOpenApi() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("Backend API")
-                        .description("REST API documentation for the Spring Boot backend.")
+                        .title("Voxel-Based Change Detection API")
+                        .description("Project, observation, voxel job, diff, and diff item API documentation.")
                         .version("v1"));
     }
 }

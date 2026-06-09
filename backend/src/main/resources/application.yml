@@ -18,10 +18,26 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: voxelizer
 
 voxelizer:
-  jar-path: ${VOXELIZER_JAR_PATH:./voxelizer/voxelizer.jar}
+  jar-path: ${VOXELIZER_JAR_PATH:/app/mago-voxelizer.jar}
+  storage-root: ${VOXELIZER_STORAGE_ROOT:/data}
+  mock-execution: ${VOXELIZER_MOCK_EXECUTION:true}
   temp-path: ${VOXELIZER_TEMP_PATH:./storage/temp}
   visualization-tiles-path: ${VOXELIZER_VISUALIZATION_TILES_PATH:./storage/3dtiles}
   voxel-set-output-path: ${VOXELIZER_VOXEL_SET_OUTPUT_PATH:./storage/voxelsets}
+  default-create:
+    max-level: 17
+    visualize: true
+    visualize-color: grey
+    cube-data-type: BYTE
+    recursive: true
+  default-diff:
+    max-level: 17
+    diff-operation: ADD_AND_REMOVE
+    visualize: true
+    interior-only: true
+    mass-summary: true
+    cube-data-type: BYTE
+    recursive: true

@@ -28,7 +28,12 @@ public record VoxelizerProperties(
             @DefaultValue("15") int maxLevel,
             @DefaultValue("ADD_AND_REMOVE") String diffOperation,
             @DefaultValue("true") boolean visualize,
-            @DefaultValue("true") boolean interiorOnly,
+            @DefaultValue("6") int diffNeighborMode,
+            @DefaultValue("12") int minDiffFilterLevel,
+            @DefaultValue("2") int minDiffNeighbors,
+            @DefaultValue("4") int diffNeighborIterations,
+            @DefaultValue("10") int minDiffClusterSize,
+            @DefaultValue("true") boolean union,
             @DefaultValue("true") boolean massSummary,
             @DefaultValue("BYTE") String cubeDataType,
             @DefaultValue("true") boolean recursive) {

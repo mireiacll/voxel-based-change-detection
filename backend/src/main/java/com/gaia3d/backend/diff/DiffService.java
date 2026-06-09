@@ -206,7 +206,12 @@ public class DiffService {
                 request.maxLevel() == null ? defaults.maxLevel() : request.maxLevel(),
                 request.visualize() == null ? defaults.visualize() : request.visualize(),
                 null,
-                request.interiorOnly() == null ? defaults.interiorOnly() : request.interiorOnly(),
+                request.diffNeighborMode() == null ? defaults.diffNeighborMode() : request.diffNeighborMode(),
+                request.minDiffFilterLevel() == null ? defaults.minDiffFilterLevel() : request.minDiffFilterLevel(),
+                request.minDiffNeighbors() == null ? defaults.minDiffNeighbors() : request.minDiffNeighbors(),
+                request.diffNeighborIterations() == null ? defaults.diffNeighborIterations() : request.diffNeighborIterations(),
+                request.minDiffClusterSize() == null ? defaults.minDiffClusterSize() : request.minDiffClusterSize(),
+                request.union() == null ? defaults.union() : request.union(),
                 request.massSummary() == null ? defaults.massSummary() : request.massSummary(),
                 request.cubeDataType() == null ? defaults.cubeDataType() : request.cubeDataType(),
                 request.recursive() == null ? defaults.recursive() : request.recursive(),
@@ -220,7 +225,12 @@ public class DiffService {
                 request.maxLevel() == null ? defaults.maxLevel() : request.maxLevel(),
                 request.visualize() == null ? defaults.visualize() : request.visualize(),
                 null,
-                request.interiorOnly() == null ? defaults.interiorOnly() : request.interiorOnly(),
+                request.diffNeighborMode() == null ? defaults.diffNeighborMode() : request.diffNeighborMode(),
+                request.minDiffFilterLevel() == null ? defaults.minDiffFilterLevel() : request.minDiffFilterLevel(),
+                request.minDiffNeighbors() == null ? defaults.minDiffNeighbors() : request.minDiffNeighbors(),
+                request.diffNeighborIterations() == null ? defaults.diffNeighborIterations() : request.diffNeighborIterations(),
+                request.minDiffClusterSize() == null ? defaults.minDiffClusterSize() : request.minDiffClusterSize(),
+                request.union() == null ? defaults.union() : request.union(),
                 request.massSummary() == null ? defaults.massSummary() : request.massSummary(),
                 request.cubeDataType() == null ? defaults.cubeDataType() : request.cubeDataType(),
                 request.recursive() == null ? defaults.recursive() : request.recursive(),
@@ -230,15 +240,23 @@ public class DiffService {
 
     private void prepareItem(Diff diff, DiffItem item) {
         Path output = diffItemVoxelDir(diff.getProjectId(), diff.getId(), item.getId());
-        Path summary = diffItemDir(diff.getProjectId(), diff.getId(), item.getId()).resolve("summary.json");
+        Path itemDir = diffItemDir(diff.getProjectId(), diff.getId(), item.getId());
+        Path summary = itemDir.resolve("summary.json");
+        Path logPath = itemDir.resolve("process.log");
         var commandArgs = commandService.createDiffCommandArgs(
                 Path.of(item.getSourceVoxelPath()),
                 Path.of(item.getTargetVoxelPath()),
                 output,
+                logPath,
                 diff.getMaxLevel(),
                 DIFF_OPERATION,
                 diff.getVisualize(),
-                diff.getInteriorOnly(),
+                diff.getDiffNeighborMode(),
+                diff.getMinDiffFilterLevel(),
+                diff.getMinDiffNeighbors(),
+                diff.getDiffNeighborIterations(),
+                diff.getMinDiffClusterSize(),
+                diff.getUnion(),
                 diff.getMassSummary(),
                 diff.getCubeDataType(),
                 diff.getRecursive());
@@ -249,7 +267,7 @@ public class DiffService {
                 tilesetUrl(output),
                 summary.toString(),
                 command,
-                diffItemDir(diff.getProjectId(), diff.getId(), item.getId()).resolve("process.log").toString());
+                logPath.toString());
         diffItemRepository.save(item);
     }
 
@@ -285,10 +303,16 @@ public class DiffService {
                             Path.of(item.getSourceVoxelPath()),
                             Path.of(item.getTargetVoxelPath()),
                             Path.of(item.getResultVoxelPath()),
+                            Path.of(item.getLogPath()),
                             diff.getMaxLevel(),
                             DIFF_OPERATION,
                             diff.getVisualize(),
-                            diff.getInteriorOnly(),
+                            diff.getDiffNeighborMode(),
+                            diff.getMinDiffFilterLevel(),
+                            diff.getMinDiffNeighbors(),
+                            diff.getDiffNeighborIterations(),
+                            diff.getMinDiffClusterSize(),
+                            diff.getUnion(),
                             diff.getMassSummary(),
                             diff.getCubeDataType(),
                             diff.getRecursive());

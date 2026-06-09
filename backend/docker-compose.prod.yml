@@ -1,0 +1,52 @@
+services:
+  vbcd-backend:
+    image: ${VBCD_BACKEND_IMAGE:-vbcd-backend:latest}
+    container_name: vbcd-backend-api
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      DB_HOST: ${DB_HOST:-postgis}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-voxel_change_detection}
+      DB_USER: ${DB_USER:-voxel}
+      DB_PASSWORD: ${DB_PASSWORD:-voxel}
+      VOXELIZER_MOCK_EXECUTION: ${VOXELIZER_MOCK_EXECUTION:-false}
+      VOXELIZER_STORAGE_ROOT: ${VOXELIZER_STORAGE_ROOT:-/data}
+      VOXELIZER_TEMP_PATH: ${VOXELIZER_TEMP_PATH:-/data/temp}
+      VOXELIZER_VISUALIZATION_TILES_PATH: ${VOXELIZER_VISUALIZATION_TILES_PATH:-/data/3dtiles}
+      VOXELIZER_VOXEL_SET_OUTPUT_PATH: ${VOXELIZER_VOXEL_SET_OUTPUT_PATH:-/data/voxelsets}
+      VOXELIZER_JAR_PATH: ${VOXELIZER_JAR_PATH:-/app/mago-voxelizer.jar}
+      VOXELIZER_DEFAULT_CREATE_MAX_LEVEL: ${VOXELIZER_DEFAULT_CREATE_MAX_LEVEL:-15}
+      VOXELIZER_DEFAULT_DIFF_MAX_LEVEL: ${VOXELIZER_DEFAULT_DIFF_MAX_LEVEL:-15}
+      VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_MODE: ${VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_MODE:-6}
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_FILTER_LEVEL: ${VOXELIZER_DEFAULT_DIFF_MIN_DIFF_FILTER_LEVEL:-12}
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_NEIGHBORS: ${VOXELIZER_DEFAULT_DIFF_MIN_DIFF_NEIGHBORS:-2}
+      VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_ITERATIONS: ${VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_ITERATIONS:-4}
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_CLUSTER_SIZE: ${VOXELIZER_DEFAULT_DIFF_MIN_DIFF_CLUSTER_SIZE:-10}
+      VOXELIZER_DEFAULT_DIFF_UNION: ${VOXELIZER_DEFAULT_DIFF_UNION:-true}
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    volumes:
+      - ${VBCD_DATA_DIR:-/opt/vbcd/data}:/data
+      - ${VOXELIZER_HOST_JAR:-/opt/vbcd/mago-voxelizer.jar}:/app/mago-voxelizer.jar:ro
+    restart: unless-stopped
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: vbcd-postgis
+    environment:
+      POSTGRES_DB: ${DB_NAME:-voxel_change_detection}
+      POSTGRES_USER: ${DB_USER:-voxel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-voxel}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-voxel} -d ${DB_NAME:-voxel_change_detection}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ${VBCD_DB_DIR:-/opt/vbcd/postgis-data}:/var/lib/postgresql/data
+    restart: unless-stopped

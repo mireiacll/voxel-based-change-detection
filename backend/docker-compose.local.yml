@@ -1,0 +1,20 @@
+services:
+  vbcd-backend:
+    environment:
+      VOXELIZER_MOCK_EXECUTION: "false"
+      VOXELIZER_STORAGE_ROOT: /data
+      VOXELIZER_TEMP_PATH: /data/temp
+      VOXELIZER_VISUALIZATION_TILES_PATH: /data/3dtiles
+      VOXELIZER_VOXEL_SET_OUTPUT_PATH: /data/voxelsets
+      VOXELIZER_JAR_PATH: /app/mago-voxelizer.jar
+      VOXELIZER_DEFAULT_CREATE_MAX_LEVEL: 15
+      VOXELIZER_DEFAULT_DIFF_MAX_LEVEL: 15
+      VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_MODE: 6
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_FILTER_LEVEL: 12
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_NEIGHBORS: 2
+      VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_ITERATIONS: 4
+      VOXELIZER_DEFAULT_DIFF_MIN_DIFF_CLUSTER_SIZE: 10
+      VOXELIZER_DEFAULT_DIFF_UNION: "true"
+    volumes:
+      - H:/workspace/change-detection:/data
+      - C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.0-beta.jar:/app/mago-voxelizer.jar:ro

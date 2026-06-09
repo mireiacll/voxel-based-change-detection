@@ -1,53 +1,54 @@
 # Backend API
 
-프론트엔드 개발자가 Spring/Gradle을 몰라도 API를 테스트할 수 있도록 Docker Compose 기준으로 실행합니다.
+This backend can be run with Docker Compose so frontend developers can test the API without knowing Spring Boot or Gradle.
 
-## 1. 실행
+## 1. Frontend Smoke Test Mode
 
-레포지토리 루트에서 실행하세요.
+Use this mode for normal frontend API testing. It starts:
+
+- Spring Boot API server
+- PostgreSQL/PostGIS database
+- Mock voxelizer execution
+
+Run from the repository root:
 
 ```powershell
 docker compose -f backend\docker-compose.yml up -d --build
 ```
 
-컨테이너 상태 확인:
+Check containers:
 
 ```powershell
 docker compose -f backend\docker-compose.yml ps
 ```
 
-정상이라면 아래 2개가 떠야 합니다.
-
-```text
-backend-api
-backend-postgis
-```
-
-로그 확인:
+Follow backend logs:
 
 ```powershell
-docker compose -f backend\docker-compose.yml logs -f backend
+docker compose -f backend\docker-compose.yml logs -f vbcd-backend
 ```
 
-중지:
+Stop:
 
 ```powershell
 docker compose -f backend\docker-compose.yml down
 ```
 
-DB와 업로드/voxel 결과 볼륨까지 지우고 초기화:
+Reset DB and uploaded files:
 
 ```powershell
 docker compose -f backend\docker-compose.yml down -v
 ```
 
-## 2. Swagger로 API 보기
+## 2. Open Swagger
 
-브라우저에서 Swagger UI를 여세요.
+Open this URL in a browser:
 
 ```text
 http://localhost:8080/swagger-ui/index.html
 ```
+
+Frontend developers should use Swagger `Try it out` to test APIs.
 
 OpenAPI JSON:
 
@@ -55,23 +56,27 @@ OpenAPI JSON:
 http://localhost:8080/v3/api-docs
 ```
 
-프론트엔드 개발자는 Swagger UI에서 직접 `Try it out`으로 API를 호출하면 됩니다.
+## 3. First API Checks
 
-## 3. 바로 확인할 API
-
-헬스 체크:
+In Swagger, test:
 
 ```text
 GET /api/health
 ```
 
-프로젝트 목록:
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+Then test:
 
 ```text
 GET /api/projects
 ```
 
-처음 실행하면 기본 프로젝트가 1개 생성됩니다.
+On first startup the backend seeds one empty sample project:
 
 ```json
 [
@@ -87,40 +92,44 @@ GET /api/projects
 ]
 ```
 
-Observation 목록:
+Then test:
 
 ```text
 GET /api/projects/1/observations
 ```
 
-처음에는 빈 배열입니다.
+Expected before upload:
 
 ```json
 []
 ```
 
-## 4. Swagger에서 3D Tiles 업로드 테스트
+## 4. Upload 3D Tiles In Swagger
 
-Swagger UI에서 아래 API를 선택하세요.
+Use:
 
 ```text
 POST /api/projects/{projectId}/observations
 ```
 
-입력값:
+Input:
 
 - `projectId`: `1`
 - `name`: `2024-01-01 observation`
 - `observedAt`: `2024-01-01`
-- `file`: 3D Tiles zip 파일
+- `file`: 3D Tiles zip file
 
-주의:
+The zip file must contain `tileset.json` at the zip root.
 
-- zip 파일 루트에 `tileset.json`이 있어야 합니다.
-- Docker Compose 기본 설정은 `VOXELIZER_MOCK_EXECUTION=true`입니다.
-- 그래서 실제 voxelizer jar 없이도 업로드, Job 생성, 경로 생성, 상태 변경을 테스트할 수 있습니다.
+Default Docker Compose uses:
 
-업로드 후 확인:
+```text
+VOXELIZER_MOCK_EXECUTION=true
+```
+
+So uploads create DB records, folders, jobs, and command strings without requiring the real voxelizer jar.
+
+After upload, check:
 
 ```text
 GET /api/projects/1/observations
@@ -129,53 +138,63 @@ GET /api/observations/{observationId}/tileset/original
 GET /api/observations/{observationId}/tileset/voxel
 ```
 
-## 5. Diff API 테스트 순서
+## 5. Diff Test Flow
 
-Observation을 날짜가 다른 2개 이상 업로드한 뒤 테스트하세요.
+Upload at least two observations with different `observedAt` values.
 
-A/B Diff:
+A/B diff:
 
 ```text
 POST /api/projects/{projectId}/diffs/ab
 ```
 
-예시 JSON:
+Example body:
 
 ```json
 {
   "name": "2024-01 vs 2024-02",
   "sourceObservationId": 1,
   "targetObservationId": 2,
-  "maxLevel": 17,
+  "maxLevel": 15,
   "visualize": true,
-  "interiorOnly": true,
+  "diffNeighborMode": 6,
+  "minDiffFilterLevel": 12,
+  "minDiffNeighbors": 2,
+  "diffNeighborIterations": 4,
+  "minDiffClusterSize": 10,
+  "union": true,
   "massSummary": true,
   "cubeDataType": "BYTE",
   "recursive": true
 }
 ```
 
-Time-Series Diff:
+Time-series diff:
 
 ```text
 POST /api/projects/{projectId}/diffs/time-series
 ```
 
-예시 JSON:
+Example body:
 
 ```json
 {
   "name": "Full time-series diff",
-  "maxLevel": 17,
+  "maxLevel": 15,
   "visualize": true,
-  "interiorOnly": true,
+  "diffNeighborMode": 6,
+  "minDiffFilterLevel": 12,
+  "minDiffNeighbors": 2,
+  "diffNeighborIterations": 4,
+  "minDiffClusterSize": 10,
+  "union": true,
   "massSummary": true,
   "cubeDataType": "BYTE",
   "recursive": true
 }
 ```
 
-결과 확인:
+Check results:
 
 ```text
 GET /api/projects/1/diffs
@@ -185,20 +204,136 @@ GET /api/diff-items/{diffItemId}/tileset
 GET /api/diff-items/{diffItemId}/report
 ```
 
-## 6. Docker Compose 기본 설정
+## 6. Real Local Voxelizer Test Mode
 
-`backend/docker-compose.yml`은 아래 서비스를 실행합니다.
+Use this when you want Docker to use real local folders and the real voxelizer jar.
 
-- `backend`: Spring Boot API 서버
-- `postgis`: PostgreSQL/PostGIS DB
+Before running, edit:
 
-API 서버:
+```text
+backend/docker-compose.local.yml
+```
+
+Change only the left side of these volume mappings to match your PC:
+
+```yaml
+volumes:
+  - H:/workspace/change-detection:/data
+  - C:/path/to/mago-voxelizer.jar:/app/mago-voxelizer.jar:ro
+```
+
+Keep the container paths `/data` and `/app/mago-voxelizer.jar`.
+
+Run:
+
+```powershell
+docker compose `
+  -f backend\docker-compose.yml `
+  -f backend\docker-compose.local.yml `
+  up -d --build
+```
+
+This override sets:
+
+```text
+VOXELIZER_MOCK_EXECUTION=false
+VOXELIZER_STORAGE_ROOT=/data
+VOXELIZER_VISUALIZATION_TILES_PATH=/data/3dtiles
+VOXELIZER_VOXEL_SET_OUTPUT_PATH=/data/voxelsets
+VOXELIZER_JAR_PATH=/app/mago-voxelizer.jar
+```
+
+Host paths are visible like this:
+
+```text
+H:/workspace/change-detection/3dtiles
+H:/workspace/change-detection/voxelsets
+H:/workspace/change-detection/jobs
+```
+
+Logs:
+
+```powershell
+docker compose `
+  -f backend\docker-compose.yml `
+  -f backend\docker-compose.local.yml `
+  logs -f vbcd-backend
+```
+
+Process log files:
+
+```text
+H:/workspace/change-detection/jobs/{jobId}/process.log
+H:/workspace/change-detection/voxelsets/projects/{projectId}/diffs/{diffId}/items/{diffItemId}/process.log
+```
+
+## 7. Deployment Compose
+
+Deployment compose is separate:
+
+```text
+backend/docker-compose.prod.yml
+```
+
+It does not build from source. It expects a backend image.
+
+Build and tag an image locally:
+
+```powershell
+docker build -t vbcd-backend:latest backend
+```
+
+Run deployment compose:
+
+```powershell
+docker compose -f backend\docker-compose.prod.yml up -d
+```
+
+Recommended production environment variables:
+
+```powershell
+$env:VBCD_BACKEND_IMAGE="vbcd-backend:latest"
+$env:VBCD_DATA_DIR="D:/vbcd/data"
+$env:VBCD_DB_DIR="D:/vbcd/postgis-data"
+$env:VOXELIZER_HOST_JAR="D:/vbcd/mago-voxelizer.jar"
+$env:VOXELIZER_MOCK_EXECUTION="false"
+$env:DB_PASSWORD="change-me"
+```
+
+Then run:
+
+```powershell
+docker compose -f backend\docker-compose.prod.yml up -d
+```
+
+Deployment paths:
+
+```text
+VBCD_DATA_DIR -> /data
+VOXELIZER_HOST_JAR -> /app/mago-voxelizer.jar
+VBCD_DB_DIR -> /var/lib/postgresql/data
+```
+
+## 8. Docker Compose Defaults
+
+Development compose:
+
+```text
+backend/docker-compose.yml
+```
+
+Services:
+
+- `vbcd-backend`: Spring Boot API server
+- `postgis`: PostgreSQL/PostGIS database
+
+API:
 
 ```text
 http://localhost:8080
 ```
 
-DB:
+DB from host:
 
 - host: `localhost`
 - port: `5432`
@@ -206,72 +341,29 @@ DB:
 - username: `voxel`
 - password: `voxel`
 
-Docker 내부에서 backend는 `postgis:5432`로 DB에 연결합니다.
-
-## 7. 저장 경로
-
-Docker Compose 기본값:
-
-```yaml
-VOXELIZER_STORAGE_ROOT: /data
-VOXELIZER_VISUALIZATION_TILES_PATH: /data/3dtiles
-VOXELIZER_VOXEL_SET_OUTPUT_PATH: /data/voxelsets
-VOXELIZER_MOCK_EXECUTION: "true"
-```
-
-데이터는 Docker volume `backend-storage`에 저장됩니다.
-
-컨테이너 내부 경로:
-
-- 업로드된 원본 3D Tiles: `/data/3dtiles/projects/...`
-- 기본 voxel 결과: `/data/voxelsets/projects/...`
-- diff voxel 결과: `/data/voxelsets/projects/.../diffs/...`
-- job 로그: `/data/jobs/...`
-
-## 8. 실제 Voxelizer 실행 모드
-
-프론트엔드 API 테스트에는 mock 모드를 권장합니다.
-
-실제 voxelizer jar를 Docker에서 실행하려면:
-
-1. `backend/docker-compose.yml`의 `VOXELIZER_MOCK_EXECUTION`을 `"false"`로 변경
-2. 컨테이너 안의 `VOXELIZER_JAR_PATH`에 실제 jar가 존재하도록 이미지 또는 volume 구성
-3. 다시 빌드/실행
-
-```powershell
-docker compose -f backend\docker-compose.yml up -d --build
-```
-
-로컬 PC에서 직접 jar 연계를 확인하려면 Docker 대신 local 프로필을 사용할 수 있습니다.
-
-```powershell
-cd backend
-.\gradlew.bat bootRun --args='--spring.profiles.active=local'
-```
-
-local 경로 설정:
+DB from container:
 
 ```text
-backend/src/main/resources/application-local.yml
+postgis:5432
 ```
 
-## 9. 개발자용 테스트
+## 9. Developer Commands
 
-Spring 테스트 실행:
+Run Spring tests:
 
 ```powershell
 cd backend
 .\gradlew.bat test
 ```
 
-OpenAPI JSON 파일 생성:
+Generate OpenAPI JSON file:
 
 ```powershell
 cd backend
 .\gradlew.bat generateApiDocs
 ```
 
-생성 위치:
+Generated file:
 
 ```text
 backend/build/docs/api/openapi.json

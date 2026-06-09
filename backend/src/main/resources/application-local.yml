@@ -1,3 +1,10 @@
+spring:
+  application:
+    name: backend-api
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
 voxelizer:
   jar-path: C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.0-beta.jar
   storage-root: H:/workspace/change-detection
@@ -5,3 +12,22 @@ voxelizer:
   temp-path: H:/workspace/change-detection/temp
   visualization-tiles-path: H:/workspace/change-detection/3dtiles
   voxel-set-output-path: H:/workspace/change-detection/voxelsets
+  default-create:
+    max-level: 15
+    visualize: true
+    visualize-color: grey
+    cube-data-type: BYTE
+    recursive: true
+  default-diff:
+    max-level: 15
+    diff-operation: ADD_AND_REMOVE
+    visualize: true
+    diff-neighbor-mode: 6
+    min-diff-filter-level: 12
+    min-diff-neighbors: 2
+    diff-neighbor-iterations: 4
+    min-diff-cluster-size: 10
+    union: true
+    mass-summary: true
+    cube-data-type: BYTE
+    recursive: true

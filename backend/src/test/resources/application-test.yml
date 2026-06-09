@@ -16,16 +16,21 @@ voxelizer:
   visualization-tiles-path: ./build/test-storage/3dtiles
   voxel-set-output-path: ./build/test-storage/voxelsets
   default-create:
-    max-level: 17
+    max-level: 15
     visualize: true
     visualize-color: grey
     cube-data-type: BYTE
     recursive: true
   default-diff:
-    max-level: 17
+    max-level: 15
     diff-operation: ADD_AND_REMOVE
     visualize: true
-    interior-only: true
+    diff-neighbor-mode: 6
+    min-diff-filter-level: 12
+    min-diff-neighbors: 2
+    diff-neighbor-iterations: 4
+    min-diff-cluster-size: 10
+    union: true
     mass-summary: true
     cube-data-type: BYTE
     recursive: true

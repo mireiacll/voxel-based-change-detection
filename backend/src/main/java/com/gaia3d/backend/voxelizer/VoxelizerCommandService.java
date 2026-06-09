@@ -69,10 +69,16 @@ public class VoxelizerCommandService {
             Path sourceVoxelDir,
             Path targetVoxelDir,
             Path outputDiffVoxelDir,
+            Path logPath,
             int maxLevel,
             String diffOperation,
             boolean visualize,
-            boolean interiorOnly,
+            int diffNeighborMode,
+            int minDiffFilterLevel,
+            int minDiffNeighbors,
+            int diffNeighborIterations,
+            int minDiffClusterSize,
+            boolean union,
             boolean massSummary,
             String cubeDataType,
             boolean recursive) {
@@ -80,10 +86,16 @@ public class VoxelizerCommandService {
                 sourceVoxelDir,
                 targetVoxelDir,
                 outputDiffVoxelDir,
+                logPath,
                 maxLevel,
                 diffOperation,
                 visualize,
-                interiorOnly,
+                diffNeighborMode,
+                minDiffFilterLevel,
+                minDiffNeighbors,
+                diffNeighborIterations,
+                minDiffClusterSize,
+                union,
                 massSummary,
                 cubeDataType,
                 recursive));
@@ -93,10 +105,16 @@ public class VoxelizerCommandService {
             Path sourceVoxelDir,
             Path targetVoxelDir,
             Path outputDiffVoxelDir,
+            Path logPath,
             int maxLevel,
             String diffOperation,
             boolean visualize,
-            boolean interiorOnly,
+            int diffNeighborMode,
+            int minDiffFilterLevel,
+            int minDiffNeighbors,
+            int diffNeighborIterations,
+            int minDiffClusterSize,
+            boolean union,
             boolean massSummary,
             String cubeDataType,
             boolean recursive) {
@@ -107,12 +125,23 @@ public class VoxelizerCommandService {
                 "--targetInput", normalize(targetVoxelDir),
                 "--output", normalize(outputDiffVoxelDir),
                 "--maxLevel", String.valueOf(maxLevel),
+                "--log", normalize(logPath),
                 "--diffOperation", diffOperation));
         if (visualize) {
             command.add("--visualize");
         }
-        if (interiorOnly) {
-            command.add("--interiorOnly");
+        command.add("--diffNeighborMode");
+        command.add(String.valueOf(diffNeighborMode));
+        command.add("--minDiffFilterLevel");
+        command.add(String.valueOf(minDiffFilterLevel));
+        command.add("--minDiffNeighbors");
+        command.add(String.valueOf(minDiffNeighbors));
+        command.add("--diffNeighborIterations");
+        command.add(String.valueOf(diffNeighborIterations));
+        command.add("--minDiffClusterSize");
+        command.add(String.valueOf(minDiffClusterSize));
+        if (union) {
+            command.add("--union");
         }
         if (massSummary) {
             command.add("--massSummary");

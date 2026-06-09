@@ -8,10 +8,19 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import com.gaia3d.backend.diff.CreateTimeSeriesDiffRequest;
+import com.gaia3d.backend.diff.DiffCreateResponse;
+import com.gaia3d.backend.diff.DiffDetailResponse;
+import com.gaia3d.backend.diff.DiffItemResponse;
+import com.gaia3d.backend.diff.DiffService;
+import com.gaia3d.backend.diff.DiffStatus;
+import com.gaia3d.backend.diff.DiffType;
+import com.gaia3d.backend.observation.ObservationStatus;
 import com.gaia3d.backend.observation.ObservationResponse;
 import com.gaia3d.backend.observation.ObservationService;
 import com.gaia3d.backend.project.ProjectRequest;
@@ -51,6 +60,9 @@ class ManualObservationSeedTest {
     private ObservationService observationService;
 
     @Autowired
+    private DiffService diffService;
+
+    @Autowired
     private VoxelizerProperties voxelizerProperties;
 
     @TempDir
@@ -72,6 +84,7 @@ class ManualObservationSeedTest {
                 1500.0,
                 null));
 
+        List<ObservationResponse> seededObservations = new ArrayList<>();
         for (SeedObservation seed : OBSERVATIONS) {
             MockMultipartFile file = zipAsMultipart(seed.tilesetRoot());
             ObservationResponse observation = observationService.upload(
@@ -83,10 +96,13 @@ class ManualObservationSeedTest {
             assertThat(observation.projectId()).isEqualTo(project.id());
             assertThat(observation.originalTilesetUrl()).isNotBlank();
             assertThat(observation.voxelJobId()).isNotNull();
+            assertThat(observation.voxelStatus()).isEqualTo(ObservationStatus.SUCCEEDED);
             assertThat(Path.of(observation.originalTilesPath()).toAbsolutePath().normalize())
                     .startsWith(voxelizerProperties.visualizationTilesPath().toAbsolutePath().normalize());
             assertThat(Path.of(observation.voxelPath()).toAbsolutePath().normalize())
                     .startsWith(voxelizerProperties.voxelSetOutputPath().toAbsolutePath().normalize());
+            assertThat(observation.voxelPath()).contains("observations");
+            assertThat(observation.voxelPath()).contains("voxel");
 
             System.out.printf(
                     "Seeded observation id=%d projectId=%d observedAt=%s original=%s voxelStatus=%s voxel=%s%n",
@@ -96,9 +112,61 @@ class ManualObservationSeedTest {
                     observation.originalTilesetUrl(),
                     observation.voxelStatus(),
                     observation.voxelTilesetUrl());
+            seededObservations.add(observation);
+        }
+
+        assertThat(seededObservations).hasSize(3);
+
+        DiffCreateResponse diff = diffService.createTimeSeries(project.id(), new CreateTimeSeriesDiffRequest(
+                "Manual seed time-series diff",
+                15,
+                true,
+                6,
+                12,
+                2,
+                4,
+                10,
+                true,
+                true,
+                "BYTE",
+                true,
+                null,
+                null));
+
+        assertThat(diff.type()).isEqualTo(DiffType.TIME_SERIES);
+        assertThat(diff.status()).isEqualTo(DiffStatus.SUCCEEDED);
+        assertThat(diff.itemCount()).isEqualTo(2);
+
+        DiffDetailResponse detail = diffService.findById(diff.id());
+        assertThat(detail.items()).hasSize(2);
+        for (DiffItemResponse item : detail.items()) {
+            assertThat(item.status().name()).isEqualTo("SUCCEEDED");
+            assertThat(item.command()).contains("--maxLevel 15");
+            assertThat(item.command()).contains("--sourceInput");
+            assertThat(item.command()).contains("--targetInput");
+            assertThat(item.command()).contains("--log");
+            assertThat(item.command()).contains("--diffNeighborMode 6");
+            assertThat(item.command()).contains("--minDiffFilterLevel 12");
+            assertThat(item.command()).contains("--minDiffNeighbors 2");
+            assertThat(item.command()).contains("--diffNeighborIterations 4");
+            assertThat(item.command()).contains("--minDiffClusterSize 10");
+            assertThat(item.command()).contains("--union");
+            assertThat(item.command()).doesNotContain("--interiorOnly");
+            assertThat(Path.of(item.resultVoxelPath()).toAbsolutePath().normalize())
+                    .startsWith(voxelizerProperties.voxelSetOutputPath().toAbsolutePath().normalize());
+
+            System.out.printf(
+                    "Seeded diff item id=%d source=%s target=%s status=%s voxel=%s log=%s%n",
+                    item.id(),
+                    item.sourceObservedAt(),
+                    item.targetObservedAt(),
+                    item.status(),
+                    item.resultVoxelPath(),
+                    item.logPath());
         }
 
         System.out.printf("Seeded project id=%d name=%s%n", project.id(), project.name());
+        System.out.printf("Seeded time-series diff id=%d itemCount=%d%n", diff.id(), diff.itemCount());
     }
 
     private void validateInputs() {

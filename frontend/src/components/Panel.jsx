@@ -11,7 +11,7 @@ function TypeTag({ type }) {
   if (!type) return null
   return (
     <span className={`date-type-tag ${type === 'mesh' ? 'ltag-amber' : 'ltag-purple'}`}>
-      {type === 'mesh' ? '3DT' : 'PC'}
+      {type === 'mesh' ? 'MESH' : 'PC'}
     </span>
   )
 }

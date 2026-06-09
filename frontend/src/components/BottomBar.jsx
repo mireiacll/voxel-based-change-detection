@@ -43,29 +43,34 @@ export default function BottomBar({
 
         <div className="bb-sep" />
 
-        {/* 범례 — 2-column grid */}
+        {/* 범례 — 3-column grid (2 rows each) */}
         <div className="bb-legend-block">
           <span className="bb-section-label">범례</span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', gap: '3px 20px' }}>
+            {/* Col 1: MESH, PC */}
             <div className="bb-legend-item">
               <span className="bb-swatch-tag ltag-amber">MESH</span>
               <span>3D Mesh</span>
             </div>
+            {/* Col 2: VOX */}
+            <div className="bb-legend-item">
+              <span className="bb-swatch-tag ltag-teal">VOX</span>
+              <span>Voxel</span>
+            </div>
+            {/* Col 3: 증가 */}
             <div className="bb-legend-item">
               <span className="bb-swatch" style={{ background: 'var(--added)' }} />
               <span>증가</span>
             </div>
+            {/* Row 2 */}
             <div className="bb-legend-item">
               <span className="bb-swatch-tag ltag-purple">PC</span>
               <span>Point Cloud</span>
             </div>
+            <div /> {/* empty cell */}
             <div className="bb-legend-item">
               <span className="bb-swatch" style={{ background: 'var(--removed)' }} />
               <span>감소</span>
-            </div>
-            <div className="bb-legend-item">
-              <span className="bb-swatch-tag ltag-teal">VOX</span>
-              <span>Voxel</span>
             </div>
           </div>
         </div>

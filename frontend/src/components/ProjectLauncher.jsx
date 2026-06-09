@@ -224,9 +224,16 @@ function SiteCard({ site, onSelect, onEdited, onDeleted }) {
   return (
     <>
       {/* The card itself — identical markup to the original, ⋯ added inside */}
-      <button
+      <div
         className="lcard"
         onClick={() => !menuOpen && onSelect(site)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            onSelect(site)
+          }
+        }}
       >
         <div className="lcard-bg" aria-hidden />
 
@@ -268,7 +275,7 @@ function SiteCard({ site, onSelect, onEdited, onDeleted }) {
           </div>
         </div>
         <div className="lcard-arrow">→</div>
-      </button>
+      </div>
 
       {showEdit && (
         <EditSiteModal

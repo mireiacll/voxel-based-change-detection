@@ -88,6 +88,8 @@ html, body {
   flex-shrink: 0; padding-right: 20px;
   border-right: 1px solid var(--border);
   height: 100%; margin-right: 12px;
+  width: calc(var(--pw) - 12px);
+  box-sizing: border-box;
 }
 .nav-brand-icon {
   width: 32px; height: 32px;

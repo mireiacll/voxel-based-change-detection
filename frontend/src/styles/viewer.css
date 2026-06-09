@@ -755,11 +755,11 @@ select {
 /* ── Map overlay controls ───────────────────────────────────── */
 #map-overlay-controls {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh) + 12px);
+  top: calc(var(--nav-h) + var(--mshh) + 10px);
   right: calc(var(--rpw) + 12px);
   z-index: 120;
-  display: flex; flex-direction: column;
-  align-items: flex-end; gap: 6px;
+  display: flex; flex-direction: row;
+  align-items: center; gap: 6px;
 }
 .moc-picker { position: relative; }
 
@@ -866,6 +866,30 @@ select {
 .moc-pc-label { font-size: 10px; color: var(--muted); white-space: nowrap; }
 .moc-pc-size input[type=range] { width: 80px; }
 .moc-pc-val { font-size: 10px; color: var(--muted); width: 20px; font-family: var(--mono); }
+
+/* ── Zoom widget ─────────────────────────────────────────────── */
+.moc-zoom {
+  display: flex; flex-direction: row;
+  background: rgba(12,14,22,.88);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+.moc-zoom-btn {
+  width: 28px; height: 26px;
+  background: none; border: none;
+  color: var(--text); font-size: 16px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+  user-select: none;
+}
+.moc-zoom-btn:hover { background: rgba(255,255,255,.07); color: var(--accent); }
+.moc-zoom-btn:active { background: rgba(255,255,255,.12); }
+.moc-zoom-divider {
+  width: 1px; height: auto; background: var(--border); flex-shrink: 0;
+}
 
 /* ── Tab overlays ───────────────────────────────────────────── */
 .tab-overlay {

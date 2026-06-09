@@ -17,7 +17,7 @@
  *     none     Globe only (no imagery)
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 // Thumb SVGs at 56x56 to match Cesium native picker density
 const S = 56
@@ -123,19 +123,48 @@ function makeSvgThumb(id) {
 // ── Catalogue ─────────────────────────────────────────────────────────────
 
 const BASEMAPS = [
-  { section: 'Bing Maps', id: 'aerial',        label: 'Bing Aerial',           thumb: makeSvgThumb('aerial') },
-  { section: 'Bing Maps', id: 'aerial_labels',  label: 'Aerial + Labels',       thumb: makeSvgThumb('aerial_labels') },
-  { section: 'Bing Maps', id: 'roads',          label: 'Bing Roads',            thumb: makeSvgThumb('roads') },
-  { section: 'Google Maps', id: 'gmaps_sat',          label: 'Satellite',             thumb: makeSvgThumb('gmaps_sat') },
-  { section: 'Google Maps', id: 'gmaps_sat_labels',   label: 'Satellite + Labels',    thumb: makeSvgThumb('gmaps_sat_labels') },
-  { section: 'Google Maps', id: 'gmaps_road',         label: 'Roadmap',               thumb: makeSvgThumb('gmaps_road') },
-  { section: 'Google Maps', id: 'gmaps_contour',      label: 'Contour',               thumb: makeSvgThumb('gmaps_contour') },
-  { section: 'Other', id: 'osm',          label: 'OpenStreetMap',         thumb: makeSvgThumb('osm') },
-  { section: 'Other', id: 'dark',         label: 'Dark Map',              thumb: makeSvgThumb('dark') },
-  { section: 'Other', id: 'none',         label: 'Globe Only',            thumb: makeSvgThumb('none') },
+  { section: 'Bing Maps',   id: 'aerial',           label: 'Bing Aerial',        thumb: makeSvgThumb('aerial') },
+  { section: 'Bing Maps',   id: 'aerial_labels',    label: 'Aerial + Labels',    thumb: makeSvgThumb('aerial_labels') },
+  { section: 'Bing Maps',   id: 'roads',            label: 'Bing Roads',         thumb: makeSvgThumb('roads') },
+  { section: 'Google Maps', id: 'gmaps_sat',        label: 'Satellite',          thumb: makeSvgThumb('gmaps_sat') },
+  { section: 'Google Maps', id: 'gmaps_sat_labels', label: 'Satellite + Labels', thumb: makeSvgThumb('gmaps_sat_labels') },
+  { section: 'Google Maps', id: 'gmaps_road',       label: 'Roadmap',            thumb: makeSvgThumb('gmaps_road') },
+  { section: 'Google Maps', id: 'gmaps_contour',    label: 'Contour',            thumb: makeSvgThumb('gmaps_contour') },
+  { section: 'Other',       id: 'osm',              label: 'OpenStreetMap',      thumb: makeSvgThumb('osm') },
+  { section: 'Other',       id: 'dark',             label: 'Dark Map',           thumb: makeSvgThumb('dark') },
+  { section: 'Other',       id: 'none',             label: 'Globe Only',         thumb: makeSvgThumb('none') },
 ]
 
 const SECTIONS = ['Bing Maps', 'Google Maps', 'Other']
+
+// ── Zoom helpers ──────────────────────────────────────────────────────────
+
+// Amount to move the camera forward/backward per click (in metres).
+// Scales with current altitude so it feels proportional at any zoom level.
+function getCameraZoomAmount() {
+  const viewer = window.viewer
+  if (!viewer) return 500
+  const carto = window.Cesium.Cartographic.fromCartesian(
+    viewer.camera.position
+  )
+  const alt = carto?.height ?? 500
+  // ~15 % of current altitude, clamped to a sensible range
+  return Math.max(10, Math.min(alt * 0.15, 50000))
+}
+
+function zoomIn() {
+  const viewer = window.viewer
+  if (!viewer) return
+  viewer.camera.zoomIn(getCameraZoomAmount())
+  viewer.scene.requestRender()
+}
+
+function zoomOut() {
+  const viewer = window.viewer
+  if (!viewer) return
+  viewer.camera.zoomOut(getCameraZoomAmount())
+  viewer.scene.requestRender()
+}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -157,8 +186,51 @@ export default function MapOverlayControls({
 
   const currentMap = BASEMAPS.find(b => b.id === basemap) ?? BASEMAPS[0]
 
+  // Hold-to-repeat zoom: press and hold fires repeatedly
+  const zoomInterval = useRef(null)
+
+  const startZoom = useCallback((fn) => {
+    fn()
+    zoomInterval.current = setInterval(fn, 120)
+  }, [])
+
+  const stopZoom = useCallback(() => {
+    clearInterval(zoomInterval.current)
+    zoomInterval.current = null
+  }, [])
+
+  // Clean up on unmount
+  useEffect(() => () => clearInterval(zoomInterval.current), [])
+
   return (
     <div id="map-overlay-controls">
+
+      {/* ── Zoom widget ── */}
+      <div className="moc-zoom">
+        <button
+          className="moc-zoom-btn"
+          title="확대"
+          onMouseDown={() => startZoom(zoomIn)}
+          onMouseUp={stopZoom}
+          onMouseLeave={stopZoom}
+          onTouchStart={e => { e.preventDefault(); startZoom(zoomIn) }}
+          onTouchEnd={stopZoom}
+        >
+          +
+        </button>
+        <div className="moc-zoom-divider" />
+        <button
+          className="moc-zoom-btn"
+          title="축소"
+          onMouseDown={() => startZoom(zoomOut)}
+          onMouseUp={stopZoom}
+          onMouseLeave={stopZoom}
+          onTouchStart={e => { e.preventDefault(); startZoom(zoomOut) }}
+          onTouchEnd={stopZoom}
+        >
+          −
+        </button>
+      </div>
 
       {/* ── Basemap trigger ── */}
       <div className="moc-picker" ref={panelRef}>

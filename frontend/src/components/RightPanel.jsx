@@ -16,10 +16,22 @@ function fmt(n, voxSize) {
   return m3 < 10000 ? `${m3.toFixed(1)} m³` : `${(m3 / 1000).toFixed(2)}k m³`
 }
 
+function fmtVol(m3) {
+  if (m3 == null || isNaN(m3)) return '—'
+  if (Math.abs(m3) >= 1_000_000) return `${(m3 / 1_000_000).toFixed(3)} km³`
+  if (Math.abs(m3) >= 1_000)    return `${(m3 / 1_000).toFixed(2)}k m³`
+  return `${m3.toFixed(1)} m³`
+}
+
+function fmtCount(n) {
+  if (n == null) return '—'
+  return n.toLocaleString()
+}
+
 export default function RightPanel({
   mode,
   activeSite,
-  // compare-only props (날짜 비교 + 분석 설정)
+  // compare-only props
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
   colorA, onColorA, alphaA, onAlphaA,
@@ -36,10 +48,17 @@ export default function RightPanel({
   tlSnapshots, tlActiveIndex, tlOnSelect,
   tlPlaying, tlOnPlayPause,
   tlLoading, tlOnRecompute,
+  // compare-api props
+  apiDateIdA, onApiDateIdA,
+  apiDateIdB, onApiDateIdB,
+  apiRunning, onApiRun, onApiClear,
+  apiStatus, apiError,
+  apiSummary,
 }) {
-  const dates      = activeSite?.dates ?? []
-  const inCompare  = mode === 'compare'
-  const inTimeline = mode === 'timeline'
+  const dates       = activeSite?.dates ?? []
+  const inCompare   = mode === 'compare'
+  const inTimeline  = mode === 'timeline'
+  const inApiCompare = mode === 'compare-api'
 
   const netM3 = stats ? (stats.added - stats.removed) * stats.voxSize ** 3 : 0
 
@@ -129,13 +148,11 @@ export default function RightPanel({
         </>
       )}
 
-      {/* ── 분석 결과 ── */}
-      <div className="p-section">
-        <div className="p-label">분석 결과</div>
-
-        {inCompare && (
-          <>
-            <div className="layer-row">
+      {/* ── 분석 결과 — only shown once there's something to show ── */}
+      {(inCompare && stats) && (
+        <div className="p-section">
+          <div className="p-label">분석 결과</div>
+          <div className="layer-row">
               <label className="sw">
                 <input type="checkbox" checked={showAdded}
                   onChange={e => onShowAdded(e.target.checked)} />
@@ -191,14 +208,14 @@ export default function RightPanel({
                     : '—'}
                 </span>
               </div>
-              {!stats && (
-                <div id="stats-note">날짜를 선택하고 차이를 계산하세요</div>
-              )}
             </div>
-          </>
-        )}
+        </div>
+      )}
 
-        {inTimeline && (
+      {/* ── 분석 결과 — timeline ── */}
+      {inTimeline && (
+        <div className="p-section">
+          <div className="p-label">분석 결과</div>
           <TimelinePanel
             snapshots={tlSnapshots}
             activeIndex={tlActiveIndex}
@@ -212,8 +229,127 @@ export default function RightPanel({
             loading={tlLoading}
             onRecompute={tlOnRecompute}
           />
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* ── A vs B (Full) — compare-api mode ── */}
+      {inApiCompare && (
+        <>
+          <div className="p-section">
+            <div className="p-label">날짜 비교</div>
+            <div className="compare-pair">
+              <div className="compare-row">
+                <span className="compare-ab-lbl">A</span>
+                <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => (
+                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="compare-row" style={{ marginTop: 8 }}>
+                <span className="compare-ab-lbl">B</span>
+                <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => (
+                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-section">
+            <div className="p-label">분석 설정</div>
+            <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
+            <div id="draw-info">{drawInfo}</div>
+            <div className="compare-action-buttons" style={{ marginTop: 10 }}>
+              <button id="btn-run-diff" disabled={apiRunning} onClick={onApiRun}>
+                {apiRunning ? '⟳ 분석 중…' : '⚡ 분석 실행'}
+              </button>
+              <button id="btn-clear-diff" onClick={onApiClear}>✖ 초기화</button>
+            </div>
+            {apiStatus && (
+              <div id="diff-status" data-state={apiRunning ? 'computing' : 'done'}>{apiStatus}</div>
+            )}
+            {apiError && (
+              <div id="diff-status" data-state="error" style={{ color: 'var(--removed)' }}>{apiError}</div>
+            )}
+          </div>
+
+          {apiSummary && (() => {
+            const lv17 = apiSummary.levelCounts?.find(l => l.level === 17)
+            const net  = lv17
+              ? (lv17.addApproxVolumeCubicMeters ?? 0) - (lv17.removeApproxVolumeCubicMeters ?? 0)
+              : 0
+            return (
+              <div className="p-section">
+                <div className="p-label">분석 결과</div>
+                {!lv17 ? (
+                  <div id="stats-note">레벨 17 데이터가 없습니다</div>
+                ) : (
+                  <>
+                    <div className="layer-row">
+                      <label className="sw">
+                        <input type="checkbox" checked={showAdded} onChange={e => onShowAdded(e.target.checked)} />
+                        <span />
+                      </label>
+                      <div className="layer-body">
+                        <div className="layer-name">추가된 부피</div>
+                        <div className="layer-type">B 존재, A 부재</div>
+                      </div>
+                      <span className="ltag" style={{ background: '#2a1010', color: 'var(--added)' }}>ADD</span>
+                    </div>
+                    <div className="layer-row">
+                      <label className="sw">
+                        <input type="checkbox" checked={showRemoved} onChange={e => onShowRemoved(e.target.checked)} />
+                        <span />
+                      </label>
+                      <div className="layer-body">
+                        <div className="layer-name">제거된 부피</div>
+                        <div className="layer-type">A 존재, B 부재</div>
+                      </div>
+                      <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
+                    </div>
+                    <div id="stats-box" style={{ marginTop: 8 }}>
+                      {showAdded && (<>
+                        <div className="stat-row">
+                          <span className="stat-k">추가 부피</span>
+                          <span className="stat-v" style={{ color: 'var(--added)' }}>+{fmtVol(lv17.addApproxVolumeCubicMeters)}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-k">추가 복셀</span>
+                          <span className="stat-v" style={{ color: 'var(--added)', fontSize: 11 }}>{fmtCount(lv17.addVoxelCount)}</span>
+                        </div>
+                      </>)}
+                      {showRemoved && (<>
+                        <div className="stat-row">
+                          <span className="stat-k">제거 부피</span>
+                          <span className="stat-v" style={{ color: 'var(--removed)' }}>-{fmtVol(lv17.removeApproxVolumeCubicMeters)}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-k">제거 복셀</span>
+                          <span className="stat-v" style={{ color: 'var(--removed)', fontSize: 11 }}>{fmtCount(lv17.removeVoxelCount)}</span>
+                        </div>
+                      </>)}
+                      <div className="stat-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 6 }}>
+                        <span className="stat-k">순 변화</span>
+                        <span className="stat-v" style={{ color: net >= 0 ? 'var(--added)' : 'var(--removed)' }}>
+                          {net >= 0 ? '+' : ''}{fmtVol(net)}
+                        </span>
+                      </div>
+                      <div className="stat-row">
+                        <span className="stat-k">총 복셀</span>
+                        <span className="stat-v" style={{ fontSize: 10, color: 'var(--muted)' }}>{fmtCount(lv17.voxelCount)}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+        </>
+      )}
 
     </aside>
   )

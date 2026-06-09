@@ -11,7 +11,7 @@ import {
   renderVoxelDiff, invalidateTilesetUrl,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
-import { setDrawCallbacks, togglePolygonDraw, clearPolygon, setPolygonVisible } from './cesium/polygonDraw'
+import { setDrawCallbacks, togglePolygonDraw, clearPolygon, setPolygonVisible, swapPolygonTab } from './cesium/polygonDraw'
 import { loadDiffSnapshots, snapshotToRenderVoxels } from './timelineDiffs'
 
 import NavBar             from './components/NavBar'
@@ -27,6 +27,9 @@ import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+
+const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
+const DEFAULT_DRAW_BTN  = '✏ Draw Area'
 
 export default function App() {
   const [navTab,         setNavTab]         = useState('projects')
@@ -66,17 +69,31 @@ export default function App() {
   useEffect(() => { showAddedRef.current   = showAdded },   [showAdded])
   useEffect(() => { showRemovedRef.current = showRemoved }, [showRemoved])
 
+  // ── compare-api state ─────────────────────────────────────────────────
+  const [apiDateIdA, setApiDateIdA] = useState('')
+  const [apiDateIdB, setApiDateIdB] = useState('')
+  const [apiRunning, setApiRunning] = useState(false)
+  const [apiStatus,  setApiStatus]  = useState('')
+  const [apiError,   setApiError]   = useState(null)
+  const [apiSummary, setApiSummary] = useState(null)
+
   // Keep the last compare diff voxels so we can restore them when returning
-  // from timeline mode back to compare
+  // from timeline / compare-api back to compare
   const lastCompareDiffRef = useRef(null)
 
   const [voxelSize,   setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
   const [diffRunning, setDiffRunning] = useState(false)
   const [diffStatus,  setDiffStatus]  = useState({ state: '', msg: '' })
   const [stats,       setStats]       = useState(null)
-  const [drawInfo,    setDrawInfo]    = useState('No area selected — diff runs on full extent')
-  const [drawBtnLabel,setDrawBtnLabel]= useState('✏ Draw Area')
-  const [drawBanner,  setDrawBanner]  = useState(false)
+
+  // ── Per-tab polygon UI state ──────────────────────────────────────────
+  // The physical polygon in polygonDraw.js is global (one at a time).
+  // We save/restore the UI labels per tab so each tab looks independent.
+  const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
+  const [drawBtnLabel, setDrawBtnLabel] = useState(DEFAULT_DRAW_BTN)
+  const [drawBanner,   setDrawBanner]   = useState(false)
+
+
 
   const [basemap,     setBasemapState] = useState('aerial')
   const [showTerrain, setShowTerrain]  = useState(CONFIG.TERRAIN.ENABLED)
@@ -263,12 +280,16 @@ export default function App() {
     setMode('compare')
     setStats(null)
     setDiffStatus({ state: '', msg: '' })
-    setDrawInfo('No area selected — diff runs on full extent')
-    setDrawBtnLabel('✏ Draw Area')
+    setDrawInfo(DEFAULT_DRAW_INFO)
+    setDrawBtnLabel(DEFAULT_DRAW_BTN)
+    setDrawBanner(false)
     setVisibleDateIds(new Set())
     setActiveDate(null)
     setCompareIdA(site.dates[0]?.id ?? '')
     setCompareIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
+    setApiDateIdA(site.dates[0]?.id ?? '')
+    setApiDateIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
+    setApiSummary(null); setApiStatus(''); setApiError(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
     setActiveSite(site)
     window.currentSite = site
@@ -358,27 +379,61 @@ export default function App() {
   }
 
   function handleModeChange(newMode) {
+    const prevMode = modeRef.current
+    if (prevMode === newMode) return
+
     setMode(newMode)
     modeRef.current = newMode
 
     if (newMode === 'timeline') {
-      // Hide polygon drawing — only valid in compare mode
-      setPolygonVisible(false)
-      // Hide A/B and single-date layers; keep/replace diffPrim via timeline loader
+      // Park the active compare tab's polygon (hide it, remember it)
+      if (prevMode === 'compare' || prevMode === 'compare-api') {
+        setPolygonVisible(false)
+        setDrawBanner(false)
+      }
       syncVisibility('timeline', checkState())
       setTlSnapshots(null) // trigger reload
+
     } else if (newMode === 'compare') {
-      // Restore polygon visibility
-      setPolygonVisible(true)
-      // Restore gridDef first — timeline overwrites window.diffState.gridDef
-      // with its snapshot grid, so voxel positions would be wrong without this
+      if (prevMode === 'compare-api') {
+        // Swap: hide compare-api's polygon, restore compare's polygon
+        swapPolygonTab('compare-api', 'compare', drawInfo, drawBtnLabel)
+        setDrawBanner(false)
+      } else if (prevMode === 'timeline') {
+        // Restore compare's polygon visibility (was only hidden, not parked)
+        setPolygonVisible(true)
+      }
+
+      // Restore compare voxels if we had a previous diff
       if (lastCompareDiffRef.current) {
         const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
         window.diffState = window.diffState ?? {}
         window.diffState.gridDef = gridDef
-        renderVoxelDiff(voxels, vs)
+        renderVoxelDiff(
+          voxels.filter(v =>
+            (v.type === 'added'   && showAddedRef.current) ||
+            (v.type === 'removed' && showRemovedRef.current)
+          ),
+          vs
+        )
+      } else {
+        renderVoxelDiff([], 0.5)
       }
       syncVisibility('compare', checkState())
+
+    } else if (newMode === 'compare-api') {
+      if (prevMode === 'compare') {
+        // Swap: hide compare's polygon, restore compare-api's polygon
+        swapPolygonTab('compare', 'compare-api', drawInfo, drawBtnLabel)
+        setDrawBanner(false)
+      } else if (prevMode === 'timeline') {
+        // Restore compare-api's polygon visibility (was only hidden, not parked)
+        setPolygonVisible(true)
+      }
+
+      // Hide compare A/B meshes and voxels — don't destroy them
+      renderVoxelDiff([], 0.5)
+      syncVisibility('compare', checkState({ dateA: false, dateB: false }))
     }
   }
 
@@ -419,7 +474,36 @@ export default function App() {
     lastCompareDiffRef.current = null
     setStats(null)
     setDiffStatus({ state: '', msg: '' })
-    setDrawInfo('No area selected — diff runs on full extent')
+    setDrawInfo(DEFAULT_DRAW_INFO)
+    setDrawBtnLabel(DEFAULT_DRAW_BTN)
+  }
+
+  async function handleApiRun() {
+    if (apiRunning) return
+    if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
+    if (apiDateIdA === apiDateIdB)  { setApiError('서로 다른 날짜를 선택하세요'); return }
+    setApiRunning(true); setApiError(null); setApiSummary(null)
+    try {
+      const { runFullDiff }   = await import('./backendDiff')
+      const { getPolygonGeo } = await import('./cesium/polygonDraw')
+      const result = await runFullDiff({
+        projectId: activeSite.id,
+        dateA: apiDateIdA, dateB: apiDateIdB,
+        polygon: getPolygonGeo(),
+        onStatus: setApiStatus,
+      })
+      setApiSummary(result)
+    } catch (e) {
+      setApiError(e.message)
+    } finally {
+      setApiRunning(false)
+    }
+  }
+
+  function handleApiClear() {
+    setApiSummary(null); setApiStatus(''); setApiError(null)
+    setDrawInfo(DEFAULT_DRAW_INFO)
+    setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
   function handleCameraSite() {
@@ -520,6 +604,11 @@ export default function App() {
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
             tlLoading={tlLoading}           tlOnRecompute={() => setTlSnapshots(null)}
+            apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
+            apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
+            apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}
+            apiStatus={apiStatus}           apiError={apiError}
+            apiSummary={apiSummary}
           />
 
           <MapOverlayControls

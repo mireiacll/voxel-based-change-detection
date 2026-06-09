@@ -33,6 +33,12 @@ export default function MapSubHeader({ mode, onMode, compareIdA, compareIdB, act
           A vs B 비교
         </button>
         <button
+          className={`msh-tab${mode === 'compare-api' ? ' active' : ''}`}
+          onClick={() => onMode('compare-api')}
+        >
+          A vs B 비교 (Full)
+        </button>
+        <button
           className={`msh-tab${mode === 'timeline' ? ' active' : ''}`}
           onClick={() => onMode('timeline')}
         >
@@ -40,20 +46,6 @@ export default function MapSubHeader({ mode, onMode, compareIdA, compareIdB, act
         </button>
       </div>
 
-      {mode === 'compare' && (compareIdA || compareIdB) && (
-        <div className="msh-dataset-labels">
-          {compareIdA && (
-            <span className="msh-dataset-tag msh-tag-a">
-              Dataset A — {dateLabel(compareIdA)}
-            </span>
-          )}
-          {compareIdB && (
-            <span className="msh-dataset-tag msh-tag-b">
-              Dataset B — {dateLabel(compareIdB)}
-            </span>
-          )}
-        </div>
-      )}
     </div>
   )
 }

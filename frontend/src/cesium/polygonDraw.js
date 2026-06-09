@@ -1,6 +1,6 @@
 import { toast, requestRender } from './cesiumInit'
 
-// ── Polygon drawing state ─────────────────────────────────────────────────
+// ── Active polygon state ──────────────────────────────────────────────────
 const _poly = {
   drawing:  false,
   closed:   false,
@@ -8,6 +8,15 @@ const _poly = {
   geo:      [],
   handler:  null,
   entities: [],
+}
+
+// ── Parked polygon slots — one per compare tab ────────────────────────────
+// When switching tabs we hide + snapshot the active poly into the departing
+// tab's slot, then restore (and show) the arriving tab's slot.
+// Slot shape: { pts, geo, entities, closed, drawInfo, drawBtn } | null
+const _parked = {
+  'compare':     null,
+  'compare-api': null,
 }
 
 let _onDrawBanner   = () => {}
@@ -20,21 +29,91 @@ export function setDrawCallbacks(onBanner, onInfo, onBtnLabel) {
   _onDrawBtnLabel = onBtnLabel
 }
 
-// Always clears regardless of current state — used on project switch
+// ── Always clears regardless of state — used on project switch ────────────
 export function clearPolygon() {
   _clearPoly()
+  _parked['compare']     = null
+  _parked['compare-api'] = null
   _onDrawBtnLabel('✏ Draw Area')
   _onDrawInfo('No area selected — diff runs on full extent')
 }
 
-/**
- * Show or hide all polygon entities without destroying them.
- * Used when switching between compare ↔ timeline modes.
- */
+// ── Hide / show the active polygon entities ───────────────────────────────
 export function setPolygonVisible(visible) {
   _poly.entities.forEach(e => {
     try { e.show = visible } catch (_) {}
   })
+  if (window.viewer) requestRender()
+}
+
+/**
+ * Swap the active polygon between two compare tabs.
+ *
+ * Call this when switching from `fromTab` to `toTab`.
+ * - Parks the current _poly into `fromTab`'s slot (hidden).
+ * - Restores `toTab`'s slot into _poly (visible), or leaves _poly empty.
+ * - Fires the draw callbacks so the UI labels match the arriving tab.
+ *
+ * @param {string} fromTab  'compare' | 'compare-api'
+ * @param {string} toTab    'compare' | 'compare-api'
+ * @param {string} currentDrawInfo   current drawInfo text (to save)
+ * @param {string} currentDrawBtn    current drawBtnLabel text (to save)
+ */
+export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) {
+  // 1. Park the current active polygon for fromTab.
+  //    If mid-draw, discard the partial polygon entirely — cleaner than parking garbage.
+  if (_poly.drawing) {
+    if (_poly.handler) { _poly.handler.destroy(); _poly.handler = null }
+    _poly.entities.forEach(e => { try { window.viewer.entities.remove(e) } catch (_) {} })
+    _poly.entities = []
+    _poly.pts = []; _poly.geo = []
+    _poly.drawing = false; _poly.closed = false
+    if (window.viewer) window.viewer.scene.canvas.style.cursor = ''
+    _onDrawBanner(false)
+    // Park as null — tab starts fresh when you come back
+    _parked[fromTab] = null
+  } else {
+    // Not drawing: hide entities and park normally
+    _poly.entities.forEach(e => { try { e.show = false } catch (_) {} })
+    _parked[fromTab] = {
+      pts:      _poly.pts,
+      geo:      _poly.geo,
+      entities: _poly.entities,
+      closed:   _poly.closed,
+      drawInfo: currentDrawInfo,
+      drawBtn:  currentDrawBtn,
+    }
+  }
+
+  // 2. Restore toTab's parked polygon into _poly, or start fresh
+  const slot = _parked[toTab]
+
+  if (slot) {
+    // Restore
+    _poly.pts      = slot.pts
+    _poly.geo      = slot.geo
+    _poly.entities = slot.entities
+    _poly.closed   = slot.closed
+    _poly.drawing  = false
+    _poly.handler  = null
+    // Show restored entities
+    _poly.entities.forEach(e => { try { e.show = true } catch (_) {} })
+    // Restore UI labels
+    _onDrawInfo(slot.drawInfo)
+    _onDrawBtnLabel(slot.drawBtn)
+    _parked[toTab] = null
+  } else {
+    // No parked polygon for this tab — start with a clean slate
+    _poly.pts      = []
+    _poly.geo      = []
+    _poly.entities = []
+    _poly.closed   = false
+    _poly.drawing  = false
+    _poly.handler  = null
+    _onDrawInfo('No area selected — diff runs on full extent')
+    _onDrawBtnLabel('✏ Draw Area')
+  }
+
   if (window.viewer) requestRender()
 }
 

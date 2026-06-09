@@ -496,6 +496,8 @@ export default function App() {
             activeSite={activeSite}
             visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
+            pcSize={pcSize}             onPcSize={setPcSize}
+            showPcSlider={showPcSlider}
           />
 
           <RightPanel
@@ -523,8 +525,6 @@ export default function App() {
           <MapOverlayControls
             basemap={basemap}           onBasemap={setBasemapState}
             showTerrain={showTerrain}   onShowTerrain={setShowTerrain}
-            pcSize={pcSize}             onPcSize={setPcSize}
-            showPcSlider={showPcSlider}
           />
 
           <BottomBar

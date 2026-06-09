@@ -18,9 +18,9 @@ function TypeTag({ type }) {
 
 export default function Panel({
   activeSite,
-  // date list props (moved from RightPanel)
   visibleDateIds, onToggleDate,
   onCameraSite, onCameraTop,
+  pcSize, onPcSize, showPcSlider,
 }) {
   const dates     = activeSite?.dates ?? []
   const firstDate = dates[0]?.label ?? '—'
@@ -80,6 +80,21 @@ export default function Panel({
           })}
         </div>
       </div>
+
+      {/* ── 포인트 크기 (point cloud only) ── */}
+      {showPcSlider && (
+        <div className="p-section">
+          <div className="p-label">포인트 크기</div>
+          <div className="pc-size-row">
+            <input
+              type="range" min="1" max="20" step="0.5"
+              value={pcSize}
+              onChange={e => onPcSize(parseFloat(e.target.value))}
+            />
+            <span className="pc-size-val">{pcSize}</span>
+          </div>
+        </div>
+      )}
 
       {/* ── 카메라 ── */}
       <div className="p-section">

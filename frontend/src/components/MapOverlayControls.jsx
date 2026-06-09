@@ -142,8 +142,6 @@ const SECTIONS = ['Bing Maps', 'Google Maps', 'Other']
 export default function MapOverlayControls({
   basemap, onBasemap,
   showTerrain, onShowTerrain,
-  pcSize, onPcSize,
-  showPcSlider,
 }) {
   const [open, setOpen] = useState(false)
   const panelRef = useRef(null)
@@ -235,18 +233,6 @@ export default function MapOverlayControls({
         )}
       </div>
 
-      {/* ── Point cloud size ── */}
-      {showPcSlider && (
-        <div className="moc-pc-size">
-          <span className="moc-pc-label">포인트 크기</span>
-          <input
-            type="range" min="1" max="20" step="0.5"
-            value={pcSize}
-            onChange={e => onPcSize(parseFloat(e.target.value))}
-          />
-          <span className="moc-pc-val">{pcSize}</span>
-        </div>
-      )}
     </div>
   )
 }

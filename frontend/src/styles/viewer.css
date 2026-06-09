@@ -416,6 +416,17 @@ select {
 .pbtn.active { background: #10162a; border-color: var(--accent); color: var(--accent); }
 .pbtn:disabled { opacity: .4; cursor: default; }
 
+/* ── Point cloud size slider (inside left panel) ── */
+.pc-size-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.pc-size-row input[type=range] { flex: 1; }
+.pc-size-val {
+  font-size: 11px; color: var(--muted);
+  width: 24px; text-align: right;
+  font-family: var(--mono);
+}
+
 /* ── Draw banner ────────────────────────────────────────────── */
 #draw-banner {
   position: fixed;

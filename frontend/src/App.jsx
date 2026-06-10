@@ -8,11 +8,11 @@ import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiu
 import {
   loadDate, syncVisibility, clearLayers, clearCompareLayers,
   applyPcStyle, setDateATint, setDateBTint,
-  renderVoxelDiff, invalidateTilesetUrl,
+  renderVoxelDiff, invalidateTilesetUrl, clearTimeseriesLayer,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, setPolygonVisible, swapPolygonTab } from './cesium/polygonDraw'
-import { loadDiffSnapshots, snapshotToRenderVoxels } from './timelineDiffs'
+import { loadDiffSnapshots, renderSnapshotTileset } from './timelineDiffs'
 
 import NavBar             from './components/NavBar'
 import MapSubHeader       from './components/MapSubHeader'
@@ -45,6 +45,7 @@ export default function App() {
   const [visibleDateIds, setVisibleDateIds] = useState(new Set())
   // The most recently toggled-on date (for M shortcut + pc slider)
   const [activeDate, setActiveDate] = useState(null)
+  const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
   // Keep a ref so keyboard handler can access without stale closure
   const activeDateRef    = useRef(null)
   const activeSiteRef    = useRef(null)
@@ -191,13 +192,8 @@ export default function App() {
 
   function doRenderTlSnapshot(snaps, idx) {
     const snap = snaps?.[idx]; if (!snap) return
-    window.diffState = window.diffState ?? {}
-    window.diffState.gridDef = {
-      lonStep: snap.grid_def.lon_step,
-      latStep: snap.grid_def.lat_step,
-      hStep:   snap.grid_def.h_step,
-    }
-    renderVoxelDiff(snapshotToRenderVoxels(snap, showAddedRef.current, showRemovedRef.current), snap.vox_size)
+    // Pre-colored tileset — load directly into Cesium, no voxel arrays needed
+    renderSnapshotTileset(snap)
   }
 
   useEffect(() => {
@@ -363,15 +359,34 @@ export default function App() {
         next.delete(d.id)
         clearLayers()
         setActiveDate(null)
+        setActiveDateLayerMode('pc')
       } else {
         clearLayers()
         next.clear() // only one at a time for now
         next.add(d.id)
         setActiveDate(d)
+        setActiveDateLayerMode('pc')
         loadDate(site, d, modeRef.current, checkState())
       }
       return next
     })
+  }
+
+  // Switch a date between point-cloud and pre-computed voxel tileset
+  function handleLayerMode(dateId, layerMode) {
+    if (!activeSite) return
+    const d = activeSite.dates.find(x => x.id === dateId)
+    if (!d) return
+    setActiveDateLayerMode(layerMode)
+    // Re-load the date using whichever path is appropriate
+    clearLayers()
+    if (layerMode === 'vox' && d.voxelPath) {
+      // Load the pre-computed voxel tileset as if it were a pointcloud layer
+      loadDate(activeSite, { ...d, datasetPath: d.voxelPath, datasetType: 'pointcloud' }, modeRef.current, checkState())
+    } else {
+      // Restore the original point cloud
+      loadDate(activeSite, d, modeRef.current, checkState())
+    }
   }
 
   function handleToggleDate(d) {
@@ -400,6 +415,8 @@ export default function App() {
         swapPolygonTab('compare-api', 'compare', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
+        // Clear the pre-colored tileset that was loaded for timeline
+        clearTimeseriesLayer()
         // Restore compare's polygon visibility (was only hidden, not parked)
         setPolygonVisible(true)
       }
@@ -427,6 +444,8 @@ export default function App() {
         swapPolygonTab('compare', 'compare-api', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
+        // Clear the pre-colored tileset that was loaded for timeline
+        clearTimeseriesLayer()
         // Restore compare-api's polygon visibility (was only hidden, not parked)
         setPolygonVisible(true)
       }
@@ -506,6 +525,22 @@ export default function App() {
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
+  async function handleComputeVoxel(dateId) {
+    if (!activeSite) return
+    const res = await fetch(`${API_BASE}/api/sites/${activeSite.id}/dates/${dateId}/voxel`, {
+      method: 'POST',
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail ?? `HTTP ${res.status}`)
+    }
+    // Refresh sites so the new voxelPath is reflected in activeSite
+    const updated = await refreshSites()
+    setSites(updated)
+    const updatedSite = updated.find(s => s.id === activeSite.id)
+    if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+  }
+
   function handleCameraSite() {
     if (!activeSite) return
     flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40)
@@ -521,7 +556,7 @@ export default function App() {
   }
 
   const showAnalysis  = navTab === 'analysis'
-  const showPcSlider  = activeDate?.datasetType === 'pointcloud'
+  const showPcSlider  = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
 
   return (
     <>
@@ -582,6 +617,8 @@ export default function App() {
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
             pcSize={pcSize}             onPcSize={setPcSize}
             showPcSlider={showPcSlider}
+            onLayerMode={handleLayerMode}
+            onComputeVoxel={handleComputeVoxel}
           />
 
           <RightPanel

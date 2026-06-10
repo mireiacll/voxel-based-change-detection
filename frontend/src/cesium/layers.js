@@ -16,13 +16,14 @@ import { CONFIG } from '../config'
 import { setStatus, toast, requestRender } from './cesiumInit'
 
 export const state = {
-  siteId:   null,
-  dateId:   null,
-  mesh:     null,   // single-date view layer (mesh)
-  pc:       null,   // single-date view layer (point cloud)
-  meshA:    null,   // compare A
-  meshB:    null,   // compare B
-  diffPrim: null,   // voxel diff primitive
+  siteId:     null,
+  dateId:     null,
+  mesh:       null,   // single-date view layer (mesh)
+  pc:         null,   // single-date view layer (point cloud)
+  meshA:      null,   // compare A
+  meshB:      null,   // compare B
+  diffPrim:   null,   // voxel diff primitive
+  timeseriesTs: null, // pre-computed timeseries diff tileset
 }
 
 let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
@@ -107,7 +108,8 @@ export function clearLayers() {
   _rm(state.mesh);  _rm(state.pc)
   _rm(state.meshA); _rm(state.meshB)
   _rm(state.diffPrim)
-  state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = null
+  _rm(state.timeseriesTs)
+  state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = state.timeseriesTs = null
   if (window.diffState) window.diffState.voxels = []
   requestAnimationFrame(() => requestRender())
 }
@@ -300,6 +302,41 @@ export function renderVoxelDiff(voxels, voxelSize) {
       compressVertices:         false,
     })
   )
+
+  requestAnimationFrame(() => requestRender())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TIMESERIES TILESET LOADER
+//  Loads a pre-colored 3D Tiles diff tileset (added=red / removed=blue,
+//  already baked). tilesetPath is relative to public/ — same convention as
+//  datasetPath on SurveyDate — so Cesium resolves it from the page root.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function clearTimeseriesLayer() {
+  _rm(state.timeseriesTs)
+  state.timeseriesTs = null
+  requestAnimationFrame(() => requestRender())
+}
+
+export async function loadTimeseriesTileset(tilesetPath) {
+  clearTimeseriesLayer()
+  if (!tilesetPath) return
+
+  try {
+    const Cesium = window.Cesium
+    const ts = await Cesium.Cesium3DTileset.fromUrl(tilesetPath, {
+      maximumScreenSpaceError: 2,
+    })
+    window.viewer.scene.primitives.add(ts)
+    ts.show = true
+    ts.allTilesLoaded.addEventListener(() => {
+      requestAnimationFrame(() => requestRender())
+    })
+    state.timeseriesTs = ts
+  } catch (e) {
+    console.warn('[layers] Failed to load timeseries tileset:', tilesetPath, e)
+  }
 
   requestAnimationFrame(() => requestRender())
 }

@@ -43,20 +43,25 @@ function fmt(n, voxSize) {
 function MiniChart({ snapshots, activeIndex, onSelect }) {
   if (!snapshots?.length) return null
 
-  const maxVal = Math.max(...snapshots.flatMap(s => [s.stats.added_count, s.stats.removed_count]), 1)
+  const maxVal = Math.max(...snapshots.flatMap(s => [
+    s.stats?.added_count ?? 0,
+    s.stats?.removed_count ?? 0,
+  ]), 1)
 
   return (
     <div className="tl-chart">
       {snapshots.map((s, i) => {
-        const addH   = (s.stats.added_count   / maxVal) * 100
-        const remH   = (s.stats.removed_count / maxVal) * 100
+        const addH   = ((s.stats?.added_count   ?? 0) / maxVal) * 100
+        const remH   = ((s.stats?.removed_count ?? 0) / maxVal) * 100
         const isActive = i === activeIndex
         return (
           <button
             key={s.id}
             className={`tl-bar-group${isActive ? ' tl-bar-active' : ''}`}
             onClick={() => onSelect(i)}
-            title={`${s.date_a.label} → ${s.date_b.label}\n+${s.stats.added_count} / −${s.stats.removed_count}`}
+            title={s.stats
+              ? `${s.date_a.label} → ${s.date_b.label}\n+${s.stats.added_count} / −${s.stats.removed_count}`
+              : `${s.date_a.label} → ${s.date_b.label}`}
           >
             <div className="tl-bar-pair">
               <div className="tl-bar tl-bar-rem" style={{ height: `${remH}%` }} />
@@ -121,8 +126,8 @@ export default function TimelinePanel({
             </div>
           </div>
 
-          {/* ── Active snapshot stats ── */}
-          {active && (
+{/* ── Active snapshot stats ── */}
+          {active && active.stats && (
             <div className="p-section">
               <div className="p-label">Selected Period</div>
               <div className="tl-period-header">
@@ -157,6 +162,21 @@ export default function TimelinePanel({
                     {active.vox_size} m
                   </span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Active snapshot period header (shown even without stats) */}
+          {active && !active.stats && (
+            <div className="p-section">
+              <div className="p-label">Selected Period</div>
+              <div className="tl-period-header">
+                <span style={{ color: 'var(--text)' }}>{active.date_a.label}</span>
+                <span className="tl-period-arrow">→</span>
+                <span style={{ color: 'var(--text)' }}>{active.date_b.label}</span>
+              </div>
+              <div className="tl-data-note" style={{ marginTop: 6 }}>
+                통계 없음 — 사전 계산된 타일셋
               </div>
             </div>
           )}

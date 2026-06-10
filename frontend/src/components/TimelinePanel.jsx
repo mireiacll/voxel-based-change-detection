@@ -86,10 +86,10 @@ export default function TimelinePanel({
       {/* ── Loading ── */}
       {loading && (
         <div className="p-section">
-          <div className="p-label">Time Series</div>
+          <div className="p-label">시계열 변화탐지</div>
           <div className="tl-loading">
             <div className="tl-loading-dots"><span /><span /><span /></div>
-            Loading diff snapshots…
+            변화 스냅샷 불러오는 중…
           </div>
         </div>
       )}
@@ -97,13 +97,13 @@ export default function TimelinePanel({
       {/* ── No data ── */}
       {!loading && snapshots?.length === 0 && (
         <div className="p-section">
-          <div className="p-label">Time Series</div>
+          <div className="p-label">시계열 변화탐지</div>
           <div className="tl-empty">
-            No pre-computed diffs found for this site.<br />
-            Compute diffs in Compare mode and save them, or run:
+            사전 계산된 변화 데이터가 없습니다.<br />
+            비교 모드에서 차이를 계산하거나 아래 버튼을 실행하세요.
           </div>
           <button className="pbtn" style={{ marginTop: 8 }} onClick={onRecompute}>
-            ⚡ Compute all diffs
+            ⚡ 전체 계산
           </button>
         </div>
       )}
@@ -116,8 +116,8 @@ export default function TimelinePanel({
             <div className="p-label">Change Over Time</div>
             <MiniChart snapshots={snapshots} activeIndex={activeIndex} onSelect={onSelect} />
             <div className="tl-chart-legend">
-              <span className="tl-legend-dot tl-dot-add" />Added
-              <span className="tl-legend-dot tl-dot-rem" style={{ marginLeft: 10 }} />Removed
+              <span className="tl-legend-dot tl-dot-add" />추가
+              <span className="tl-legend-dot tl-dot-rem" style={{ marginLeft: 10 }} />제거
             </div>
           </div>
 
@@ -126,33 +126,33 @@ export default function TimelinePanel({
             <div className="p-section">
               <div className="p-label">Selected Period</div>
               <div className="tl-period-header">
-                <span className="tl-period-a">{active.date_a.label}</span>
+                <span style={{ color: 'var(--text)' }}>{active.date_a.label}</span>
                 <span className="tl-period-arrow">→</span>
-                <span className="tl-period-b">{active.date_b.label}</span>
+                <span style={{ color: 'var(--text)' }}>{active.date_b.label}</span>
               </div>
 
               <div id="stats-box" style={{ marginTop: 8 }}>
                 <div className="stat-row">
-                  <span className="stat-k">Added</span>
+                  <span className="stat-k">추가</span>
                   <span className="stat-v" style={{ color: 'var(--added)' }}>
                     {fmt(active.stats.added_count, active.vox_size)}
                   </span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-k">Removed</span>
+                  <span className="stat-k">제거</span>
                   <span className="stat-v" style={{ color: 'var(--removed)' }}>
                     {fmt(active.stats.removed_count, active.vox_size)}
                   </span>
                 </div>
                 <div className="stat-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 6 }}>
-                  <span className="stat-k">Net</span>
+                  <span className="stat-k">순 변화</span>
                   <span className="stat-v" style={{ color: active.stats.net >= 0 ? 'var(--added)' : 'var(--removed)' }}>
                     {active.stats.net >= 0 ? '+' : ''}
                     {fmt(Math.abs(active.stats.net), active.vox_size)}
                   </span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-k">Voxel size</span>
+                  <span className="stat-k">복셀 크기</span>
                   <span className="stat-v" style={{ fontSize: 10, color: 'var(--muted)' }}>
                     {active.vox_size} m
                   </span>
@@ -167,22 +167,22 @@ export default function TimelinePanel({
             <div className="layer-row">
               <Toggle id="tl-chk-added" checked={showAdded} onChange={onShowAdded} />
               <div className="layer-body">
-                <div className="layer-name">Volume Added</div>
-                <div className="layer-type">Voxels gained in this period</div>
+                <div className="layer-name">추가된 부피</div>
+                <div className="layer-type">B 존재, A 부재</div>
               </div>
               <span className="ltag" style={{ background: '#2a1010', color: 'var(--added)' }}>ADD</span>
             </div>
             <div className="layer-row">
               <Toggle id="tl-chk-removed" checked={showRemoved} onChange={onShowRemoved} />
               <div className="layer-body">
-                <div className="layer-name">Volume Removed</div>
-                <div className="layer-type">Voxels lost in this period</div>
+                <div className="layer-name">제거된 부피</div>
+                <div className="layer-type">A 존재, B 부재</div>
               </div>
               <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
             </div>
           </div>
 
-          {/* ── Playback controls (mirrored from bar for discoverability) ── */}
+          {/* ── Playback controls ── */}
           <div className="p-section">
             <div className="p-label">Playback</div>
             <div className="btn-row">
@@ -197,7 +197,7 @@ export default function TimelinePanel({
               </button>
             </div>
             <div className="tl-play-hint">
-              Keyboard: ← → to step · Space to play/pause
+              단축키: ← → 이동 · Space 재생/정지
             </div>
           </div>
 
@@ -205,11 +205,11 @@ export default function TimelinePanel({
           <div className="p-section">
             <div className="p-label">Data</div>
             <div className="tl-data-note">
-              {snapshots.length} pre-computed diff{snapshots.length !== 1 ? 's' : ''} loaded
-              {snapshots[0]?._dummy ? ' (dummy data)' : ''}
+              {snapshots.length}개 사전 계산된 변화 로드됨
+              {snapshots[0]?._dummy ? ' (더미 데이터)' : ''}
             </div>
             <button className="pbtn" style={{ marginTop: 6, width: '100%' }} onClick={onRecompute}>
-              ⚡ Recompute all diffs
+              ⚡ 전체 재계산
             </button>
           </div>
         </>

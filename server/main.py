@@ -577,6 +577,7 @@ async def cancel_diff(job_id: str):
 # ═════════════════════════════════════════════════════════════════════════
 #  ROUTES — full diff (external API proxy / sample fallback)
 # ═════════════════════════════════════════════════════════════════════════
+SAMPLE_DIFFS_DIR = Path(os.getenv("DATA_ROOT", "./public/data")).parent / "sample"
 
 class FullDiffRequest(BaseModel):
     project_id: str
@@ -584,60 +585,22 @@ class FullDiffRequest(BaseModel):
     date_b:     str
     polygon:    Optional[list[PolygonPoint]] = None
 
-
-# Sample mass-summary data (level 17 is the finest/most useful level).
-# Replace this with a real DB table or external API call when ready.
-_SAMPLE_MASS_SUMMARY = {
-    "type": "diff-mass-summary",
-    "totalVoxelCount": 1448986,
-    "totalAddVoxelCount": 782357,
-    "totalRemoveVoxelCount": 666629,
-    "totalApproxVolumeCubicMeters": 7006397.871061148,
-    "totalAddApproxVolumeCubicMeters": 5796971.456208388,
-    "totalRemoveApproxVolumeCubicMeters": 1209426.4148527586,
-    "operation": "ADD_AND_REMOVE",
-    "interiorOnly": False,
-    "minInteriorThickness": 1,
-    "volumeMethod": "Approximate WGS84 meters-per-degree at each tile center latitude.",
-    "levelCounts": [
-        {"level": 9,  "voxelCount": 2,       "addVoxelCount": 2,      "removeVoxelCount": 0,      "approxVolumeCubicMeters": 2920917.7472098903, "addApproxVolumeCubicMeters": 2920917.7472098903, "removeApproxVolumeCubicMeters": 0.0,              "averageVoxelVolumeCubicMeters": 1460458.8736049451},
-        {"level": 10, "voxelCount": 6,       "addVoxelCount": 6,      "removeVoxelCount": 0,      "approxVolumeCubicMeters": 1095096.3148700574, "addApproxVolumeCubicMeters": 1095096.3148700574, "removeApproxVolumeCubicMeters": 0.0,              "averageVoxelVolumeCubicMeters": 182516.0524783429},
-        {"level": 11, "voxelCount": 37,      "addVoxelCount": 24,     "removeVoxelCount": 13,     "approxVolumeCubicMeters": 844041.1907751788,  "addApproxVolumeCubicMeters": 547486.177800116,   "removeApproxVolumeCubicMeters": 296555.0129750628, "averageVoxelVolumeCubicMeters": 22811.924075004834},
-        {"level": 12, "voxelCount": 272,     "addVoxelCount": 154,    "removeVoxelCount": 118,    "approxVolumeCubicMeters": 775561.5093850668,  "addApproxVolumeCubicMeters": 439104.6781077217,  "removeApproxVolumeCubicMeters": 336456.8312773452, "averageVoxelVolumeCubicMeters": 2851.3290786215694},
-        {"level": 13, "voxelCount": 1441,    "addVoxelCount": 855,    "removeVoxelCount": 586,    "approxVolumeCubicMeters": 513595.29675631376, "addApproxVolumeCubicMeters": 304735.0181246529,  "removeApproxVolumeCubicMeters": 208860.27863166088, "averageVoxelVolumeCubicMeters": 356.4158894908492},
-        {"level": 14, "voxelCount": 7580,    "addVoxelCount": 4482,   "removeVoxelCount": 3098,   "approxVolumeCubicMeters": 337702.467624308,   "addApproxVolumeCubicMeters": 199680.48089535156, "removeApproxVolumeCubicMeters": 138021.98672895646, "averageVoxelVolumeCubicMeters": 44.551776731439055},
-        {"level": 15, "voxelCount": 44812,   "addVoxelCount": 25540,  "removeVoxelCount": 19272,  "approxVolumeCubicMeters": 249557.02905619564, "addApproxVolumeCubicMeters": 142231.4352930653,  "removeApproxVolumeCubicMeters": 107325.59376313032, "averageVoxelVolumeCubicMeters": 5.568977708118264},
-        {"level": 16, "voxelCount": 243889,  "addVoxelCount": 135191, "removeVoxelCount": 108698, "approxVolumeCubicMeters": 169776.42476764158, "addApproxVolumeCubicMeters": 94109.29470681796,  "removeApproxVolumeCubicMeters": 75667.1300608236,  "averageVoxelVolumeCubicMeters": 0.6961216978528821},
-        {"level": 17, "voxelCount": 1150947, "addVoxelCount": 616103, "removeVoxelCount": 534844, "approxVolumeCubicMeters": 100149.89061648672, "addApproxVolumeCubicMeters": 53610.30920070754,  "removeApproxVolumeCubicMeters": 46539.58141577918,  "averageVoxelVolumeCubicMeters": 0.08701520627490816},
-    ],
-}
-
-
 @app.post("/api/diff/full")
 async def full_diff(
     req: FullDiffRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Full diff endpoint — proxy to external analysis backend.
-    While the external backend is not yet available, returns the stored
-    sample mass-summary data.
-
-    When the external API is ready, replace the body below with an
-    httpx/aiohttp call to the coworker's service and return its response.
-    """
-    # Validate that the requested site + dates exist
     site = await db.get(Site, req.project_id, options=[selectinload(Site.dates)])
     if site is None:
         raise HTTPException(status_code=404, detail=f"Project '{req.project_id}' not found.")
 
     date_ids = {d.date_code for d in site.dates}
     if req.date_a not in date_ids:
-        raise HTTPException(status_code=404, detail=f"Date A '{req.date_a}' not found for project '{req.project_id}'.")
+        raise HTTPException(status_code=404, detail=f"Date A '{req.date_a}' not found.")
     if req.date_b not in date_ids:
-        raise HTTPException(status_code=404, detail=f"Date B '{req.date_b}' not found for project '{req.project_id}'.")
+        raise HTTPException(status_code=404, detail=f"Date B '{req.date_b}' not found.")
 
-    # TODO: replace with real external API call, e.g.:
+    # TODO: replace with real httpx call when coworker's API is ready
     # async with httpx.AsyncClient() as client:
     #     res = await client.post(
     #         f"{EXTERNAL_API}/diff/full",
@@ -652,13 +615,12 @@ async def full_diff(
     #     res.raise_for_status()
     #     return res.json()
 
-    # For now, return the sample data with only level-17 detail
-    result = dict(_SAMPLE_MASS_SUMMARY)
-    result["levelCounts"] = [
-        lv for lv in _SAMPLE_MASS_SUMMARY["levelCounts"] if lv["level"] == 17
-    ]
-    return result
+    sample_file = SAMPLE_DIFFS_DIR / "mass-summary.json"
+    if not sample_file.exists():
+        raise HTTPException(status_code=404, detail="Sample diff file not found.")
 
+    import json as _json
+    return _json.loads(sample_file.read_text())
 
 if __name__ == "__main__":
     import uvicorn

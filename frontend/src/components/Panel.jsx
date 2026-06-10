@@ -89,7 +89,7 @@ export default function Panel({
 
       {/* ── 선택된 프로젝트 ── */}
       <div className="p-section">
-        <div className="p-label">선택된 프로젝트</div>
+        <div className="p-label">Selected Project</div>
         <div className="site-info-card">
           <div className="site-info-row">
             <span className="site-info-k">프로젝트명</span>
@@ -116,7 +116,7 @@ export default function Panel({
 
       {/* ── 관측 데이터 ── */}
       <div className="p-section">
-        <div className="p-label">관측 데이터</div>
+        <div className="p-label">Survey Dates</div>
         <div id="date-list" className="rp-date-list">
           {dates.length === 0 && (
             <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
@@ -166,7 +166,7 @@ export default function Panel({
 
       {/* ── Voxel 계산 ── */}
       <div className="p-section">
-        <div className="p-label">Voxel 계산</div>
+        <div className="p-label">Voxel Calculation</div>
         {dates.length === 0 ? (
           <div className="no-dates">날짜 데이터 없음</div>
         ) : (
@@ -201,7 +201,7 @@ export default function Panel({
 
       {/* ── 카메라 ── */}
       <div className="p-section">
-        <div className="p-label">카메라</div>
+        <div className="p-label">Camera</div>
         <div className="btn-row">
           <button className="pbtn" onClick={onCameraSite}>↗ 현장</button>
           <button className="pbtn" onClick={onCameraTop}>↓ 수직</button>

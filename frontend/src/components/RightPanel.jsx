@@ -70,7 +70,7 @@ export default function RightPanel({
         <>
           {/* 날짜 비교 */}
           <div className="p-section">
-            <div className="p-label">날짜 비교</div>
+            <div className="p-label">Dates to Compare</div>
             <div className="compare-pair">
 
               <div className="compare-row">
@@ -116,7 +116,7 @@ export default function RightPanel({
 
           {/* 분석 설정 */}
           <div className="p-section">
-            <div className="p-label">분석 설정</div>
+            <div className="p-label">Analysis Settings</div>
 
             <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
             <div id="draw-info">{drawInfo}</div>
@@ -151,7 +151,7 @@ export default function RightPanel({
       {/* ── 분석 결과 — only shown once there's something to show ── */}
       {(inCompare && stats) && (
         <div className="p-section">
-          <div className="p-label">분석 결과</div>
+          <div className="p-label">Analysis Results</div>
           <div className="layer-row">
               <label className="sw">
                 <input type="checkbox" checked={showAdded}
@@ -215,7 +215,7 @@ export default function RightPanel({
       {/* ── 분석 결과 — timeline ── */}
       {inTimeline && (
         <div className="p-section">
-          <div className="p-label">분석 결과</div>
+          <div className="p-label">Analysis Results</div>
           <TimelinePanel
             snapshots={tlSnapshots}
             activeIndex={tlActiveIndex}
@@ -236,7 +236,7 @@ export default function RightPanel({
       {inApiCompare && (
         <>
           <div className="p-section">
-            <div className="p-label">날짜 비교</div>
+            <div className="p-label">Dates to Compare</div>
             <div className="compare-pair">
               <div className="compare-row">
                 <span className="compare-ab-lbl">A</span>
@@ -260,7 +260,7 @@ export default function RightPanel({
           </div>
 
           <div className="p-section">
-            <div className="p-label">분석 설정</div>
+            <div className="p-label">Analysis Settings</div>
             <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
             <div id="draw-info">{drawInfo}</div>
             <div className="compare-action-buttons" style={{ marginTop: 10 }}>
@@ -284,7 +284,7 @@ export default function RightPanel({
               : 0
             return (
               <div className="p-section">
-                <div className="p-label">분석 결과</div>
+                <div className="p-label">Analysis Results</div>
                 {!lv17 ? (
                   <div id="stats-note">레벨 17 데이터가 없습니다</div>
                 ) : (

@@ -3,10 +3,10 @@ spring:
     name: backend-api
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
 
 voxelizer:
-  jar-path: C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.0-beta.jar
+  jar-path: C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.1-beta.jar
   storage-root: H:/workspace/change-detection
   mock-execution: false
   temp-path: H:/workspace/change-detection/temp

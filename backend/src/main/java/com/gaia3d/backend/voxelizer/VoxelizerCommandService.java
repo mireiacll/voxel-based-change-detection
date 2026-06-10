@@ -130,18 +130,18 @@ public class VoxelizerCommandService {
         if (visualize) {
             command.add("--visualize");
         }
-        command.add("--diffNeighborMode");
+        command.add("--filter-connectivity");
         command.add(String.valueOf(diffNeighborMode));
-        command.add("--minDiffFilterLevel");
+        command.add("--filter-min-level");
         command.add(String.valueOf(minDiffFilterLevel));
-        command.add("--minDiffNeighbors");
+        command.add("--filter-min-neighbors");
         command.add(String.valueOf(minDiffNeighbors));
-        command.add("--diffNeighborIterations");
+        command.add("--filter-neighbor-iterations");
         command.add(String.valueOf(diffNeighborIterations));
-        command.add("--minDiffClusterSize");
+        command.add("--filter-min-cluster-size");
         command.add(String.valueOf(minDiffClusterSize));
         if (union) {
-            command.add("--union");
+            command.add("--withUnion");
         }
         if (massSummary) {
             command.add("--massSummary");

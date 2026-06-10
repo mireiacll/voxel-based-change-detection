@@ -145,13 +145,14 @@ class ManualObservationSeedTest {
             assertThat(item.command()).contains("--sourceInput");
             assertThat(item.command()).contains("--targetInput");
             assertThat(item.command()).contains("--log");
-            assertThat(item.command()).contains("--diffNeighborMode 6");
-            assertThat(item.command()).contains("--minDiffFilterLevel 12");
-            assertThat(item.command()).contains("--minDiffNeighbors 2");
-            assertThat(item.command()).contains("--diffNeighborIterations 4");
-            assertThat(item.command()).contains("--minDiffClusterSize 10");
-            assertThat(item.command()).contains("--union");
+            assertThat(item.command()).contains("--filter-connectivity 6");
+            assertThat(item.command()).contains("--filter-min-level 12");
+            assertThat(item.command()).contains("--filter-min-neighbors 3");
+            assertThat(item.command()).contains("--filter-neighbor-iterations 2");
+            assertThat(item.command()).contains("--filter-min-cluster-size 20");
+            assertThat(item.command()).contains("--withUnion");
             assertThat(item.command()).doesNotContain("--interiorOnly");
+            assertThat(item.command()).doesNotContain("--fill-diff");
             assertThat(Path.of(item.resultVoxelPath()).toAbsolutePath().normalize())
                     .startsWith(voxelizerProperties.voxelSetOutputPath().toAbsolutePath().normalize());
 

@@ -159,9 +159,9 @@ Example body:
   "visualize": true,
   "diffNeighborMode": 6,
   "minDiffFilterLevel": 12,
-  "minDiffNeighbors": 2,
-  "diffNeighborIterations": 4,
-  "minDiffClusterSize": 10,
+  "minDiffNeighbors": 3,
+  "diffNeighborIterations": 2,
+  "minDiffClusterSize": 20,
   "union": true,
   "massSummary": true,
   "cubeDataType": "BYTE",
@@ -184,9 +184,9 @@ Example body:
   "visualize": true,
   "diffNeighborMode": 6,
   "minDiffFilterLevel": 12,
-  "minDiffNeighbors": 2,
-  "diffNeighborIterations": 4,
-  "minDiffClusterSize": 10,
+  "minDiffNeighbors": 3,
+  "diffNeighborIterations": 2,
+  "minDiffClusterSize": 20,
   "union": true,
   "massSummary": true,
   "cubeDataType": "BYTE",
@@ -195,6 +195,17 @@ Example body:
 ```
 
 Check results:
+
+The backend maps these API fields to the voxelizer diff CLI flags:
+
+```text
+diffNeighborMode -> --filter-connectivity
+minDiffFilterLevel -> --filter-min-level
+minDiffNeighbors -> --filter-min-neighbors
+diffNeighborIterations -> --filter-neighbor-iterations
+minDiffClusterSize -> --filter-min-cluster-size
+union -> --withUnion
+```
 
 ```text
 GET /api/projects/1/diffs

@@ -59,12 +59,12 @@ class DiffControllerTest {
                 .andExpect(jsonPath("$.items[0].command").value(containsString("--sourceInput")))
                 .andExpect(jsonPath("$.items[0].command").value(containsString("--targetInput")))
                 .andExpect(jsonPath("$.items[0].command").value(containsString("--log")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--diffNeighborMode 6")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--minDiffFilterLevel 12")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--minDiffNeighbors 2")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--diffNeighborIterations 4")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--minDiffClusterSize 10")))
-                .andExpect(jsonPath("$.items[0].command").value(containsString("--union")));
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--filter-connectivity 6")))
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--filter-min-level 12")))
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--filter-min-neighbors 3")))
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--filter-neighbor-iterations 2")))
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--filter-min-cluster-size 20")))
+                .andExpect(jsonPath("$.items[0].command").value(containsString("--withUnion")));
 
         mockMvc.perform(get("/api/diff-items/1/tileset"))
                 .andExpect(status().isOk())

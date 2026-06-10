@@ -27,9 +27,9 @@ voxelizer:
     visualize: true
     diff-neighbor-mode: 6
     min-diff-filter-level: 12
-    min-diff-neighbors: 2
-    diff-neighbor-iterations: 4
-    min-diff-cluster-size: 10
+    min-diff-neighbors: 3
+    diff-neighbor-iterations: 2
+    min-diff-cluster-size: 20
     union: true
     mass-summary: true
     cube-data-type: BYTE

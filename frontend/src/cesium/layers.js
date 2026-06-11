@@ -160,7 +160,7 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
 
   state.siteId = site.id
   state.dateId = dateObj.id
-  setStatus(`Loading ${site.labelEn ?? site.label} — ${dateObj.label}…`)
+  setStatus(`Loading ${site.label} — ${dateObj.label}…`)
 
   const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
   const isMesh  = dateObj.datasetType === 'mesh'
@@ -185,7 +185,7 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
   }
 
   syncVisibility(currentMode || 'compare', checkboxState)
-  setStatus(`${site.labelEn ?? site.label} — ${dateObj.label} 준비됨`, true)
+  setStatus(`${site.label} — ${dateObj.label} 준비됨`, true)
 }
 
 export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB, checkboxState) {

@@ -15,6 +15,7 @@ import {
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
 import { loadDiffSnapshots, invalidateDiffCache } from './timelineDiffs'
+import { fetchProjects, createProject, updateProject, deleteProject} from './api'
 
 import NavBar             from './components/NavBar'
 import MapSubHeader       from './components/MapSubHeader'
@@ -28,7 +29,8 @@ import ProjectLauncher    from './components/ProjectLauncher'
 import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+// Your own FastAPI backend (diff computation, voxel, upload)
+const LOCAL_API = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
 const DEFAULT_DRAW_BTN  = '✏ Draw Area'
@@ -130,12 +132,17 @@ export default function App() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
   }, [])
 
+  /**
+   * Fetch all projects from API, returned as internal "site"
+   * objects (without dates — Step 2 will add those).
+   */
   const refreshSites = useCallback(async () => {
     try {
-      const res  = await fetch(`${API_BASE}/api/sites`)
-      const data = await res.json()
-      return data.sites ?? []
-    } catch (e) { console.error('[refreshSites]', e); return [] }
+      return await fetchProjects()
+    } catch (e) {
+      console.error('[refreshSites]', e)
+      return []
+    }
   }, [])
 
   // Canonical checkboxState for syncVisibility
@@ -563,7 +570,7 @@ export default function App() {
 
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
-    const res = await fetch(`${API_BASE}/api/sites/${activeSite.id}/dates/${dateId}/voxel`, {
+    const res = await fetch(`${LOCAL_API}/api/sites/${activeSite.id}/dates/${dateId}/voxel`, {
       method: 'POST',
     })
     if (!res.ok) {

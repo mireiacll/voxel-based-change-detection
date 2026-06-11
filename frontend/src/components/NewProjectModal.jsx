@@ -18,7 +18,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
   const [form, setForm] = useState({
     id:            '',
     label:         '',
-    label_en:      '',
     camera_lon:    '',
     camera_lat:    '',
     camera_height: '600',
@@ -34,11 +33,10 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
   }
 
   async function handleSubmit() {
-    const { id, label, label_en, camera_lon, camera_lat, camera_height } = form
+    const { id, label, camera_lon, camera_lat, camera_height } = form
 
     if (!id.trim())         return setError('Site ID is required.')
     if (!label.trim())      return setError('Label is required.')
-    if (!label_en.trim())   return setError('English label is required.')
     if (!camera_lon)        return setError('Longitude is required.')
     if (!camera_lat)        return setError('Latitude is required.')
     if (!camera_height)     return setError('Camera height is required.')
@@ -52,7 +50,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
         body: JSON.stringify({
           id:            id.trim().toLowerCase(),
           label:         label.trim(),
-          label_en:      label_en.trim(),
           camera_lon:    parseFloat(camera_lon),
           camera_lat:    parseFloat(camera_lat),
           camera_height: parseFloat(camera_height),
@@ -64,7 +61,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
         return
       }
       // Reset form
-      setForm({ id: '', label: '', label_en: '', camera_lon: '', camera_lat: '', camera_height: '600' })
+      setForm({ id: '', label: '', camera_lon: '', camera_lat: '', camera_height: '600' })
       onCreated(data.site)
     } catch (e) {
       setError('Network error: ' + e.message)
@@ -105,16 +102,6 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               value={form.label}
               onChange={e => update('label', e.target.value)}
               placeholder="e.g. 둔포면 — Waste Site"
-            />
-          </div>
-
-          <div className="modal-field">
-            <label>English Label</label>
-            <input
-              type="text"
-              value={form.label_en}
-              onChange={e => update('label_en', e.target.value)}
-              placeholder="e.g. Dunpo-myeon"
             />
           </div>
 

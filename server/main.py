@@ -100,7 +100,7 @@ class DiffResponse(BaseModel):
 class CreateSiteRequest(BaseModel):
     id:            str   = Field(..., description="Short ASCII site ID, e.g. 'dunpo'")
     label:         str
-    label_en:      str
+    label_en:      Optional[str] = None
     camera_lon:    float
     camera_lat:    float
     camera_height: float
@@ -311,7 +311,7 @@ async def create_site(
     site = Site(
         id=payload.id,
         label=payload.label,
-        label_en=payload.label_en,
+        label_en=payload.label_en if payload.label_en is not None else payload.label,
         camera_lon=payload.camera_lon,
         camera_lat=payload.camera_lat,
         camera_height=payload.camera_height,

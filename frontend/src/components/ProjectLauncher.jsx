@@ -83,13 +83,12 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
 
 // ── Edit site modal ────────────────────────────────────────────────────────
 function EditSiteModal({ site, onClose, onSaved }) {
-  const [label,   setLabel]   = useState(site.label   ?? '')
-  const [labelEn, setLabelEn] = useState(site.label_en ?? '')
-  const [lon,     setLon]     = useState(String(site.camera?.lon    ?? ''))
-  const [lat,     setLat]     = useState(String(site.camera?.lat    ?? ''))
-  const [height,  setHeight]  = useState(String(site.camera?.height ?? ''))
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
+  const [label,  setLabel]  = useState(site.label ?? '')
+  const [lon,    setLon]    = useState(String(site.camera?.lon    ?? ''))
+  const [lat,    setLat]    = useState(String(site.camera?.lat    ?? ''))
+  const [height, setHeight] = useState(String(site.camera?.height ?? ''))
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
 
   async function handleSave() {
     if (!label.trim()) return setError('레이블은 필수입니다.')
@@ -97,7 +96,6 @@ function EditSiteModal({ site, onClose, onSaved }) {
     setError('')
     try {
       const body = { label: label.trim() }
-      if (labelEn.trim())  body.label_en      = labelEn.trim()
       if (lon    !== '')   body.camera_lon    = parseFloat(lon)
       if (lat    !== '')   body.camera_lat    = parseFloat(lat)
       if (height !== '')   body.camera_height = parseFloat(height)
@@ -131,12 +129,8 @@ function EditSiteModal({ site, onClose, onSaved }) {
         <div className="modal-body">
           <div className="modal-row">
             <div className="modal-field">
-              <label>레이블 (KO)</label>
+              <label>레이블</label>
               <input value={label} onChange={e => setLabel(e.target.value)} disabled={saving} />
-            </div>
-            <div className="modal-field">
-              <label>레이블 (EN)</label>
-              <input value={labelEn} onChange={e => setLabelEn(e.target.value)} disabled={saving} placeholder="선택 사항" />
             </div>
           </div>
           <div className="modal-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>

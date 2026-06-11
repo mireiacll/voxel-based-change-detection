@@ -9,10 +9,11 @@ import {
   loadDate, syncVisibility, clearLayers, clearCompareLayers,
   applyPcStyle, setDateATint, setDateBTint,
   renderVoxelDiff, invalidateTilesetUrl,
+  loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
-import { loadDiffSnapshots, renderSnapshotTileset } from './timelineDiffs'
+import { loadDiffSnapshots, invalidateDiffCache } from './timelineDiffs'
 
 import NavBar             from './components/NavBar'
 import MapSubHeader       from './components/MapSubHeader'
@@ -177,28 +178,50 @@ export default function App() {
     return () => clearInterval(tlPlayTimer.current)
   }, [tlPlaying, tlSnapshots])
 
-  // ── Timeline load — only fires when snapshots haven't been loaded yet ──
+  // ── Timeline load — preload all snapshot tilesets once per project ──────
+  // Fires when: first time entering timeline for a project (tlSnapshots===null)
+  // Does NOT re-fire on tab switches — tlSnapshots stays set until project changes.
   useEffect(() => {
-    if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) return
+    if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) {
+      console.log(`[TL-load effect] skip — mode=${mode} hasSite=${!!activeSite} snapshotsAlreadyLoaded=${tlSnapshots !== null}`)
+      return
+    }
+    console.log(`[TL-load effect] LOADING snapshots for site=${activeSite.id}`)
     setTlLoading(true)
     loadDiffSnapshots(activeSite)
-      .then(snaps => {
+      .then(async snaps => {
+        console.log(`[TL-load effect] got ${snaps.length} snapshots, preloading tilesets…`)
         setTlSnapshots(snaps)
         setTlActiveIndex(0)
-        if (snaps.length > 0) doRenderTlSnapshot(snaps, 0)
+        // Preload all tilesets in the background (all hidden)
+        await loadAllSnapshotTilesets(snaps)
+        console.log(`[TL-load effect] preload done — showing index 0`)
+        // Now show only the first snapshot (we are in timeline mode here)
+        if (snaps.length > 0) {
+          showSnapshotTileset(snaps[0].id)
+        }
       })
       .finally(() => setTlLoading(false))
   }, [mode, activeSite, tlSnapshots])
 
-  function doRenderTlSnapshot(snaps, idx) {
-    const snap = snaps?.[idx]; if (!snap) return
-    renderSnapshotTileset(snap)
-  }
+  // ── Timeline snapshot switch — visibility-only, NO reload ───────────────
+  // Fires when the user scrubs/steps to a different snapshot index.
+  // Uses a ref for mode so stale closures never fire this outside timeline.
+  const tlActiveIndexRef = useRef(0)
+  useEffect(() => { tlActiveIndexRef.current = tlActiveIndex }, [tlActiveIndex])
 
-  // ── Timeline snapshot render — fires when active index changes while in timeline ──
   useEffect(() => {
-    if (mode !== 'timeline' || !tlSnapshots?.length) return
-    doRenderTlSnapshot(tlSnapshots, tlActiveIndex)
+    if (!tlSnapshots?.length) return
+    const currentMode = modeRef.current
+    const snap = tlSnapshots[tlActiveIndex]
+    console.log(`[TL-index effect] tlActiveIndex=${tlActiveIndex} snapId=${snap?.id} mode=${currentMode}`)
+    if (currentMode !== 'timeline') {
+      console.log(`[TL-index effect] NOT in timeline mode — skipping show (mode=${currentMode})`)
+      return
+    }
+    if (!snap) return
+    console.log(`[TL-index effect] calling showSnapshotTileset(${snap.id})`)
+    showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
 
   // ── Re-sync visibility when showAdded/showRemoved toggle in compare ───
@@ -397,34 +420,45 @@ export default function App() {
     const prevMode = modeRef.current
     if (prevMode === newMode) return
 
+    console.log(`[handleModeChange] ${prevMode} → ${newMode}`)
     setMode(newMode)
     modeRef.current = newMode
 
     if (newMode === 'timeline') {
       // Park the active compare tab's polygon (hide entities, save to slot)
       if (prevMode === 'compare' || prevMode === 'compare-api') {
+        console.log(`[handleModeChange] parking polygon from ${prevMode} → timeline-hidden`)
         swapPolygonTab(prevMode, 'timeline-hidden', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
-      // Hide compare layers, show timeseries layer (if already loaded)
+      // syncVisibility hides ALL compare layers and shows only the active timeseries tileset
+      console.log(`[handleModeChange] syncVisibility(timeline)`)
       syncVisibility('timeline', checkState())
-      // Only trigger a load if we haven't loaded snapshots yet for this project
-      // (tlSnapshots === null means "never loaded" — set in handleOpenProject)
-      // Don't reset here; the load effect handles it once.
+      // If snapshots already loaded, make sure the active one is shown
+      // (handles returning to timeline from another tab)
+      const snaps = tlSnapshotsRef.current
+      if (snaps?.length) {
+        const activeSnap = snaps[tlActiveIndexRef.current]
+        if (activeSnap) {
+          console.log(`[handleModeChange] re-showing active snapshot ${activeSnap.id} (returning to timeline)`)
+          showSnapshotTileset(activeSnap.id)
+        }
+      }
 
     } else if (newMode === 'compare') {
       if (prevMode === 'compare-api') {
-        // Swap polygons between the two compare tabs
+        console.log(`[handleModeChange] swapping polygon compare-api → compare`)
         swapPolygonTab('compare-api', 'compare', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
-        // Restore compare's polygon (was parked under 'timeline-hidden')
+        console.log(`[handleModeChange] restoring polygon timeline-hidden → compare`)
         swapPolygonTab('timeline-hidden', 'compare', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
 
       // Restore compare voxels if we had a previous diff, then sync visibility
       if (lastCompareDiffRef.current) {
+        console.log(`[handleModeChange] restoring compare diff voxels`)
         const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
         window.diffState = window.diffState ?? {}
         window.diffState.gridDef = gridDef
@@ -438,21 +472,23 @@ export default function App() {
       } else {
         renderVoxelDiff([], 0.5)
       }
+      console.log(`[handleModeChange] syncVisibility(compare)`)
       syncVisibility('compare', checkState())
 
     } else if (newMode === 'compare-api') {
       if (prevMode === 'compare') {
-        // Swap polygons between the two compare tabs
+        console.log(`[handleModeChange] swapping polygon compare → compare-api`)
         swapPolygonTab('compare', 'compare-api', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
-        // Restore compare-api's polygon (was parked under 'timeline-hidden')
+        console.log(`[handleModeChange] restoring polygon timeline-hidden → compare-api`)
         swapPolygonTab('timeline-hidden', 'compare-api', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
 
-      // Hide compare A/B meshes and voxels — compare-api only shows the background layer
+      // compare-api hides compare A/B meshes and voxels
       renderVoxelDiff([], 0.5)
+      console.log(`[handleModeChange] syncVisibility(compare-api)`)
       syncVisibility('compare-api', checkState())
     }
   }
@@ -641,7 +677,11 @@ export default function App() {
             tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
-            tlLoading={tlLoading}           tlOnRecompute={() => setTlSnapshots(null)}
+            tlLoading={tlLoading}           tlOnRecompute={() => {
+              console.log('[tlOnRecompute] clearing snapshots + preloaded tilesets for reload')
+              clearAllSnapshotTilesets()
+              setTlSnapshots(null)
+            }}
             apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
             apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
             apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}

@@ -1,26 +1,25 @@
 /**
  * NewProjectModal.jsx
  *
- * Modal for creating a new site/project.
+ * Modal for creating a new project via the coworker's REST API.
  *
  * Props
  * -----
- *   open     — bool
- *   onClose  — () => void
+ *   open      — bool
+ *   onClose   — () => void
  *   onCreated — (site) => void   called after successful creation
  */
 
 import { useState } from 'react'
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+import { createProject } from '../api'
 
 export default function NewProjectModal({ open, onClose, onCreated }) {
   const [form, setForm] = useState({
-    id:            '',
-    label:         '',
-    camera_lon:    '',
-    camera_lat:    '',
-    camera_height: '600',
+    name:          '',
+    description:   '',
+    centerLon:     '',
+    centerLat:     '',
+    cameraHeight:  '600',
   })
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
@@ -33,38 +32,27 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
   }
 
   async function handleSubmit() {
-    const { id, label, camera_lon, camera_lat, camera_height } = form
+    const { name, centerLon, centerLat, cameraHeight } = form
 
-    if (!id.trim())         return setError('Site ID is required.')
-    if (!label.trim())      return setError('Label is required.')
-    if (!camera_lon)        return setError('Longitude is required.')
-    if (!camera_lat)        return setError('Latitude is required.')
-    if (!camera_height)     return setError('Camera height is required.')
+    if (!name.trim())      return setError('Project name is required.')
+    if (!centerLon)        return setError('Longitude is required.')
+    if (!centerLat)        return setError('Latitude is required.')
+    if (!cameraHeight)     return setError('Camera height is required.')
 
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/api/sites`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id:            id.trim().toLowerCase(),
-          label:         label.trim(),
-          camera_lon:    parseFloat(camera_lon),
-          camera_lat:    parseFloat(camera_lat),
-          camera_height: parseFloat(camera_height),
-        }),
+      const site = await createProject({
+        name:         name.trim(),
+        description:  form.description.trim(),
+        centerLon:    parseFloat(centerLon),
+        centerLat:    parseFloat(centerLat),
+        cameraHeight: parseFloat(cameraHeight),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail || `Error ${res.status}`)
-        return
-      }
-      // Reset form
-      setForm({ id: '', label: '', camera_lon: '', camera_lat: '', camera_height: '600' })
-      onCreated(data.site)
+      setForm({ name: '', description: '', centerLon: '', centerLat: '', cameraHeight: '600' })
+      onCreated(site)
     } catch (e) {
-      setError('Network error: ' + e.message)
+      setError(e.message)
     } finally {
       setLoading(false)
     }
@@ -83,25 +71,25 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
         </div>
 
         <div className="modal-body">
-          <div className="modal-section-label">Site Identity</div>
+          <div className="modal-section-label">Project Identity</div>
 
           <div className="modal-field">
-            <label>Site ID <span className="modal-hint">(lowercase, no spaces)</span></label>
+            <label>Name</label>
             <input
               type="text"
-              value={form.id}
-              onChange={e => update('id', e.target.value)}
-              placeholder="e.g. mysite"
+              value={form.name}
+              onChange={e => update('name', e.target.value)}
+              placeholder="e.g. 둔포면 — Waste Site"
             />
           </div>
 
           <div className="modal-field">
-            <label>Label</label>
+            <label>Description <span className="modal-hint">(optional)</span></label>
             <input
               type="text"
-              value={form.label}
-              onChange={e => update('label', e.target.value)}
-              placeholder="e.g. 둔포면 — Waste Site"
+              value={form.description}
+              onChange={e => update('description', e.target.value)}
+              placeholder="Brief description"
             />
           </div>
 
@@ -113,8 +101,8 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               <input
                 type="number"
                 step="any"
-                value={form.camera_lon}
-                onChange={e => update('camera_lon', e.target.value)}
+                value={form.centerLon}
+                onChange={e => update('centerLon', e.target.value)}
                 placeholder="127.0067"
               />
             </div>
@@ -123,23 +111,23 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               <input
                 type="number"
                 step="any"
-                value={form.camera_lat}
-                onChange={e => update('camera_lat', e.target.value)}
+                value={form.centerLat}
+                onChange={e => update('centerLat', e.target.value)}
                 placeholder="36.9099"
               />
             </div>
           </div>
 
           <div className="modal-field">
-              <label>Camera Height (m)</label>
-              <input
-                type="number"
-                step="any"
-                value={form.camera_height}
-                onChange={e => update('camera_height', e.target.value)}
-                placeholder="600"
-              />
-            </div>
+            <label>Camera Height (m)</label>
+            <input
+              type="number"
+              step="any"
+              value={form.cameraHeight}
+              onChange={e => update('cameraHeight', e.target.value)}
+              placeholder="600"
+            />
+          </div>
 
           {error && <div className="modal-error">{error}</div>}
         </div>

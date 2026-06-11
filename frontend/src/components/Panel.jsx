@@ -2,17 +2,25 @@
  * Panel.jsx — LEFT sidebar
  *
  * Order:
- *   1. 선택된 프로젝트
- *   2. 관측 데이터  (date toggle list with PC | VOX layer pill)
- *   3. 포인트 크기  (point cloud only)
- *   4. Voxel 계산  (compute on-demand for dates without a pre-computed voxel)
- *   5. 카메라
+ *   1. Selected project
+ *   2. Survey dates  (date toggle list with PC | VOX layer pill)
+ *   3. Point size    (point cloud only)
+ *   4. Voxel calculation  (compute on-demand for dates without a voxel)
+ *   5. Camera
  *
- * VOX pill states:
- *   - voxelPath exists  → enabled, clicking it loads the pre-computed tileset
- *   - no voxelPath but datasetPath exists → enabled, clicking triggers compute
- *     then auto-switches to VOX on success
- *   - neither exists (mesh-only, no PC) → disabled, not computable
+ * Site shape (coworker API, normalised in api.js):
+ *   site.name          — display name
+ *   site.centerLat/Lon — camera position
+ *   site.cameraHeight
+ *   site.dates[]       — array of date objects from _observationToDate()
+ *
+ * Date shape (from _observationToDate in api.js):
+ *   date.id            — stringified observation id
+ *   date.label         — formatted observedAt date
+ *   date.datasetPath   — originalTilesPath (null if none)
+ *   date.datasetType   — 'pointcloud' | null
+ *   date.voxelPath     — pre-computed voxel tileset path or null
+ *   date.voxelStatus   — 'NONE' | 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
  */
 
 import { useState } from 'react'
@@ -34,12 +42,11 @@ function TypeTag({ type }) {
  * computing    — a compute is in progress for this date
  */
 function LayerModePill({ dateId, hasVoxel, canCompute, computing, value, onChange }) {
-  const voxReady    = hasVoxel
-  const voxClickable = voxReady || canCompute
-  const voxLabel    = computing ? '⏳' : 'VOX'
-  const voxTitle    = computing
+  const voxClickable = hasVoxel || canCompute
+  const voxLabel     = computing ? '⏳' : 'VOX'
+  const voxTitle     = computing
     ? 'Voxel 계산 중…'
-    : voxReady
+    : hasVoxel
       ? 'Pre-computed voxel 표시'
       : canCompute
         ? 'Voxel 계산 후 표시'
@@ -70,27 +77,23 @@ export default function Panel({
   visibleDateIds, onToggleDate,
   onCameraSite, onCameraTop,
   pcSize, onPcSize, showPcSlider,
-  onLayerMode,      // (dateId, 'pc' | 'vox') → void
-  onComputeVoxel,   // (dateId) → Promise<void>  — calls backend, refreshes site on success
+  onLayerMode,     // (dateId, 'pc' | 'vox') → void
+  onComputeVoxel,  // (dateId) → Promise<void>
 }) {
   const dates     = activeSite?.dates ?? []
   const firstDate = dates[0]?.label ?? '—'
   const lastDate  = dates[dates.length - 1]?.label ?? '—'
   const dateRange = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
-  // Per-date layer mode: 'pc' | 'vox'
-  const [layerModes,   setLayerModes]   = useState({})
+  const [layerModes,  setLayerModes]  = useState({})
+  const [computingId, setComputingId] = useState(null)
+  const [computeMsg,  setComputeMsg]  = useState('')
 
-  // Which dateId is currently being voxel-computed (null = none)
-  const [computingId,  setComputingId]  = useState(null)
-  const [computeMsg,   setComputeMsg]   = useState('')
-
-  // Voxel 계산 section — target selector
   const [computeTarget, setComputeTarget] = useState('')
   const effectiveTarget = computeTarget || dates[0]?.id || ''
 
-  // Dates that can have voxels computed (have a point cloud path)
-  const computableDates = dates.filter(d => d.datasetPath && d.datasetType === 'pointcloud')
+  // Dates that can have voxels computed: have a datasetPath and no existing voxelPath
+  const computableDates = dates.filter(d => d.datasetPath && !d.voxelPath)
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -98,9 +101,8 @@ export default function Panel({
     const d = dates.find(x => x.id === dateId)
     if (!d) return
 
-    // VOX clicked but no pre-computed voxel → trigger compute first
     if (mode === 'vox' && !d.voxelPath) {
-      if (!d.datasetPath) return   // nothing to compute from
+      if (!d.datasetPath) return
       await handleComputeVoxel(dateId, /* autoSwitch */ true)
       return
     }
@@ -116,7 +118,6 @@ export default function Panel({
     try {
       await onComputeVoxel?.(dateId)
       setComputeMsg('✓ Voxel 생성 완료')
-      // If triggered from pill click, automatically switch to VOX view
       if (autoSwitch) {
         setLayerModes(prev => ({ ...prev, [dateId]: 'vox' }))
         onLayerMode?.(dateId, 'vox')
@@ -133,13 +134,13 @@ export default function Panel({
   return (
     <aside id="panel">
 
-      {/* ── 선택된 프로젝트 ── */}
+      {/* ── Selected Project ── */}
       <div className="p-section">
         <div className="p-label">Selected Project</div>
         <div className="site-info-card">
           <div className="site-info-row">
             <span className="site-info-k">프로젝트명</span>
-            <span className="site-info-v">{activeSite.label ?? activeSite.id}</span>
+            <span className="site-info-v">{activeSite.name}</span>
           </div>
           <div className="site-info-row">
             <span className="site-info-k">관측 데이터</span>
@@ -160,7 +161,7 @@ export default function Panel({
         </div>
       </div>
 
-      {/* ── 관측 데이터 ── */}
+      {/* ── Survey Dates ── */}
       <div className="p-section">
         <div className="p-label">Survey Dates</div>
         <div id="date-list" className="rp-date-list">
@@ -168,10 +169,10 @@ export default function Panel({
             <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
           )}
           {dates.map(d => {
-            const isOn      = visibleDateIds.has(d.id)
-            const layerMode = layerModes[d.id] ?? 'pc'
-            const hasVoxel  = !!d.voxelPath
-            const canCompute = !hasVoxel && !!d.datasetPath && d.datasetType === 'pointcloud'
+            const isOn       = visibleDateIds.has(d.id)
+            const layerMode  = layerModes[d.id] ?? 'pc'
+            const hasVoxel   = !!d.voxelPath
+            const canCompute = !hasVoxel && !!d.datasetPath
             const isComputing = computingId === d.id
             return (
               <div key={d.id} className="date-row-wrap">
@@ -180,7 +181,7 @@ export default function Panel({
                   onClick={() => onToggleDate(d)}
                 >
                   <span className="date-label">{d.label}</span>
-                  <span className="date-id">{d.id}</span>
+                  <span className="date-id">{d.name}</span>
                   <TypeTag type={d.datasetType} />
                   {hasVoxel && (
                     <span className="ltag ltag-vox" title="Pre-computed voxel available">VOX</span>
@@ -202,7 +203,7 @@ export default function Panel({
         </div>
       </div>
 
-      {/* ── 포인트 크기 (point cloud only) ── */}
+      {/* ── Point size (point cloud only) ── */}
       {showPcSlider && (
         <div className="p-section">
           <div className="p-label">포인트 크기</div>
@@ -217,7 +218,7 @@ export default function Panel({
         </div>
       )}
 
-      {/* ── Voxel 계산 ── */}
+      {/* ── Voxel Calculation ── */}
       <div className="p-section">
         <div className="p-label">Voxel Calculation</div>
         {computableDates.length === 0 ? (
@@ -235,7 +236,7 @@ export default function Panel({
             >
               {computableDates.map(d => (
                 <option key={d.id} value={d.id}>
-                  {d.label} ({d.id})
+                  {d.label} ({d.name})
                 </option>
               ))}
             </select>
@@ -256,7 +257,7 @@ export default function Panel({
         )}
       </div>
 
-      {/* ── 카메라 ── */}
+      {/* ── Camera ── */}
       <div className="p-section">
         <div className="p-label">Camera</div>
         <div className="btn-row">

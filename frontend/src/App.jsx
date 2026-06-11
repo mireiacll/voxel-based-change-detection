@@ -15,7 +15,14 @@ import {
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
 import { loadDiffSnapshots, invalidateDiffCache } from './timelineDiffs'
-import { fetchProjects, createProject, updateProject, deleteProject} from './api'
+import {
+  fetchProjects,
+  enrichProjectWithDates,
+  createProject,
+  updateProject,
+  deleteProject,
+  voxelizeObservation,
+} from './api'
 
 import NavBar             from './components/NavBar'
 import MapSubHeader       from './components/MapSubHeader'
@@ -28,9 +35,6 @@ import Toasts             from './components/Toasts'
 import ProjectLauncher    from './components/ProjectLauncher'
 import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
-
-// Your own FastAPI backend (diff computation, voxel, upload)
-const LOCAL_API = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
 const DEFAULT_DRAW_BTN  = '✏ Draw Area'
@@ -48,21 +52,19 @@ export default function App() {
 
   const [mode, setMode] = useState('compare')
 
-  // Set of date ids currently toggled visible in Cesium
   const [visibleDateIds, setVisibleDateIds] = useState(new Set())
-  // The most recently toggled-on date (for M shortcut + pc slider)
-  const [activeDate, setActiveDate] = useState(null)
+  const [activeDate, setActiveDate]         = useState(null)
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
-  // Keep a ref so keyboard handler can access without stale closure
-  const activeDateRef    = useRef(null)
-  const activeSiteRef    = useRef(null)
-  const visibleIdsRef    = useRef(new Set())
-  const modeRef          = useRef('compare')
 
-  useEffect(() => { activeDateRef.current  = activeDate },    [activeDate])
-  useEffect(() => { activeSiteRef.current  = activeSite },    [activeSite])
-  useEffect(() => { visibleIdsRef.current  = visibleDateIds }, [visibleDateIds])
-  useEffect(() => { modeRef.current        = mode },           [mode])
+  const activeDateRef  = useRef(null)
+  const activeSiteRef  = useRef(null)
+  const visibleIdsRef  = useRef(new Set())
+  const modeRef        = useRef('compare')
+
+  useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
+  useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
+  useEffect(() => { visibleIdsRef.current = visibleDateIds }, [visibleDateIds])
+  useEffect(() => { modeRef.current       = mode },           [mode])
 
   const [compareIdA, setCompareIdA] = useState('')
   const [compareIdB, setCompareIdB] = useState('')
@@ -71,13 +73,10 @@ export default function App() {
   const [colorB, setColorB] = useState('#4d9fff')
   const [alphaB, setAlphaB] = useState(0.9)
 
-  // ── Per-tab visibility state ──────────────────────────────────────────
-  // Each tab has its own independent added/removed/unchanged toggles.
   const [compareVis,    setCompareVis]    = useState({ ...DEFAULT_VIS })
   const [compareApiVis, setCompareApiVis] = useState({ ...DEFAULT_VIS })
   const [tlVis,         setTlVis]         = useState({ ...DEFAULT_VIS })
 
-  // Refs for use in effects/keyboard handlers (stale closure prevention)
   const compareVisRef    = useRef({ ...DEFAULT_VIS })
   const compareApiVisRef = useRef({ ...DEFAULT_VIS })
   const tlVisRef         = useRef({ ...DEFAULT_VIS })
@@ -85,7 +84,6 @@ export default function App() {
   useEffect(() => { compareApiVisRef.current = compareApiVis }, [compareApiVis])
   useEffect(() => { tlVisRef.current         = tlVis },         [tlVis])
 
-  // ── compare-api state ─────────────────────────────────────────────────
   const [apiDateIdA, setApiDateIdA] = useState('')
   const [apiDateIdB, setApiDateIdB] = useState('')
   const [apiRunning, setApiRunning] = useState(false)
@@ -93,8 +91,6 @@ export default function App() {
   const [apiError,   setApiError]   = useState(null)
   const [apiSummary, setApiSummary] = useState(null)
 
-  // Keep the last compare diff voxels so we can restore them when returning
-  // from timeline / compare-api back to compare
   const lastCompareDiffRef = useRef(null)
 
   const [voxelSize,   setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
@@ -102,7 +98,6 @@ export default function App() {
   const [diffStatus,  setDiffStatus]  = useState({ state: '', msg: '' })
   const [stats,       setStats]       = useState(null)
 
-  // ── Per-tab polygon UI state ──────────────────────────────────────────
   const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
   const [drawBtnLabel, setDrawBtnLabel] = useState(DEFAULT_DRAW_BTN)
   const [drawBanner,   setDrawBanner]   = useState(false)
@@ -120,8 +115,8 @@ export default function App() {
   const [tlActiveIndex, setTlActiveIndex] = useState(0)
   const [tlLoading,     setTlLoading]     = useState(false)
   const [tlPlaying,     setTlPlaying]     = useState(false)
-  const tlPlayTimer  = useRef(null)
-  const viewerReady  = useRef(false)
+  const tlPlayTimer    = useRef(null)
+  const viewerReady    = useRef(false)
   const tlSnapshotsRef = useRef(null)
   useEffect(() => { tlSnapshotsRef.current = tlSnapshots }, [tlSnapshots])
 
@@ -133,19 +128,20 @@ export default function App() {
   }, [])
 
   /**
-   * Fetch all projects from API, returned as internal "site"
-   * objects (without dates — Step 2 will add those).
+   * Fetch all projects then enrich each one with its observations (dates).
    */
   const refreshSites = useCallback(async () => {
     try {
-      return await fetchProjects()
+      const projects = await fetchProjects()
+      // Fetch observations for all projects in parallel
+      const enriched = await Promise.all(projects.map(p => enrichProjectWithDates(p)))
+      return enriched
     } catch (e) {
       console.error('[refreshSites]', e)
       return []
     }
   }, [])
 
-  // Canonical checkboxState for syncVisibility
   function checkState(overrides = {}) {
     return {
       dataset: true,
@@ -193,7 +189,7 @@ export default function App() {
     return () => clearInterval(tlPlayTimer.current)
   }, [tlPlaying, tlSnapshots])
 
-  // ── Timeline load — preload all snapshot tilesets once per project ──────
+  // ── Timeline load ────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) {
       console.log(`[TL-load effect] skip — mode=${mode} hasSite=${!!activeSite} snapshotsAlreadyLoaded=${tlSnapshots !== null}`)
@@ -232,7 +228,7 @@ export default function App() {
     showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
 
-  // ── Re-sync compare voxel visibility when compare toggles change ──────
+  // ── Re-sync compare voxel visibility ────────────────────────────────
   useEffect(() => {
     if (mode !== 'compare') return
     if (lastCompareDiffRef.current) {
@@ -249,13 +245,13 @@ export default function App() {
     } else {
       syncVisibility('compare', checkState())
     }
-  }, [compareVis]) // deliberately omit `mode`
+  }, [compareVis])
 
-  // ── Re-sync timeline tileset style when timeline toggles change ───────
+  // ── Re-sync timeline tileset style ───────────────────────────────────
   useEffect(() => {
     if (mode !== 'timeline') return
     setSnapshotTilesetVisibility(tlVis.added, tlVis.removed, tlVis.unchanged)
-  }, [tlVis]) // deliberately omit `mode`
+  }, [tlVis])
 
   // ── Sync side-effects ────────────────────────────────────────────────
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
@@ -283,16 +279,15 @@ export default function App() {
         return
       }
 
-      // a/r toggles affect only the current tab
       if (e.key === 'a') {
         const m = modeRef.current
-        if (m === 'compare')     setCompareVis(v    => ({ ...v, added: !v.added }))
+        if (m === 'compare')          setCompareVis(v    => ({ ...v, added: !v.added }))
         else if (m === 'compare-api') setCompareApiVis(v => ({ ...v, added: !v.added }))
         else if (m === 'timeline')    setTlVis(v => ({ ...v, added: !v.added }))
       }
       if (e.key === 'r') {
         const m = modeRef.current
-        if (m === 'compare')     setCompareVis(v    => ({ ...v, removed: !v.removed }))
+        if (m === 'compare')          setCompareVis(v    => ({ ...v, removed: !v.removed }))
         else if (m === 'compare-api') setCompareApiVis(v => ({ ...v, removed: !v.removed }))
         else if (m === 'timeline')    setTlVis(v => ({ ...v, removed: !v.removed }))
       }
@@ -333,21 +328,21 @@ export default function App() {
     setApiDateIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
     setApiSummary(null); setApiStatus(''); setApiError(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
-    // Reset all per-tab visibility to defaults on project open
     setCompareVis({ ...DEFAULT_VIS })
     setCompareApiVis({ ...DEFAULT_VIS })
     setTlVis({ ...DEFAULT_VIS })
     setActiveSite(site)
     window.currentSite = site
     setNavTab('analysis')
-    flyTo(site.camera.lon, site.camera.lat - 0.006, site.camera.height)
+    // Camera uses the flat fields from the coworker API shape directly
+    flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
   }
 
   async function handleProjectCreated(newSite) {
     setShowNewProject(false)
     const updated = await refreshSites()
     setSites(updated)
-    addToast(`프로젝트 "${newSite.label}" 생성됨`, 'ok')
+    addToast(`프로젝트 "${newSite.name}" 생성됨`, 'ok')
     const full = updated.find(s => s.id === newSite.id)
     if (full) handleOpenProject(full)
   }
@@ -445,21 +440,15 @@ export default function App() {
 
     if (newMode === 'timeline') {
       if (prevMode === 'compare' || prevMode === 'compare-api') {
-        console.log(`[handleModeChange] parking polygon from ${prevMode} → timeline-hidden`)
         swapPolygonTab(prevMode, 'timeline-hidden', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
-      console.log(`[handleModeChange] syncVisibility(timeline)`)
       syncVisibility('timeline', checkState())
       const snaps = tlSnapshotsRef.current
       if (snaps?.length) {
         const activeSnap = snaps[tlActiveIndexRef.current]
-        if (activeSnap) {
-          console.log(`[handleModeChange] re-showing active snapshot ${activeSnap.id}`)
-          showSnapshotTileset(activeSnap.id)
-        }
+        if (activeSnap) showSnapshotTileset(activeSnap.id)
       }
-      // Apply timeline's own visibility state on enter
       setSnapshotTilesetVisibility(tlVisRef.current.added, tlVisRef.current.removed, tlVisRef.current.unchanged)
 
     } else if (newMode === 'compare') {
@@ -495,7 +484,6 @@ export default function App() {
         swapPolygonTab('timeline-hidden', 'compare-api', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
-
       renderVoxelDiff([], 0.5)
       syncVisibility('compare-api', checkState())
     }
@@ -568,15 +556,15 @@ export default function App() {
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
+  /**
+   * Trigger voxelization for a date (observation).
+   * Uses the coworker API via voxelizeObservation().
+   */
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
-    const res = await fetch(`${LOCAL_API}/api/sites/${activeSite.id}/dates/${dateId}/voxel`, {
-      method: 'POST',
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail ?? `HTTP ${res.status}`)
-    }
+    // dateId is already the stringified observation id
+    await voxelizeObservation(dateId)
+    // Refresh so the updated voxelPath/voxelStatus is reflected
     const updated = await refreshSites()
     setSites(updated)
     const updatedSite = updated.find(s => s.id === activeSite.id)
@@ -585,11 +573,11 @@ export default function App() {
 
   function handleCameraSite() {
     if (!activeSite) return
-    flyTo(activeSite.camera.lon, activeSite.camera.lat - 0.006, activeSite.camera.height, -40)
+    flyTo(activeSite.centerLon, activeSite.centerLat - 0.006, activeSite.cameraHeight, -40)
   }
   function handleCameraTop() {
     if (!activeSite) return
-    flyTo(activeSite.camera.lon, activeSite.camera.lat, activeSite.camera.height * 1.2, -90)
+    flyTo(activeSite.centerLon, activeSite.centerLat, activeSite.cameraHeight * 1.2, -90)
   }
 
   function handleNavTab(tab) {
@@ -597,12 +585,9 @@ export default function App() {
     setNavTab(tab)
   }
 
-  const showAnalysis  = navTab === 'analysis'
-  const showPcSlider  = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
+  const showAnalysis = navTab === 'analysis'
+  const showPcSlider = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
 
-  // ── Per-tab visibility props for RightPanel ───────────────────────────
-  // RightPanel receives showAdded/onShowAdded etc. — we route the correct
-  // per-tab state depending on the current mode.
   const activeVis = mode === 'timeline'
     ? tlVis
     : mode === 'compare-api'
@@ -684,7 +669,7 @@ export default function App() {
             activeSite={activeSite}
             visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
-            pcSize={pcSize}             onPcSize={setPcSize}
+            pcSize={pcSize}                 onPcSize={setPcSize}
             showPcSlider={showPcSlider}
             onLayerMode={handleLayerMode}
             onComputeVoxel={handleComputeVoxel}

@@ -3,7 +3,7 @@
  *
  * Props
  * -----
- *   sites         — array from /api/sites
+ *   sites         — array from fetchProjects() + enrichProjectWithDates()
  *   onSelect      — (site) => void
  *   onNewProject  — () => void
  *   onSiteEdited  — () => void
@@ -12,8 +12,7 @@
  */
 
 import { useState } from 'react'
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+import { updateProject, deleteProject } from '../api'
 
 export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteEdited, onSiteDeleted, loading }) {
   const recent  = sites.slice(0, 3)
@@ -38,7 +37,6 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
           </div>
         </div>
 
-        {/* ── Recent / hero cards ── */}
         <div className="launcher-section-label">Recent projects</div>
         <div className="launcher-cards">
           {loading
@@ -56,7 +54,6 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
           <NewProjectCard onNewProject={onNewProject} />
         </div>
 
-        {/* ── Rest of the sites ── */}
         {!loading && theRest.length > 0 && (
           <>
             <div className="launcher-section-label" style={{ marginTop: 28 }}>
@@ -83,33 +80,28 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
 
 // ── Edit site modal ────────────────────────────────────────────────────────
 function EditSiteModal({ site, onClose, onSaved }) {
-  const [label,  setLabel]  = useState(site.label ?? '')
-  const [lon,    setLon]    = useState(String(site.camera?.lon    ?? ''))
-  const [lat,    setLat]    = useState(String(site.camera?.lat    ?? ''))
-  const [height, setHeight] = useState(String(site.camera?.height ?? ''))
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState('')
+  const [name,        setName]        = useState(site.name        ?? '')
+  const [description, setDescription] = useState(site.description ?? '')
+  const [lon,         setLon]         = useState(String(site.centerLon    ?? ''))
+  const [lat,         setLat]         = useState(String(site.centerLat    ?? ''))
+  const [height,      setHeight]      = useState(String(site.cameraHeight ?? ''))
+  const [saving,      setSaving]      = useState(false)
+  const [error,       setError]       = useState('')
 
   async function handleSave() {
-    if (!label.trim()) return setError('레이블은 필수입니다.')
+    if (!name.trim()) return setError('Name is required.')
     setSaving(true)
     setError('')
     try {
-      const body = { label: label.trim() }
-      if (lon    !== '')   body.camera_lon    = parseFloat(lon)
-      if (lat    !== '')   body.camera_lat    = parseFloat(lat)
-      if (height !== '')   body.camera_height = parseFloat(height)
+      const patch = { name: name.trim(), description: description.trim() }
+      if (lon    !== '') patch.centerLon    = parseFloat(lon)
+      if (lat    !== '') patch.centerLat    = parseFloat(lat)
+      if (height !== '') patch.cameraHeight = parseFloat(height)
 
-      const res = await fetch(`${API_BASE}/api/sites/${site.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.detail || `Error ${res.status}`); return }
+      await updateProject(site.id, patch)
       onSaved()
     } catch (e) {
-      setError('Network error: ' + e.message)
+      setError(e.message)
     } finally {
       setSaving(false)
     }
@@ -123,14 +115,20 @@ function EditSiteModal({ site, onClose, onSaved }) {
     <div className="modal-backdrop" onClick={handleBackdrop}>
       <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Edit Site — {site.id}</span>
+          <span className="modal-title">Edit Project — {site.name}</span>
           <button className="modal-close" onClick={onClose} disabled={saving}>✕</button>
         </div>
         <div className="modal-body">
           <div className="modal-row">
             <div className="modal-field">
-              <label>레이블</label>
-              <input value={label} onChange={e => setLabel(e.target.value)} disabled={saving} />
+              <label>Name</label>
+              <input value={name} onChange={e => setName(e.target.value)} disabled={saving} />
+            </div>
+          </div>
+          <div className="modal-row">
+            <div className="modal-field">
+              <label>Description <span className="modal-hint">(optional)</span></label>
+              <input value={description} onChange={e => setDescription(e.target.value)} disabled={saving} placeholder="Brief description" />
             </div>
           </div>
           <div className="modal-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
@@ -160,22 +158,17 @@ function EditSiteModal({ site, onClose, onSaved }) {
   )
 }
 
-// ── Shared delete confirm modal ────────────────────────────────────────────
+// ── Delete confirm modal ───────────────────────────────────────────────────
 function DeleteConfirmModal({ site, onClose, onDeleted }) {
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
     setDeleting(true)
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${site.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.detail || `Error ${res.status}`)
-        return
-      }
+      await deleteProject(site.id)
       onDeleted(site.id)
     } catch (e) {
-      alert('Network error: ' + e.message)
+      alert(e.message)
     } finally {
       setDeleting(false)
     }
@@ -185,12 +178,12 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
     <div className="modal-backdrop" onClick={() => !deleting && onClose()}>
       <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Delete Site</span>
+          <span className="modal-title">Delete Project</span>
           <button className="modal-close" onClick={onClose} disabled={deleting}>✕</button>
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 13, lineHeight: 1.6 }}>
-            <strong>{site.label ?? site.id}</strong>을(를) 삭제하시겠습니까?
+            <strong>{site.name}</strong>을(를) 삭제하시겠습니까?
             <br />
             <span className="modal-hint">모든 날짜 및 데이터 파일이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</span>
           </p>
@@ -206,36 +199,29 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
   )
 }
 
-// ── Site card (hero) — actions live inside the card ────────────────────────
+// ── Site card (hero) ───────────────────────────────────────────────────────
 function SiteCard({ site, onSelect, onEdited, onDeleted }) {
-  const [menuOpen,      setMenuOpen]      = useState(false)
-  const [showEdit,      setShowEdit]      = useState(false)
-  const [showDelete,    setShowDelete]    = useState(false)
+  const [menuOpen,   setMenuOpen]   = useState(false)
+  const [showEdit,   setShowEdit]   = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
 
   const dateCount = site.dates?.length ?? 0
   const latest    = site.dates?.[dateCount - 1]
 
   return (
     <>
-      {/* The card itself — identical markup to the original, ⋯ added inside */}
       <div
         className="lcard"
         onClick={() => !menuOpen && onSelect(site)}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            onSelect(site)
-          }
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') onSelect(site)
         }}
       >
         <div className="lcard-bg" aria-hidden />
 
-        {/* ⋯ menu — top-right corner, inside the card */}
-        <div
-          className="lcard-menu-wrap"
-          onClick={e => e.stopPropagation()}
-        >
+        <div className="lcard-menu-wrap" onClick={e => e.stopPropagation()}>
           <button
             className="lcard-menu-btn"
             onClick={() => setMenuOpen(v => !v)}
@@ -260,11 +246,11 @@ function SiteCard({ site, onSelect, onEdited, onDeleted }) {
               <polyline points="2 12 12 17 22 12"/>
             </svg>
           </div>
-          <div className="lcard-name">{site.label ?? site.id}</div>
+          <div className="lcard-name">{site.name}</div>
           <div className="lcard-meta">
             <span>{dateCount} survey{dateCount !== 1 ? 's' : ''}</span>
             {latest && (
-              <span className="lcard-latest">Latest: {latest.label ?? latest.id}</span>
+              <span className="lcard-latest">Latest: {latest.label}</span>
             )}
           </div>
         </div>
@@ -304,7 +290,7 @@ function NewProjectCard({ onNewProject }) {
   )
 }
 
-// ── Compact list row (for sites beyond the first 3) ────────────────────────
+// ── Compact list row ───────────────────────────────────────────────────────
 function SiteListRow({ site, onSelect, onEdited, onDeleted }) {
   const [menuOpen,   setMenuOpen]   = useState(false)
   const [showEdit,   setShowEdit]   = useState(false)
@@ -317,7 +303,7 @@ function SiteListRow({ site, onSelect, onEdited, onDeleted }) {
       <div className="llist-row-wrap">
         <button className="llist-row" onClick={() => onSelect(site)}>
           <div className="llist-dot" />
-          <div className="llist-name">{site.label ?? site.id}</div>
+          <div className="llist-name">{site.name}</div>
           <div className="llist-meta">{dateCount} survey{dateCount !== 1 ? 's' : ''}</div>
           <div className="llist-arrow">→</div>
         </button>

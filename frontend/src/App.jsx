@@ -8,10 +8,10 @@ import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiu
 import {
   loadDate, syncVisibility, clearLayers, clearCompareLayers,
   applyPcStyle, setDateATint, setDateBTint,
-  renderVoxelDiff, invalidateTilesetUrl, clearTimeseriesLayer,
+  renderVoxelDiff, invalidateTilesetUrl,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
-import { setDrawCallbacks, togglePolygonDraw, clearPolygon, setPolygonVisible, swapPolygonTab } from './cesium/polygonDraw'
+import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
 import { loadDiffSnapshots, renderSnapshotTileset } from './timelineDiffs'
 
 import NavBar             from './components/NavBar'
@@ -177,7 +177,7 @@ export default function App() {
     return () => clearInterval(tlPlayTimer.current)
   }, [tlPlaying, tlSnapshots])
 
-  // ── Timeline load ────────────────────────────────────────────────────
+  // ── Timeline load — only fires when snapshots haven't been loaded yet ──
   useEffect(() => {
     if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) return
     setTlLoading(true)
@@ -192,14 +192,14 @@ export default function App() {
 
   function doRenderTlSnapshot(snaps, idx) {
     const snap = snaps?.[idx]; if (!snap) return
-    // Pre-colored tileset — load directly into Cesium, no voxel arrays needed
     renderSnapshotTileset(snap)
   }
 
+  // ── Timeline snapshot render — fires when active index changes while in timeline ──
   useEffect(() => {
     if (mode !== 'timeline' || !tlSnapshots?.length) return
     doRenderTlSnapshot(tlSnapshots, tlActiveIndex)
-  }, [tlActiveIndex, mode, tlSnapshots, showAdded, showRemoved])
+  }, [tlActiveIndex, tlSnapshots])
 
   // ── Re-sync visibility when showAdded/showRemoved toggle in compare ───
   useEffect(() => {
@@ -217,9 +217,9 @@ export default function App() {
         vs
       )
     } else {
-      syncVisibility(mode, checkState())
+      syncVisibility('compare', checkState())
     }
-  }, [showAdded, showRemoved, mode])
+  }, [showAdded, showRemoved]) // deliberately omit `mode` — only runs when toggles change
 
   // ── Sync side-effects ────────────────────────────────────────────────
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
@@ -401,27 +401,29 @@ export default function App() {
     modeRef.current = newMode
 
     if (newMode === 'timeline') {
-      // Park the active compare tab's polygon (hide it, remember it)
+      // Park the active compare tab's polygon (hide entities, save to slot)
       if (prevMode === 'compare' || prevMode === 'compare-api') {
-        setPolygonVisible(false)
+        swapPolygonTab(prevMode, 'timeline-hidden', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       }
+      // Hide compare layers, show timeseries layer (if already loaded)
       syncVisibility('timeline', checkState())
-      setTlSnapshots(null) // trigger reload
+      // Only trigger a load if we haven't loaded snapshots yet for this project
+      // (tlSnapshots === null means "never loaded" — set in handleOpenProject)
+      // Don't reset here; the load effect handles it once.
 
     } else if (newMode === 'compare') {
       if (prevMode === 'compare-api') {
-        // Swap: hide compare-api's polygon, restore compare's polygon
+        // Swap polygons between the two compare tabs
         swapPolygonTab('compare-api', 'compare', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
-        // Clear the pre-colored tileset that was loaded for timeline
-        clearTimeseriesLayer()
-        // Restore compare's polygon visibility (was only hidden, not parked)
-        setPolygonVisible(true)
+        // Restore compare's polygon (was parked under 'timeline-hidden')
+        swapPolygonTab('timeline-hidden', 'compare', drawInfo, drawBtnLabel)
+        setDrawBanner(false)
       }
 
-      // Restore compare voxels if we had a previous diff
+      // Restore compare voxels if we had a previous diff, then sync visibility
       if (lastCompareDiffRef.current) {
         const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
         window.diffState = window.diffState ?? {}
@@ -440,19 +442,18 @@ export default function App() {
 
     } else if (newMode === 'compare-api') {
       if (prevMode === 'compare') {
-        // Swap: hide compare's polygon, restore compare-api's polygon
+        // Swap polygons between the two compare tabs
         swapPolygonTab('compare', 'compare-api', drawInfo, drawBtnLabel)
         setDrawBanner(false)
       } else if (prevMode === 'timeline') {
-        // Clear the pre-colored tileset that was loaded for timeline
-        clearTimeseriesLayer()
-        // Restore compare-api's polygon visibility (was only hidden, not parked)
-        setPolygonVisible(true)
+        // Restore compare-api's polygon (was parked under 'timeline-hidden')
+        swapPolygonTab('timeline-hidden', 'compare-api', drawInfo, drawBtnLabel)
+        setDrawBanner(false)
       }
 
-      // Hide compare A/B meshes and voxels — don't destroy them
+      // Hide compare A/B meshes and voxels — compare-api only shows the background layer
       renderVoxelDiff([], 0.5)
-      syncVisibility('compare', checkState({ dateA: false, dateB: false }))
+      syncVisibility('compare-api', checkState())
     }
   }
 

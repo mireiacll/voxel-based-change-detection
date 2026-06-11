@@ -33,33 +33,41 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * @param {string}  mode           — 'compare' | 'timeline'
+ * @param {string}  mode           — 'compare' | 'compare-api' | 'timeline'
  * @param {object}  checkboxState  — { dataset, dateA, dateB, added, removed }
+ *
+ * Visibility rules per mode:
+ *   compare      → mesh/pc visible, meshA/meshB visible, diffPrim visible, timeseriesTs hidden
+ *   compare-api  → mesh/pc visible, meshA/meshB hidden,  diffPrim hidden,  timeseriesTs hidden
+ *   timeline     → mesh/pc hidden,  meshA/meshB hidden,  diffPrim hidden,  timeseriesTs visible
  */
 export function syncVisibility(mode, checkboxState) {
   const {
     dataset  = true,
     dateA    = true,
     dateB    = true,
-    added    = true,
-    removed  = true,
   } = checkboxState || {}
 
-  const inCompare  = mode === 'compare'
-  const inTimeline = mode === 'timeline'
+  const inCompare    = mode === 'compare'
+  const inCompareApi = mode === 'compare-api'
+  const inTimeline   = mode === 'timeline'
 
-  // Single-date background layer 
-  if (state.mesh) state.mesh.show = dataset
-  if (state.pc)   state.pc.show   = dataset
+  // Single-date background layer — visible in compare modes, hidden in timeline
+  if (state.mesh) state.mesh.show = (inCompare || inCompareApi) && dataset
+  if (state.pc)   state.pc.show   = (inCompare || inCompareApi) && dataset
 
-  // A/B comparison layers — only in compare mode
+  // A/B comparison layers — only in compare mode (not compare-api, not timeline)
   if (state.meshA) state.meshA.show = inCompare && dateA
   if (state.meshB) state.meshB.show = inCompare && dateB
 
-  // Diff primitive — shown in compare (if exists) and timeline
-  // In compare: controlled by showAdded/showRemoved 
+  // Diff primitive (compare voxels) — only in compare mode, never in timeline
   if (state.diffPrim) {
-    state.diffPrim.show = inCompare || inTimeline
+    state.diffPrim.show = inCompare
+  }
+
+  // Pre-colored timeseries tileset — only in timeline mode
+  if (state.timeseriesTs) {
+    state.timeseriesTs.show = inTimeline
   }
 
   requestAnimationFrame(() => {

@@ -10,13 +10,14 @@ const _poly = {
   entities: [],
 }
 
-// ── Parked polygon slots — one per compare tab ────────────────────────────
+// ── Parked polygon slots — one per compare tab + a hidden slot for timeline ──
 // When switching tabs we hide + snapshot the active poly into the departing
 // tab's slot, then restore (and show) the arriving tab's slot.
 // Slot shape: { pts, geo, entities, closed, drawInfo, drawBtn } | null
 const _parked = {
-  'compare':     null,
-  'compare-api': null,
+  'compare':         null,
+  'compare-api':     null,
+  'timeline-hidden': null,   // used to park whichever compare tab is active when entering timeline
 }
 
 let _onDrawBanner   = () => {}
@@ -32,8 +33,9 @@ export function setDrawCallbacks(onBanner, onInfo, onBtnLabel) {
 // ── Always clears regardless of state — used on project switch ────────────
 export function clearPolygon() {
   _clearPoly()
-  _parked['compare']     = null
-  _parked['compare-api'] = null
+  _parked['compare']         = null
+  _parked['compare-api']     = null
+  _parked['timeline-hidden'] = null
   _onDrawBtnLabel('✏ Draw Area')
   _onDrawInfo('No area selected — diff runs on full extent')
 }

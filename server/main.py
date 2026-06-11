@@ -33,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, engine, AsyncSessionLocal
-from models import Base, Site, SurveyDate
+from models import Base, Site, SurveyDate, TimeseriesDiff
 
 load_dotenv()
 
@@ -508,6 +508,42 @@ async def upload_dataset(
 
 
 # ═════════════════════════════════════════════════════════════════════════
+#  ROUTES — voxel (register pre-computed or scan disk)
+# ═════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/sites/{site_id}/dates/{date_code}/voxel")
+async def register_voxel(
+    site_id:   str,
+    date_code: str,
+    db:        AsyncSession = Depends(get_db),
+):
+    """
+    Scan disk for a pre-computed voxel tileset at the standard path
+    ({site}/{date_code}/voxel/visualization/tileset.json) and register it
+    in the database.  Call this after running mago3d-tiler externally.
+
+    Returns the voxel_path on success, 404 if the tileset file is not found.
+    """
+    pk = f"{site_id}_{date_code}"
+    survey = await db.get(SurveyDate, pk)
+    if survey is None:
+        raise HTTPException(status_code=404, detail=f"Date not found: {site_id}/{date_code}")
+
+    voxel_abs = DATA_ROOT / site_id / date_code / "voxel" / "visualization" / "tileset.json"
+    if not voxel_abs.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Voxel tileset not found at expected path: {voxel_abs}. "                   f"Run mago3d-tiler on the point cloud first.",
+        )
+
+    voxel_rel = _rel_path(voxel_abs)
+    survey.voxel_path = voxel_rel
+    await db.commit()
+
+    return {"ok": True, "voxel_path": voxel_rel}
+
+
+# ═════════════════════════════════════════════════════════════════════════
 #  ROUTES — diff
 # ═════════════════════════════════════════════════════════════════════════
 
@@ -621,6 +657,55 @@ async def full_diff(
 
     import json as _json
     return _json.loads(sample_file.read_text())
+
+# ═════════════════════════════════════════════════════════════════════════
+#  ROUTES — timeseries diffs
+# ═════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/sites/{site_id}/diffs")
+async def get_site_diffs(
+    site_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return all pre-computed timeseries diff records for a site.
+    Each entry points to a pre-rendered 3D Tiles tileset (no voxel data inline —
+    the frontend loads the tileset directly via Cesium).
+
+    Response shape matches what TimelineDiffs.js expects:
+    [
+      {
+        id, site_id,
+        date_a: { id, label },
+        date_b: { id, label },
+        label,
+        tileset_path,   ← NEW: frontend uses this to load the Cesium tileset
+      }, …
+    ]
+    """
+    site = await db.get(Site, site_id, options=[selectinload(Site.dates)])
+    if site is None:
+        raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found.")
+
+    # Build a quick lookup from date_code → label
+    date_labels: dict[str, str] = {d.date_code: d.label for d in site.dates}
+
+    from sqlalchemy import select as sa_select
+    result = await db.execute(
+        sa_select(TimeseriesDiff)
+        .where(TimeseriesDiff.site_id == site_id)
+        .order_by(TimeseriesDiff.date_a_code)
+    )
+    diffs = result.scalars().all()
+
+    return [
+        d.to_dict(
+            date_a_label=date_labels.get(d.date_a_code, d.date_a_code),
+            date_b_label=date_labels.get(d.date_b_code, d.date_b_code),
+        )
+        for d in diffs
+    ]
+
 
 if __name__ == "__main__":
     import uvicorn

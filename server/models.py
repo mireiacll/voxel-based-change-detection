@@ -91,6 +91,10 @@ class SurveyDate(Base):
         String(16), nullable=True
     )  # "mesh" | "pointcloud"
 
+    # Pre-computed voxel visualization tileset for this date (optional)
+    # Path relative to public/ e.g. "data/ungpo/250415/voxel/visualization/tileset.json"
+    voxel_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -103,4 +107,45 @@ class SurveyDate(Base):
             "label":       self.label,
             "datasetPath": self.dataset_path,
             "datasetType": self.dataset_type,  # "mesh" | "pointcloud" | null
+            "voxelPath":   self.voxel_path,    # pre-computed voxel tileset or null
+        }
+
+
+class TimeseriesDiff(Base):
+    """
+    One pre-computed diff tileset covering a consecutive pair of survey dates.
+    Stored as a 3D Tiles tileset (added=red / removed=blue, already baked).
+
+    tileset_path: path relative to public/
+      e.g. "data/ungpo/timeseries/eumbong-time-series-2505-2507/visualization/tileset.json"
+    """
+
+    __tablename__ = "timeseries_diffs"
+    __table_args__ = (
+        UniqueConstraint("site_id", "date_a_code", "date_b_code", name="uq_ts_diff"),
+    )
+
+    id:           Mapped[str] = mapped_column(String(128), primary_key=True)
+    site_id:      Mapped[str] = mapped_column(
+        String(64), ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date_a_code:  Mapped[str] = mapped_column(String(16), nullable=False)
+    date_b_code:  Mapped[str] = mapped_column(String(16), nullable=False)
+    label:        Mapped[str] = mapped_column(Text, nullable=False)
+    tileset_path: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+    site: Mapped["Site"] = relationship("Site")
+
+    def to_dict(self, date_a_label: str = "", date_b_label: str = "") -> dict:
+        return {
+            "id":           self.id,
+            "site_id":      self.site_id,
+            "date_a":       {"id": self.date_a_code, "label": date_a_label},
+            "date_b":       {"id": self.date_b_code, "label": date_b_label},
+            "label":        self.label,
+            "tileset_path": self.tileset_path,
         }

@@ -20,6 +20,10 @@ management:
       exposure:
         include: voxelizer
 
+app:
+  cors:
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+
 voxelizer:
   jar-path: ${VOXELIZER_JAR_PATH:/app/mago-voxelizer.jar}
   storage-root: ${VOXELIZER_STORAGE_ROOT:/data}

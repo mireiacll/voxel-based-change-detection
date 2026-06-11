@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiumInit'
 import {
-  loadDate, syncVisibility, clearLayers, clearCompareLayers,
+  loadDate, syncVisibility, clearLayers, clearAllLayers, clearCompareLayers,
   applyPcStyle, setDateATint, setDateBTint,
   renderVoxelDiff, invalidateTilesetUrl,
   loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
@@ -292,8 +292,7 @@ export default function App() {
 
   function handleOpenProject(site) {
     if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
-    clearLayers()
-    if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
+    clearAllLayers()
     clearPolygon()
     lastCompareDiffRef.current = null
     setMode('compare')
@@ -364,7 +363,7 @@ export default function App() {
     // If the deleted site was open, close it back to the launcher
     if (activeSite?.id === siteId) {
       if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
-      clearLayers()
+      clearAllLayers()
       clearPolygon()
       lastCompareDiffRef.current = null
       setActiveSite(null)

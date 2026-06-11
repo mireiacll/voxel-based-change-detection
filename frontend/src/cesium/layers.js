@@ -119,16 +119,25 @@ function _rm(t) {
 }
 
 export function clearLayers() {
-  console.log('[clearLayers] removing all layers')
+  console.log('[clearLayers] removing background date layers (mesh/pc) — preserving diffPrim and compare layers')
+  _rm(state.mesh);  _rm(state.pc)
+  state.mesh = state.pc = null
+  // NOTE: does NOT touch meshA, meshB, diffPrim — those are owned by compare flow
+  // NOTE: does NOT touch timeseriesTsMap — those are owned by timeline flow
+  requestAnimationFrame(() => requestRender())
+}
+
+/** Full wipe — use only on project open/close, not on date toggles. */
+export function clearAllLayers() {
+  console.log('[clearAllLayers] full wipe of all layers')
   _rm(state.mesh);  _rm(state.pc)
   _rm(state.meshA); _rm(state.meshB)
   _rm(state.diffPrim)
-  // Also remove all preloaded timeseries tilesets
   for (const ts of Object.values(state.timeseriesTsMap)) _rm(ts)
   state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = null
-  state.timeseriesTsMap = {}
+  state.timeseriesTsMap  = {}
   state.activeSnapshotId = null
-  if (window.diffState) window.diffState.voxels = []
+  if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
   requestAnimationFrame(() => requestRender())
 }
 

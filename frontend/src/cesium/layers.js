@@ -398,7 +398,89 @@ export function showSnapshotTileset(snapshotId) {
     if (ts.show) shown++; else hidden++
   }
   console.log(`[showSnapshotTileset] shown=${shown} hidden=${hidden}`)
+
+  // Re-apply current visibility filter to the newly active tileset
+  _applySnapshotStyle(state.activeSnapshotId)
+
   requestAnimationFrame(() => requestRender())
+}
+
+// ── Per-channel visibility state for timeline tilesets ─────────────────────
+// Defaults mirror CONFIG.DEFAULTS so the initial view shows everything.
+const _tlVis = { added: true, removed: true, unchanged: true }
+
+/**
+ * Build a CustomShader that classifies voxels by their baked diffuse color
+ * and discards fragments belonging to hidden categories.
+ *
+ * Classification (0-1 normalised):
+ *   red / pink  → added     R > 0.5 AND R > G*1.4 AND R > B*1.4
+ *   blue        → removed   B > 0.5 AND B > R*1.3 AND B > G*1.3
+ *   gray        → unchanged everything else (balanced channels)
+ *
+ * When all three categories are visible the shader is null and Cesium renders
+ * at full speed with no custom code in the pipeline.
+ */
+function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
+  // All visible — no shader needed
+  if (showAdded && showRemoved && showUnchanged) return null
+
+  // Nothing visible — discard everything
+  if (!showAdded && !showRemoved && !showUnchanged) {
+    return new window.Cesium.CustomShader({
+      fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  discard;
+}`,
+    })
+  }
+
+  // Classify helpers (mirror the thresholds in comments above)
+  const IS_RED  = 'material.diffuse.r > 0.5 && material.diffuse.r > material.diffuse.g * 1.4 && material.diffuse.r > material.diffuse.b * 1.4'
+  const IS_BLUE = 'material.diffuse.b > 0.5 && material.diffuse.b > material.diffuse.r * 1.3 && material.diffuse.b > material.diffuse.g * 1.3'
+
+  const lines = []
+  if (!showAdded)     lines.push(`  if (${IS_RED})  { discard; }`)
+  if (!showRemoved)   lines.push(`  if (${IS_BLUE}) { discard; }`)
+  if (!showUnchanged) lines.push(`  if (!(${IS_RED}) && !(${IS_BLUE})) { discard; }`)
+
+  return new window.Cesium.CustomShader({
+    fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+${lines.join('\n')}
+}`,
+  })
+}
+
+/**
+ * Apply (or remove) a CustomShader to the active snapshot tileset.
+ * Called internally after every show/hide and whenever toggles change.
+ */
+function _applySnapshotStyle(snapshotId) {
+  const ts = snapshotId ? state.timeseriesTsMap[snapshotId] : null
+  if (!ts) return
+
+  const shader = _buildCustomShader(_tlVis.added, _tlVis.removed, _tlVis.unchanged)
+  ts.customShader = shader ?? undefined   // undefined removes any previously set shader
+
+  console.log(`[_applySnapshotStyle] snapshot=${snapshotId} shader=${shader ? 'custom' : 'none (all visible)'}`)
+  requestAnimationFrame(() => requestRender())
+}
+
+/**
+ * Update added / removed / unchanged visibility for the active timeline tileset.
+ * Call this from App.jsx whenever the timeline visibility toggles change.
+ *
+ * @param {boolean} showAdded
+ * @param {boolean} showRemoved
+ * @param {boolean} showUnchanged
+ */
+export function setSnapshotTilesetVisibility(showAdded, showRemoved, showUnchanged) {
+  _tlVis.added     = showAdded
+  _tlVis.removed   = showRemoved
+  _tlVis.unchanged = showUnchanged
+  console.log(`[setSnapshotTilesetVisibility] added=${showAdded} removed=${showRemoved} unchanged=${showUnchanged}`)
+  _applySnapshotStyle(state.activeSnapshotId)
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   applyPcStyle, setDateATint, setDateBTint,
   renderVoxelDiff, invalidateTilesetUrl,
   loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
+  setSnapshotTilesetVisibility,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
@@ -64,12 +65,15 @@ export default function App() {
   const [alphaA, setAlphaA] = useState(0.9)
   const [colorB, setColorB] = useState('#4d9fff')
   const [alphaB, setAlphaB] = useState(0.9)
-  const [showAdded,    setShowAdded]    = useState(CONFIG.DEFAULTS.SHOW_ADDED)
-  const [showRemoved,  setShowRemoved]  = useState(CONFIG.DEFAULTS.SHOW_REMOVED)
-  const showAddedRef   = useRef(CONFIG.DEFAULTS.SHOW_ADDED)
-  const showRemovedRef = useRef(CONFIG.DEFAULTS.SHOW_REMOVED)
-  useEffect(() => { showAddedRef.current   = showAdded },   [showAdded])
-  useEffect(() => { showRemovedRef.current = showRemoved }, [showRemoved])
+  const [showAdded,      setShowAdded]      = useState(CONFIG.DEFAULTS.SHOW_ADDED)
+  const [showRemoved,    setShowRemoved]    = useState(CONFIG.DEFAULTS.SHOW_REMOVED)
+  const [showUnchanged,  setShowUnchanged]  = useState(true)
+  const showAddedRef     = useRef(CONFIG.DEFAULTS.SHOW_ADDED)
+  const showRemovedRef   = useRef(CONFIG.DEFAULTS.SHOW_REMOVED)
+  const showUnchangedRef = useRef(true)
+  useEffect(() => { showAddedRef.current     = showAdded },     [showAdded])
+  useEffect(() => { showRemovedRef.current   = showRemoved },   [showRemoved])
+  useEffect(() => { showUnchangedRef.current = showUnchanged }, [showUnchanged])
 
   // ── compare-api state ─────────────────────────────────────────────────
   const [apiDateIdA, setApiDateIdA] = useState('')
@@ -243,6 +247,12 @@ export default function App() {
       syncVisibility('compare', checkState())
     }
   }, [showAdded, showRemoved]) // deliberately omit `mode` — only runs when toggles change
+
+  // ── Re-sync snapshot tileset style when timeline visibility toggles change ─
+  useEffect(() => {
+    if (mode !== 'timeline') return
+    setSnapshotTilesetVisibility(showAdded, showRemoved, showUnchanged)
+  }, [showAdded, showRemoved, showUnchanged]) // deliberately omit `mode`
 
   // ── Sync side-effects ────────────────────────────────────────────────
   useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
@@ -672,6 +682,7 @@ export default function App() {
             diffStatus={diffStatus}
             showAdded={showAdded}           onShowAdded={setShowAdded}
             showRemoved={showRemoved}       onShowRemoved={setShowRemoved}
+            showUnchanged={showUnchanged}   onShowUnchanged={setShowUnchanged}
             stats={stats}
             tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}

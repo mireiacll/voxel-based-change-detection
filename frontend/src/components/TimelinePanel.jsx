@@ -81,6 +81,7 @@ export default function TimelinePanel({
   snapshots, activeIndex, onSelect,
   showAdded, onShowAdded,
   showRemoved, onShowRemoved,
+  showUnchanged, onShowUnchanged,
   playing, onPlayPause,
   onRecompute, loading,
 }) {
@@ -199,6 +200,14 @@ export default function TimelinePanel({
                 <div className="layer-type">A 존재, B 부재</div>
               </div>
               <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
+            </div>
+            <div className="layer-row">
+              <Toggle id="tl-chk-unchanged" checked={showUnchanged} onChange={onShowUnchanged} />
+              <div className="layer-body">
+                <div className="layer-name">유지된 부피</div>
+                <div className="layer-type">A·B 모두 존재</div>
+              </div>
+              <span className="ltag" style={{ background: '#1a1a1a', color: '#a0a0a0' }}>VOX</span>
             </div>
           </div>
 

@@ -43,6 +43,7 @@ export default function RightPanel({
   // 분석 결과 props
   showAdded, onShowAdded,
   showRemoved, onShowRemoved,
+  showUnchanged, onShowUnchanged,
   stats,
   // timeline props
   tlSnapshots, tlActiveIndex, tlOnSelect,
@@ -224,6 +225,8 @@ export default function RightPanel({
             onShowAdded={onShowAdded}
             showRemoved={showRemoved}
             onShowRemoved={onShowRemoved}
+            showUnchanged={showUnchanged}
+            onShowUnchanged={onShowUnchanged}
             playing={tlPlaying}
             onPlayPause={tlOnPlayPause}
             loading={tlLoading}

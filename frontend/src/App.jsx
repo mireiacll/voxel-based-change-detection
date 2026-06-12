@@ -23,6 +23,8 @@ import {
   deleteProject,
   voxelizeAndPoll,
   fetchVoxelTilesetUrl,
+  fetchObservation,
+  pollJob,
 } from './api'
 
 import NavBar             from './components/NavBar'
@@ -56,6 +58,7 @@ export default function App() {
   const [visibleDateIds, setVisibleDateIds] = useState(new Set())
   const [activeDate, setActiveDate]         = useState(null)
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
+  const [voxelPollingIds, setVoxelPollingIds] = useState(new Set())
 
   const activeDateRef  = useRef(null)
   const activeSiteRef  = useRef(null)
@@ -340,6 +343,12 @@ export default function App() {
     setNavTab('analysis')
     // Camera uses the flat fields from the coworker API shape directly
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
+    // Auto-resume polling for any dates already mid-voxelization
+    site.dates.forEach(d => {
+      if ((d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') && d.voxelJobId) {
+        resumeVoxelPoll(d.id, d.voxelJobId)
+      }
+    })
   }
 
   async function handleProjectCreated(newSite) {
@@ -571,6 +580,46 @@ export default function App() {
   }
 
   /**
+   * Resume polling for a date whose voxel job is already QUEUED/RUNNING.
+   * Called automatically on project open for any such dates.
+   */
+  async function resumeVoxelPoll(dateId, jobId) {
+    const site = activeSiteRef.current
+    const dateLabel = site?.dates.find(d => d.id === dateId)?.label ?? dateId
+    console.log('[resumeVoxelPoll] resuming poll for dateId:', dateId, 'jobId:', jobId)
+    setVoxelPollingIds(prev => new Set([...prev, dateId]))
+    try {
+      const job = await pollJob(
+        jobId,
+        ({ status, progress, message }) => {
+          const pct = progress ? ` (${progress}%)` : ''
+          const msg = message ? ` — ${message}` : ''
+          setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
+          setStatusDone(false)
+        }
+      )
+      if (job.status !== 'SUCCEEDED') throw new Error(`Voxel ${job.status.toLowerCase()}`)
+      const updatedDate = await fetchObservation(dateId)
+      setSites(prev => prev.map(s => {
+        if (s.id !== activeSiteRef.current?.id) return s
+        const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
+        const newSite = { ...s, dates: newDates }
+        setActiveSite(newSite)
+        window.currentSite = newSite
+        return newSite
+      }))
+      setStatusMsg(`Voxel 완료: ${dateLabel}`)
+      setStatusDone(true)
+      addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
+    } catch (e) {
+      console.error('[resumeVoxelPoll] FAILED:', e.message)
+      addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
+    } finally {
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+    }
+  }
+
+  /**
    * Trigger voxelization for a date (observation) and poll until complete.
    * Shows live progress in the status bar while the job runs.
    * Throws on failure so Panel.jsx can show an error message.
@@ -579,6 +628,7 @@ export default function App() {
     if (!activeSite) return
     const dateLabel = activeSite.dates.find(d => d.id === dateId)?.label ?? dateId
     console.log('[handleComputeVoxel] dateId:', dateId, '— site:', activeSite.id, activeSite.name)
+    setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
       addToast(`⚡ Voxel 생성 시작: ${dateLabel}`, 'ok')
       const updatedDate = await voxelizeAndPoll(
@@ -609,6 +659,8 @@ export default function App() {
       setStatusDone(true)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
       throw e
+    } finally {
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
     }
   }
 
@@ -712,6 +764,7 @@ export default function App() {
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
             pcSize={pcSize}                 onPcSize={setPcSize}
             showPcSlider={showPcSlider}
+            voxelPollingIds={voxelPollingIds}
             onLayerMode={handleLayerMode}
             onComputeVoxel={handleComputeVoxel}
           />

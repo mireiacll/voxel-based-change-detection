@@ -42,7 +42,7 @@ function trunc(str, max = 16) {
 function TypeTag({ type }) {
   if (!type) return null
   return (
-    <span className={`date-type-tag ${type === 'mesh' ? 'ltag-amber' : 'ltag-purple'}`}>
+    <span className={`ltag ${type === 'mesh' ? 'ltag-amber' : 'ltag-purple'}`}>
       {type === 'mesh' ? 'MESH' : 'PC'}
     </span>
   )
@@ -55,16 +55,15 @@ function TypeTag({ type }) {
  * canCompute   — no voxelPath but datasetPath exists → VOX triggers compute
  * computing    — a compute is in progress for this date
  */
-function LayerModePill({ dateId, hasVoxel, canCompute, computing, value, onChange }) {
-  const voxClickable = hasVoxel || canCompute
+function LayerModePill({ dateId, hasVoxel, computing, value, onChange }) {
+  // VOX is only clickable when the voxel is fully ready (SUCCEEDED)
+  const voxClickable = hasVoxel && !computing
   const voxLabel     = computing ? '⏳' : 'VOX'
   const voxTitle     = computing
     ? 'Voxel 계산 중…'
     : hasVoxel
       ? 'Pre-computed voxel 표시'
-      : canCompute
-        ? 'Voxel 계산 후 표시'
-        : 'Point cloud 없음 — Voxel 계산 불가'
+      : 'Voxel 없음 — Voxel Calculation 패널에서 먼저 계산하세요'
 
   return (
     <div className="date-layer-pill">
@@ -75,8 +74,8 @@ function LayerModePill({ dateId, hasVoxel, canCompute, computing, value, onChang
         PC
       </button>
       <button
-        className={`dlp-btn${value === 'vox' ? ' dlp-active dlp-vox' : ''}${computing ? ' dlp-computing' : ''}`}
-        disabled={!voxClickable || computing}
+        className={`dlp-btn${value === 'vox' ? ' dlp-active' : ''}${!voxClickable ? ' dlp-locked' : ''}${computing ? ' dlp-computing' : ''}`}
+        disabled={!voxClickable}
         title={voxTitle}
         onClick={e => { e.stopPropagation(); onChange(dateId, 'vox') }}
       >
@@ -91,11 +90,13 @@ export default function Panel({
   visibleDateIds, onToggleDate,
   onCameraSite, onCameraTop,
   pcSize, onPcSize, showPcSlider,
-  onLayerMode,     // (dateId, 'pc' | 'vox') → void
-  onComputeVoxel,  // (dateId) → Promise<void>
+  voxelPollingIds,  // Set<dateId> — dates currently being voxelized
+  onLayerMode,      // (dateId, 'pc' | 'vox') → void
+  onComputeVoxel,   // (dateId) → Promise<void>
 }) {
-  const dates     = activeSite?.dates ?? []
-  const firstDate = dates[0]?.label ?? '—'
+  const dates          = activeSite?.dates ?? []
+  const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
+  const firstDate      = dates[0]?.label ?? '—'
   const lastDate  = dates[dates.length - 1]?.label ?? '—'
   const dateRange = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
@@ -103,24 +104,13 @@ export default function Panel({
   const [computingId, setComputingId] = useState(null)
   const [computeMsg,  setComputeMsg]  = useState('')
 
-  const [computeTarget, setComputeTarget] = useState('')
-  const effectiveTarget = computeTarget || dates[0]?.id || ''
-
-  // Dates that can have voxels computed: have a datasetPath and no existing voxelPath
-  const computableDates = dates.filter(d => d.datasetPath && !d.voxelPath)
+  // Per-row voxel triggering handled in the status table below
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   async function handleLayerMode(dateId, mode) {
     const d = dates.find(x => x.id === dateId)
     if (!d) return
-
-    if (mode === 'vox' && !d.voxelPath) {
-      if (!d.datasetPath) return
-      await handleComputeVoxel(dateId, /* autoSwitch */ true)
-      return
-    }
-
     setLayerModes(prev => ({ ...prev, [dateId]: mode }))
     onLayerMode?.(dateId, mode)
   }
@@ -168,8 +158,8 @@ export default function Panel({
           )}
           <div className="site-info-row">
             <span className="site-info-k">상태</span>
-            <span className={`site-status-badge ${dates.length > 1 ? 'status-ok' : 'status-warn'}`}>
-              {dates.length > 1 ? '분석 가능' : '데이터 필요'}
+            <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
+              {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
             </span>
           </div>
         </div>
@@ -183,11 +173,11 @@ export default function Panel({
             <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
           )}
           {dates.map(d => {
-            const isOn       = visibleDateIds.has(d.id)
-            const layerMode  = layerModes[d.id] ?? 'pc'
-            const hasVoxel   = !!d.voxelPath
-            const canCompute = !hasVoxel && !!d.datasetPath
-            const isComputing = computingId === d.id
+            const isOn        = visibleDateIds.has(d.id)
+            const layerMode   = layerModes[d.id] ?? 'pc'
+            const isPolling   = voxelPollingIds?.has(d.id) ?? false
+            const isComputing = computingId === d.id || isPolling
+            const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
             return (
               <div key={d.id} className="date-row-wrap">
                 <button
@@ -197,17 +187,16 @@ export default function Panel({
                   <span className="date-label">{isoToLabel(d.observedAt) || d.label}</span>
                   <span className="date-meta">
                     <span className="date-name" title={d.name}>{trunc(d.name)}</span>
-                    <TypeTag type={d.datasetType} />
-                    {hasVoxel && (
-                      <span className="ltag ltag-vox" title="Pre-computed voxel available">VOX</span>
-                    )}
+                    {isOn && layerMode === 'vox'
+                      ? <span className="ltag ltag-teal">VOX</span>
+                      : <TypeTag type={d.datasetType} />
+                    }
                   </span>
                 </button>
                 {isOn && (
                   <LayerModePill
                     dateId={d.id}
                     hasVoxel={hasVoxel}
-                    canCompute={canCompute}
                     computing={isComputing}
                     value={layerMode}
                     onChange={handleLayerMode}
@@ -234,41 +223,64 @@ export default function Panel({
         </div>
       )}
 
-      {/* ── Voxel Calculation ── */}
+      {/* ── Voxel Status Table ── */}
       <div className="p-section">
         <div className="p-label">Voxel Calculation</div>
-        {computableDates.length === 0 ? (
-          <div className="no-dates">
-            {dates.length === 0
-              ? '날짜 데이터 없음'
-              : '모든 날짜에 Voxel이 이미 준비됨'}
-          </div>
+        {dates.length === 0 ? (
+          <div className="no-dates">날짜 데이터 없음</div>
         ) : (
           <>
-            <select
-              className="vox-date-select"
-              value={effectiveTarget}
-              onChange={e => { setComputeTarget(e.target.value); setComputeMsg('') }}
-            >
-              {computableDates.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.label} ({d.name})
-                </option>
-              ))}
-            </select>
-            <button
-              className={`vox-compute-btn${computingId ? ' vox-computing' : ''}`}
-              disabled={!!computingId || computableDates.length === 0}
-              onClick={() => handleComputeVoxel(effectiveTarget)}
-            >
-              {computingId === effectiveTarget ? '⏳ 계산 중…' : '⬡ Voxel 계산'}
-            </button>
-            {computeMsg && (
-              <div className="vox-compute-msg">{computeMsg}</div>
-            )}
-            <div className="vox-compute-hint">
-              선택한 날짜의 포인트 클라우드로 Voxel을 생성합니다
+            <div className="vox-status-table">
+              {dates.map(d => {
+                const isActivelyPolling = voxelPollingIds?.has(d.id) ?? false
+                const isLocalComputing  = computingId === d.id
+                const isBusy            = isActivelyPolling || isLocalComputing
+                const status            = d.voxelStatus ?? 'NONE'
+                const canTrigger        = !!d.datasetPath && (status === 'NONE' || status === 'FAILED' || status === 'CANCELLED') && !isBusy
+
+                let statusEl
+                if (isBusy) {
+                  const label = status === 'QUEUED' ? '대기 중' : '생성 중'
+                  statusEl = <span className="vst-badge vst-running">⏳ {label}</span>
+                } else if (status === 'SUCCEEDED') {
+                  statusEl = <span className="vst-badge vst-done">✓ 완료</span>
+                } else if (status === 'RUNNING' || status === 'QUEUED') {
+                  // backend says running/queued but we're not polling — resume will catch it on next open
+                  const label = status === 'QUEUED' ? '대기 중' : '생성 중'
+                  statusEl = <span className="vst-badge vst-running">⏳ {label}</span>
+                } else if (status === 'FAILED') {
+                  statusEl = <span className="vst-badge vst-failed">✗ 실패</span>
+                } else if (status === 'CANCELLED') {
+                  statusEl = <span className="vst-badge vst-failed">취소됨</span>
+                } else {
+                  statusEl = <span className="vst-badge vst-none">미생성</span>
+                }
+
+                return (
+                  <div key={d.id} className="vst-row">
+                    <div className="vst-date">
+                      <span className="vst-label">{isoToLabel(d.observedAt) || d.label}</span>
+                    </div>
+                    <div className="vst-right">
+                      {statusEl}
+                      {canTrigger && (
+                        <button
+                          className="vst-btn"
+                          onClick={() => handleComputeVoxel(d.id)}
+                          title="Voxel 계산 시작"
+                        >
+                          ⬡ 계산
+                        </button>
+                      )}
+                      {isBusy && (
+                        <span className="vst-spinner" />
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
+            {computeMsg && <div className="vox-compute-msg">{computeMsg}</div>}
           </>
         )}
       </div>

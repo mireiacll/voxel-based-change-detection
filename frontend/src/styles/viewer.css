@@ -261,11 +261,7 @@ html, body {
 .date-btn .date-id { font-family: var(--mono); font-size: 10px; opacity: .7; }
 .no-dates { font-size: 11px; color: var(--muted); padding: 4px 0; }
 
-/* date type tag */
-.date-type-tag {
-  font-size: 9px; padding: 1px 5px; border-radius: 3px;
-  font-weight: 700; letter-spacing: .05em; margin-left: auto;
-}
+/* date-type-tag removed — TypeTag now uses .ltag directly */
 
 /* ── Layer rows ─────────────────────────────────────────────── */
 .layer-row {
@@ -1297,3 +1293,49 @@ kbd {
   font-size: 10px; color: var(--muted); font-family: var(--mono);
   max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── Voxel status table (Panel) ─────────────────────────────── */
+.vox-status-table {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.vst-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 6px 9px;
+  font-size: 11px;
+}
+.vst-date {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
+.vst-label { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vst-name  { font-size: 9.5px; color: var(--muted); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vst-right {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+}
+.vst-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 3px;
+  font-family: var(--mono);
+}
+.vst-done    { background: rgba(76,201,122,.12);  color: #4cc97a; border: 1px solid rgba(76,201,122,.25); }
+.vst-running { background: rgba(251,146,60,.12);  color: #fb923c; border: 1px solid rgba(251,146,60,.25); }
+.vst-failed  { background: rgba(220,50,50,.12);   color: #ff8080; border: 1px solid rgba(220,50,50,.25); }
+.vst-none    { background: rgba(255,255,255,.04); color: var(--muted); border: 1px solid var(--border); }
+.vst-btn {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 3px;
+  background: rgba(77,217,217,.08); color: #4dd9d9;
+  border: 1px solid rgba(77,217,217,.25);
+  cursor: pointer; transition: background .12s, border-color .12s;
+  font-family: var(--mono);
+}
+.vst-btn:hover { background: rgba(77,217,217,.18); border-color: rgba(77,217,217,.5); }
+.vst-spinner {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid rgba(251,146,60,.2);
+  border-top-color: #fb923c;
+  animation: vst-spin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes vst-spin { to { transform: rotate(360deg); } }

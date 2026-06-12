@@ -117,6 +117,16 @@ function _toAbsoluteUrl(url) {
   return `${EXT_API}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+/**
+ * Rewrite a voxel tileset URL so it points to the visualization sub-folder.
+ * Backend returns: …/voxel/tileset.json
+ * Cesium needs:   …/voxel/visualization/tileset.json
+ */
+function _injectVisualizationFolder(url) {
+  if (!url) return url
+  return url.replace(/\/voxel\/tileset\.json$/, '/voxel/visualization/tileset.json')
+}
+
 function _observationToDate(obs) {
   return {
     id:          String(obs.id),
@@ -126,12 +136,12 @@ function _observationToDate(obs) {
       ? _formatDate(obs.observedAt)
       : obs.name,
     datasetPath: obs.originalTilesPath ?? null,
-    datasetType: obs.originalTilesPath ? 'pointcloud' : null,
+    datasetType: obs.datasetType ?? null,
     voxelPath:   obs.voxelPath ?? null,
     voxelStatus: obs.voxelStatus ?? 'NONE',
     voxelJobId:  obs.voxelJobId ?? null,
     originalTilesetUrl: _toAbsoluteUrl(obs.originalTilesetUrl),
-    voxelTilesetUrl:    _toAbsoluteUrl(obs.voxelTilesetUrl),
+    voxelTilesetUrl:    _injectVisualizationFolder(_toAbsoluteUrl(obs.voxelTilesetUrl)),
   }
 }
 
@@ -221,26 +231,15 @@ export async function fetchObservation(observationId) {
   const obs = await _get(`/api/observations/${observationId}`)
   return _observationToDate(obs)
 }
+
 /**
  * Fetch the resolved voxel tileset URL for an observation.
  * Uses GET /api/observations/{observationId}/tileset/voxel → TilesetUrlResponse.
- * Returns an absolute URL string.
  */
 export async function fetchVoxelTilesetUrl(observationId) {
   const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/voxel`)
-  return _toAbsoluteUrl(tilesetUrl)
+  return _injectVisualizationFolder(_toAbsoluteUrl(tilesetUrl))
 }
-
-/**
- * Fetch the resolved original tileset URL for an observation.
- * Uses GET /api/observations/{observationId}/tileset/original → TilesetUrlResponse.
- * Returns an absolute URL string.
- */
-export async function fetchOriginalTilesetUrl(observationId) {
-  const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/original`)
-  return _toAbsoluteUrl(tilesetUrl)
-}
-
 export async function updateObservation(observationId, patch) {
   console.log('[api.updateObservation] fetching current for', observationId)
   const current = await _get(`/api/observations/${observationId}`)
@@ -450,11 +449,12 @@ async function _normalizeZip(blob) {
  *   onProgress   — optional (pct: number) => void  (0–100, zipping phase only)
  * @returns date object
  */
-export async function uploadObservation(projectId, { name, observedAt, files, onProgress }) {
+export async function uploadObservation(projectId, { name, observedAt, datasetType = 'pointcloud', files, onProgress }) {
   const fileList = [...files]
   const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`)
   url.searchParams.set('name', name)
   url.searchParams.set('observedAt', observedAt)
+  url.searchParams.set('datasetType', datasetType)
 
   // ── Determine what to send ──────────────────────────────────────────────
   let zipBlob

@@ -142,10 +142,11 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
         setEditProgress('기존 날짜 삭제 중…')
         await deleteObservation(date.id)
         await uploadObservation(site.id, {
-          name:       editName.trim(),
-          observedAt: editObservedAt,
-          files:      editFiles,
-          onProgress: p => setEditProgress(progressLabel(p)),
+          name:        editName.trim(),
+          observedAt:  editObservedAt,
+          datasetType: editDatasetType,
+          files:       editFiles,
+          onProgress:  p => setEditProgress(progressLabel(p)),
         })
         setEditProgress('완료!')
         setTimeout(() => { cancelEdit(); onDeleted() }, 800)
@@ -398,10 +399,11 @@ function NewDateCard({ site, onCreated }) {
     setError('')
     try {
       await uploadObservation(site.id, {
-        name:       name.trim(),
-        observedAt: observedAt,
+        name:        name.trim(),
+        observedAt:  observedAt,
+        datasetType: datasetType,
         files,
-        onProgress: p => setProgress(progressLabel(p)),
+        onProgress:  p => setProgress(progressLabel(p)),
       })
       console.log('[NewDateCard.handleSubmit] upload succeeded')
       setProgress('완료!')

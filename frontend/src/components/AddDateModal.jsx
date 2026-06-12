@@ -33,6 +33,7 @@ function autoLabel(code) {
 export default function AddDateModal({ open, site, onClose, onCreated }) {
   const [dateCode, setDateCode] = useState('')
   const [label,    setLabel]    = useState('')
+  const [datasetType, setDatasetType] = useState('pointcloud')
   const [files,    setFiles]    = useState([])
   const [dragOver, setDragOver] = useState(false)
   const [error,    setError]    = useState('')
@@ -50,7 +51,7 @@ export default function AddDateModal({ open, site, onClose, onCreated }) {
   // Reset on close
   useEffect(() => {
     if (!open) {
-      setDateCode(''); setLabel(''); setFiles([])
+      setDateCode(''); setLabel(''); setDatasetType('pointcloud'); setFiles([])
       setError(''); setProgress(''); setDragOver(false)
       if (inputRef.current) inputRef.current.value = ''
     }
@@ -69,10 +70,11 @@ export default function AddDateModal({ open, site, onClose, onCreated }) {
     try {
       setProgress('Zipping…  0%')
       const date = await uploadObservation(site.id, {
-        name:       dateCode,
-        observedAt: dateCodeToIso(dateCode),
+        name:        dateCode,
+        observedAt:  dateCodeToIso(dateCode),
+        datasetType: datasetType,
         files,
-        onProgress: pct => setProgress(
+        onProgress:  pct => setProgress(
           pct < 100 ? `Zipping…  ${pct}%` : 'Uploading…'
         ),
       })
@@ -178,6 +180,26 @@ export default function AddDateModal({ open, site, onClose, onCreated }) {
               placeholder="e.g. Jun 1, 2026"
               disabled={loading}
             />
+          </div>
+
+          <div className="modal-field">
+            <label>데이터 유형</label>
+            <div className="dup-type-toggle">
+              <button
+                className={`dup-type-btn${datasetType === 'pointcloud' ? ' active' : ''}`}
+                onClick={() => setDatasetType('pointcloud')}
+                disabled={loading}
+              >
+                ☁ Point Cloud
+              </button>
+              <button
+                className={`dup-type-btn${datasetType === 'mesh' ? ' active' : ''}`}
+                onClick={() => setDatasetType('mesh')}
+                disabled={loading}
+              >
+                ◈ 3D Mesh
+              </button>
+            </div>
           </div>
 
           <div className="modal-field">

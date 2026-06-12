@@ -21,7 +21,8 @@ import {
   createProject,
   updateProject,
   deleteProject,
-  voxelizeObservation,
+  voxelizeAndPoll,
+  fetchVoxelTilesetUrl,
 } from './api'
 
 import NavBar             from './components/NavBar'
@@ -365,8 +366,8 @@ export default function App() {
         if (current) {
           const d = updatedSite.dates.find(x => x.id === current.id)
           console.log('[handleDataChanged] found updated date:', d?.id, 'datasetPath:', d?.datasetPath)
-          if (d?.datasetPath) {
-            invalidateTilesetUrl(d.datasetPath)
+          if (d?.originalTilesetUrl) {
+            invalidateTilesetUrl(d.originalTilesetUrl)
             loadDate(updatedSite, d, modeRef.current, checkState())
           }
         }
@@ -420,14 +421,20 @@ export default function App() {
     })
   }
 
-  function handleLayerMode(dateId, layerMode) {
+  async function handleLayerMode(dateId, layerMode) {
     if (!activeSite) return
     const d = activeSite.dates.find(x => x.id === dateId)
     if (!d) return
     setActiveDateLayerMode(layerMode)
     clearLayers()
     if (layerMode === 'vox' && d.voxelPath) {
-      loadDate(activeSite, { ...d, datasetPath: d.voxelPath, datasetType: 'pointcloud' }, modeRef.current, checkState())
+      try {
+        const resolvedUrl = await fetchVoxelTilesetUrl(dateId)
+        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'pointcloud' }, modeRef.current, checkState())
+      } catch (e) {
+        console.error('[handleLayerMode] fetchVoxelTilesetUrl failed:', e.message)
+        addToast(`Voxel tileset URL 조회 실패: ${e.message}`, 'warn')
+      }
     } else {
       loadDate(activeSite, d, modeRef.current, checkState())
     }
@@ -564,23 +571,43 @@ export default function App() {
   }
 
   /**
-   * Trigger voxelization for a date (observation).
-   * Uses the coworker API via voxelizeObservation().
+   * Trigger voxelization for a date (observation) and poll until complete.
+   * Shows live progress in the status bar while the job runs.
+   * Throws on failure so Panel.jsx can show an error message.
    */
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
+    const dateLabel = activeSite.dates.find(d => d.id === dateId)?.label ?? dateId
     console.log('[handleComputeVoxel] dateId:', dateId, '— site:', activeSite.id, activeSite.name)
     try {
-      await voxelizeObservation(dateId)
-      console.log('[handleComputeVoxel] voxelization triggered, refreshing sites')
-      const updated = await refreshSites()
-      setSites(updated)
-      const updatedSite = updated.find(s => s.id === activeSite.id)
-      const updatedDate = updatedSite?.dates.find(d => d.id === dateId)
-      console.log('[handleComputeVoxel] after refresh — voxelStatus:', updatedDate?.voxelStatus, 'voxelPath:', updatedDate?.voxelPath)
-      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+      addToast(`⚡ Voxel 생성 시작: ${dateLabel}`, 'ok')
+      const updatedDate = await voxelizeAndPoll(
+        dateId,
+        ({ status, progress, message }) => {
+          const pct = progress ? ` (${progress}%)` : ''
+          const msg = message ? ` — ${message}` : ''
+          setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
+          setStatusDone(false)
+        }
+      )
+      console.log('[handleComputeVoxel] SUCCEEDED — voxelPath:', updatedDate?.voxelPath)
+      // Update the site in state so Panel re-renders with the new voxelPath
+      setSites(prev => prev.map(s => {
+        if (s.id !== activeSite.id) return s
+        const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
+        const newSite = { ...s, dates: newDates }
+        setActiveSite(newSite)
+        window.currentSite = newSite
+        return newSite
+      }))
+      setStatusMsg(`Voxel 완료: ${dateLabel}`, true)
+      setStatusDone(true)
+      addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
     } catch (e) {
       console.error('[handleComputeVoxel] FAILED:', e.message, e)
+      setStatusMsg(`Voxel 실패: ${e.message}`, true)
+      setStatusDone(true)
+      addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
       throw e
     }
   }

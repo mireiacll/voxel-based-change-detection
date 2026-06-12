@@ -104,6 +104,19 @@ function _normaliseProject(p) {
   }
 }
 
+/**
+ * The backend returns tileset URLs as relative paths (e.g. /data/3dtiles/…).
+ * Cesium resolves relative URLs against the Vite dev-server origin (5173),
+ * which knows nothing about those paths and returns an HTML page.
+ * Prefix any relative URL with EXT_API (localhost:8080) so Cesium always
+ * gets a fully-qualified URL pointing at the correct backend.
+ */
+function _toAbsoluteUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return `${EXT_API}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 function _observationToDate(obs) {
   return {
     id:          String(obs.id),
@@ -117,8 +130,8 @@ function _observationToDate(obs) {
     voxelPath:   obs.voxelPath ?? null,
     voxelStatus: obs.voxelStatus ?? 'NONE',
     voxelJobId:  obs.voxelJobId ?? null,
-    originalTilesetUrl: obs.originalTilesetUrl ?? null,
-    voxelTilesetUrl:    obs.voxelTilesetUrl    ?? null,
+    originalTilesetUrl: _toAbsoluteUrl(obs.originalTilesetUrl),
+    voxelTilesetUrl:    _toAbsoluteUrl(obs.voxelTilesetUrl),
   }
 }
 
@@ -207,6 +220,25 @@ export function dateCodeToIso(code) {
 export async function fetchObservation(observationId) {
   const obs = await _get(`/api/observations/${observationId}`)
   return _observationToDate(obs)
+}
+/**
+ * Fetch the resolved voxel tileset URL for an observation.
+ * Uses GET /api/observations/{observationId}/tileset/voxel → TilesetUrlResponse.
+ * Returns an absolute URL string.
+ */
+export async function fetchVoxelTilesetUrl(observationId) {
+  const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/voxel`)
+  return _toAbsoluteUrl(tilesetUrl)
+}
+
+/**
+ * Fetch the resolved original tileset URL for an observation.
+ * Uses GET /api/observations/{observationId}/tileset/original → TilesetUrlResponse.
+ * Returns an absolute URL string.
+ */
+export async function fetchOriginalTilesetUrl(observationId) {
+  const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/original`)
+  return _toAbsoluteUrl(tilesetUrl)
 }
 
 export async function updateObservation(observationId, patch) {
@@ -475,6 +507,50 @@ export async function uploadObservation(projectId, { name, observedAt, files, on
 export async function voxelizeObservation(observationId, options = {}) {
   console.log('[api.voxelizeObservation] triggering voxelization for', observationId, options)
   const obs = await _post(`/api/observations/${observationId}/voxelize`, options)
-  console.log('[api.voxelizeObservation] result — voxelStatus:', obs.voxelStatus, 'voxelPath:', obs.voxelPath)
+  console.log('[api.voxelizeObservation] result — voxelStatus:', obs.voxelStatus, 'voxelJobId:', obs.voxelJobId)
   return _observationToDate(obs)
+}
+
+/**
+ * Poll GET /api/jobs/{jobId} until the job reaches a terminal state.
+ *
+ * @param {number|string} jobId
+ * @param {(job: object) => void} [onProgress]  — called on each poll with the job object
+ * @param {{ intervalMs?, timeoutMs? }} [opts]
+ * @returns {Promise<object>}  final job object
+ */
+export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs = 300_000 } = {}) {
+  const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const job = await _get(`/api/jobs/${jobId}`)
+    console.log(`[pollJob] jobId=${jobId} status=${job.status} progress=${job.progress}`)
+    onProgress?.(job)
+    if (TERMINAL.has(job.status)) return job
+    if (Date.now() > deadline) throw new Error(`Job ${jobId} timed out after ${timeoutMs / 1000}s`)
+    await new Promise(r => setTimeout(r, intervalMs))
+  }
+}
+
+/**
+ * Trigger voxelization for an observation and poll until complete.
+ * Calls onProgress({ status, progress, message }) during the wait.
+ * Resolves with the final (refreshed) date object, or throws on failure.
+ *
+ * @param {string|number} observationId
+ * @param {(info: { status: string, progress: number, message: string }) => void} [onProgress]
+ * @param {{ maxLevel?, visualize?, cubeDataType?, recursive? }} [options]
+ */
+export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
+  console.log('[api.voxelizeAndPoll] start observationId:', observationId)
+  const date = await voxelizeObservation(observationId, options)
+  const jobId = date.voxelJobId
+  if (!jobId) throw new Error('voxelizeObservation returned no jobId')
+  console.log('[api.voxelizeAndPoll] polling jobId:', jobId)
+  const job = await pollJob(jobId, j => onProgress?.({ status: j.status, progress: j.progress ?? 0, message: j.message ?? '' }))
+  if (job.status !== 'SUCCEEDED') {
+    throw new Error(`Voxelization ${job.status.toLowerCase()}: ${job.message ?? 'no details'}`)
+  }
+  // Re-fetch the observation so we get the updated voxelPath / voxelStatus
+  return fetchObservation(observationId)
 }

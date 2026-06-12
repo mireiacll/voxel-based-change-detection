@@ -64,7 +64,7 @@ export default function NavBar({ tab, onTab, activeSite }) {
         {activeSite ? (
           <div className="nav-site-chip">
             <span className="nav-site-dot" />
-            <span className="nav-site-label">{activeSite.label ?? activeSite.id}</span>
+            <span className="nav-site-label">{activeSite.name ?? activeSite.label ?? activeSite.id}</span>
           </div>
         ) : (
           <span className="nav-no-site">프로젝트를 선택하세요</span>

@@ -23,7 +23,7 @@ export default function TopBar({ activeSite, coords, onLogoClick }) {
         {activeSite && (
           <div id="tb-project">
             <span className="tb-project-label">Project</span>
-            <span className="tb-project-name">{activeSite.label ?? activeSite.id}</span>
+            <span className="tb-project-name">{activeSite.name ?? activeSite.label ?? activeSite.id}</span>
           </div>
         )}
       </div>

@@ -3,31 +3,52 @@
  *
  * Full-screen overlay shown when the "데이터 업로드" tab is active.
  * Lists all survey dates for the active site.
- * Each date has upload, edit-label, and delete actions.
+ * Each date has edit-label and delete actions.
  * A "+ New Date" card lets you create a date and upload its dataset in one step.
  *
  * Props
  * ─────
  *   site       — site object (required)
  *   onUploaded — () => void   called after any successful upload (triggers site refresh)
- *   onCreated  — () => void   called after date creation
+ *   onCreated  — () => void   called after date creation / deletion
+ *
+ * API migration notes
+ * ───────────────────
+ * All calls now go through api.js → coworker API (localhost:8080).
+ *   create date       → uploadObservation(projectId, { name, observedAt, files })
+ *   edit (no file)    → updateObservation(date.id,   { name, observedAt })   — metadata only
+ *   edit (with file)  → deleteObservation(date.id) then uploadObservation()  — delete + recreate
+ *   delete date       → deleteObservation(date.id)
  */
 
 import { useState, useRef, useEffect } from 'react'
+import {
+  uploadObservation,
+  updateObservation,
+  deleteObservation,
+} from '../api'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
-
-const MONTHS = {
-  '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr',
-  '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug',
-  '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
+/** Format a YYYY-MM-DD string into a pretty label like "Jun 1, 2026". */
+function isoToLabel(iso) {
+  if (!iso) return iso
+  const [year, month, day] = iso.split('-')
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const m = MONTHS[parseInt(month, 10) - 1] ?? month
+  return `${m} ${parseInt(day, 10)}, ${year}`
 }
 
-function autoLabel(code) {
-  const m = code.match(/^(\d{2})(\d{2})(\d{2})$/)
-  if (!m) return ''
-  const [, yy, mm, dd] = m
-  return `${MONTHS[mm] || mm} ${parseInt(dd, 10)}, 20${yy}`
+/**
+ * Map an api.js uploadObservation onProgress({ phase, pct }) event to a
+ * user-facing Korean status message.
+ *   checking  — a single .zip is being validated/normalised (no "zipping")
+ *   zipping   — a dropped folder is being bundled into a zip (0–100%)
+ *   uploading — the request is being sent to the server
+ */
+function progressLabel({ phase, pct }) {
+  if (phase === 'checking')  return '형식 확인 중…'
+  if (phase === 'zipping')   return `압축 중…  ${pct}%`
+  if (phase === 'uploading') return '업로드 중…'
+  return ''
 }
 
 function DatasetTypeBadge({ type }) {
@@ -37,113 +58,141 @@ function DatasetTypeBadge({ type }) {
   return <span className="dup-badge dup-badge-pc">Point Cloud</span>
 }
 
+/**
+ * Single text input that auto-formats digits into YYYY-MM-DD as you type.
+ * Replaces the native <input type="date">, whose segment order/behavior
+ * is locale-dependent and fiddly to edit.
+ *
+ *   value    — "YYYY-MM-DD" or "" (used only to seed the field on mount)
+ *   onChange — (value) => void, called with "YYYY-MM-DD" once 8 digits
+ *              have been typed, or "" while incomplete (so the existing
+ *              /^\d{4}-\d{2}-\d{2}$/ validation still works)
+ */
+function DateTextInput({ value, onChange, disabled, autoFocus }) {
+  const [text, setText] = useState(value || '')
+
+  function handleChange(e) {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
+    let formatted = digits
+    if (digits.length > 4) formatted = `${digits.slice(0, 4)}-${digits.slice(4)}`
+    if (digits.length > 6) formatted = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`
+    setText(formatted)
+    onChange(digits.length === 8 ? formatted : '')
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      placeholder="YYYY-MM-DD"
+      maxLength={10}
+      value={text}
+      onChange={handleChange}
+      disabled={disabled}
+      autoFocus={autoFocus}
+    />
+  )
+}
+
 // ── Single-date row ───────────────────────────────────────────────────────
 
 function DateRow({ site, date, onUploaded, onDeleted }) {
-  const [open,        setOpen]        = useState(false)
-  const [files,       setFiles]       = useState([])
-  const [dragOver,    setDragOver]    = useState(false)
-  const [loading,     setLoading]     = useState(false)
-  const [progress,    setProgress]    = useState('')
-  const [error,       setError]       = useState('')
-  const [datasetType, setDatasetType] = useState(date.datasetType || 'pointcloud')
+  // date.id   = stringified numeric observation id  (e.g. "3")
+  // date.name = raw observation name from API       (e.g. "260601")
+  const [editing,         setEditing]         = useState(false)
+  const [editObservedAt,  setEditObservedAt]  = useState(date.observedAt ?? '')
+  const [editName,        setEditName]        = useState(date.name ?? '')
+  const [editFiles,       setEditFiles]       = useState([])
+  const [editDrag,        setEditDrag]        = useState(false)
+  const [editError,       setEditError]       = useState('')
+  const [editSaving,      setEditSaving]      = useState(false)
+  const [editProgress,    setEditProgress]    = useState('')
+  const [editDatasetType, setEditDatasetType] = useState(date.datasetType || 'pointcloud')
+  const editInputRef = useRef(null)
 
-  // Edit state — code (YYMMDD) + auto-generated label, mirrors new-date form
-  const [editing,    setEditing]    = useState(false)
-  const [editCode,   setEditCode]   = useState(date.id)
-  const [editLabel,  setEditLabel]  = useState(date.label)
-  const [editError,  setEditError]  = useState('')
-  const [editSaving, setEditSaving] = useState(false)
-
-  useEffect(() => {
-    if (editing && /^\d{6}$/.test(editCode)) setEditLabel(autoLabel(editCode))
-  }, [editCode, editing])
+  function cancelEdit() {
+    setEditing(false)
+    setEditObservedAt(date.observedAt ?? '')
+    setEditName(date.name ?? '')
+    setEditFiles([])
+    setEditError('')
+    setEditProgress('')
+    setEditDatasetType(date.datasetType || 'pointcloud')
+    if (editInputRef.current) editInputRef.current.value = ''
+  }
 
   // Delete confirm state
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting,      setDeleting]      = useState(false)
 
-  const inputRef = useRef(null)
+  const hasData = !!date.datasetPath
 
-  function handleFileChange(e) {
-    setFiles([...e.target.files])
-    setError('')
-  }
+  // ── Edit: no file → PUT metadata only; file picked → delete + recreate ──
 
-  async function handleUpload() {
-    if (!files.length) return setError('파일을 선택하세요.')
-    setLoading(true)
-    setProgress('업로드 중…')
-    setError('')
-    try {
-      const formData = new FormData()
-      files.forEach(f => formData.append('files', f, f.webkitRelativePath || f.relativePath || f.name))
-      const url = `${API_BASE}/api/sites/${site.id}/dates/${date.id}/upload?dataset_type=${datasetType}`
-      const res  = await fetch(url, { method: 'POST', body: formData })
-      const data = await res.json()
-      if (!res.ok) { setError(data.detail || `Error ${res.status}`); return }
-      setProgress('완료!')
-      setFiles([])
-      if (inputRef.current) inputRef.current.value = ''
-      setTimeout(() => { setProgress(''); setOpen(false); onUploaded() }, 800)
-    } catch (e) {
-      setError('Network error: ' + e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleSaveLabel() {
-    if (!/^\d{6}$/.test(editCode)) return setEditError('날짜 코드는 6자리여야 합니다 (YYMMDD).')
-    if (!editLabel.trim())          return setEditError('레이블은 필수입니다.')
+  async function handleSave() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editObservedAt)) return setEditError('날짜 형식은 YYYY-MM-DD여야 합니다.')
+    if (!editName.trim())                              return setEditError('이름(설명)은 필수입니다.')
+    console.log('[DateRow.handleSave] date.id:', date.id, 'editObservedAt:', editObservedAt, 'editName:', editName, 'hasFiles:', editFiles.length)
     setEditSaving(true)
     setEditError('')
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${site.id}/dates/${date.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: editLabel.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setEditError(data.detail || `Error ${res.status}`); return }
-      setEditing(false)
-      onUploaded()
+      if (editFiles.length) {
+        console.log('[DateRow.handleSave] delete+recreate path — files:', editFiles.length, editFiles.map(f => f.webkitRelativePath || f.relativePath || f.name))
+        setEditProgress('기존 날짜 삭제 중…')
+        await deleteObservation(date.id)
+        await uploadObservation(site.id, {
+          name:       editName.trim(),
+          observedAt: editObservedAt,
+          files:      editFiles,
+          onProgress: p => setEditProgress(progressLabel(p)),
+        })
+        setEditProgress('완료!')
+        setTimeout(() => { cancelEdit(); onDeleted() }, 800)
+      } else {
+        console.log('[DateRow.handleSave] metadata-only path — name:', editName, 'observedAt:', editObservedAt)
+        setEditProgress('저장 중…')
+        await updateObservation(date.id, {
+          name:       editName.trim(),
+          observedAt: editObservedAt,
+        })
+        setEditProgress('완료!')
+        setTimeout(() => { cancelEdit(); onUploaded() }, 800)
+      }
     } catch (e) {
-      setEditError('Network error: ' + e.message)
+      console.error('[DateRow.handleSave] FAILED:', e.message, e)
+      setEditError(e.message)
+      setEditProgress('')
     } finally {
       setEditSaving(false)
     }
   }
 
   async function handleDelete() {
+    console.log('[DateRow.handleDelete] deleting date.id:', date.id, 'date.name:', date.name)
     setDeleting(true)
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${site.id}/dates/${date.id}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.detail || `Error ${res.status}`)
-        return
-      }
+      await deleteObservation(date.id)
+      console.log('[DateRow.handleDelete] deleted successfully')
       onDeleted()
     } catch (e) {
-      alert('Network error: ' + e.message)
+      console.error('[DateRow.handleDelete] FAILED:', e.message, e)
+      alert(e.message)
     } finally {
       setDeleting(false)
       setConfirmDelete(false)
     }
   }
 
-  // ── Folder drop — fixed readEntries 100-item limit ────────────────────
+  // ── Folder drop helpers (shared with NewDateCard) ────────────────────────
+
   function readAllEntries(reader) {
     return new Promise((resolve, reject) => {
       const all = []
       function readBatch() {
         reader.readEntries(entries => {
           if (!entries.length) { resolve(all); return }
-          all.push(...entries)
-          readBatch()
+          all.push(...entries); readBatch()
         }, reject)
       }
       readBatch()
@@ -173,78 +222,41 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
     return fs
   }
 
-  async function handleDrop(e) {
-    e.preventDefault()
-    setDragOver(false)
-    const droppedFiles = await getDroppedFiles([...e.dataTransfer.items])
-    if (!droppedFiles.length) return
-    setFiles(droppedFiles)
-    setError('')
+  async function handleEditDrop(e) {
+    e.preventDefault(); setEditDrag(false)
+    const dropped = await getDroppedFiles([...e.dataTransfer.items])
+    if (!dropped.length) return
+    setEditFiles(dropped); setEditError('')
   }
 
-  const folderName =
-    files[0]?.webkitRelativePath?.split('/')[0] ||
-    files[0]?.relativePath?.split('/')[0] ||
-    files[0]?.name
-
-  const hasData = !!date.datasetPath
+  const editFolderName =
+    editFiles[0]?.webkitRelativePath?.split('/')[0] ||
+    editFiles[0]?.relativePath?.split('/')[0] ||
+    editFiles[0]?.name
 
   return (
-    <div className={`dup-date-card${open ? ' dup-date-card-open' : ''}`}>
-      <div className="dup-date-header" onClick={() => !loading && !editing && !confirmDelete && setOpen(v => !v)}>
+    <div className={`dup-date-card${editing ? ' dup-date-card-open' : ''}`}>
+      {/* ── Header row ── */}
+      <div className="dup-date-header">
         <div className="dup-date-info">
-          {editing ? (
-            <div className="dup-edit-label-row" onClick={e => e.stopPropagation()}>
-              <input
-                className="dup-edit-label-input dup-edit-label-code"
-                value={editCode}
-                maxLength={6}
-                onChange={e => { setEditCode(e.target.value.replace(/\D/g, '')); setEditError('') }}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveLabel(); if (e.key === 'Escape') setEditing(false) }}
-                placeholder="YYMMDD"
-                autoFocus
-                disabled={editSaving}
-              />
-              <input
-                className="dup-edit-label-input dup-edit-label-readonly"
-                value={editLabel || '—'}
-                readOnly
-                tabIndex={-1}
-                placeholder="레이블"
-              />
-              <button className="dup-icon-btn dup-icon-confirm" onClick={handleSaveLabel} disabled={editSaving} title="저장">✓</button>
-              <button className="dup-icon-btn" onClick={() => { setEditing(false); setEditCode(date.id); setEditLabel(date.label); setEditError('') }} disabled={editSaving} title="취소">✕</button>
-              {editError && <span className="dup-inline-error">{editError}</span>}
-            </div>
-          ) : (
-            <>
-              <span className="dup-date-label">{date.label}</span>
-              <span className="dup-date-code">{date.id}</span>
-              <DatasetTypeBadge type={date.datasetType} />
-            </>
-          )}
+          <span className="dup-date-label">{isoToLabel(date.observedAt) || date.label}</span>
+          <span className="dup-date-name" title={date.name}>{date.name}</span>
         </div>
 
         <div className="dup-date-actions" onClick={e => e.stopPropagation()}>
           {!editing && !confirmDelete && (
             <>
+              <DatasetTypeBadge type={editing ? editDatasetType : date.datasetType} />
               <button
-                className={`dup-upload-toggle${hasData ? ' has-data' : ''}`}
-                onClick={() => setOpen(v => !v)}
-                title={hasData ? '데이터 교체' : '데이터 업로드'}
-              >
-                {hasData ? '🔁 교체' : '↑ 업로드'}
-              </button>
-              <button
-                className="dup-icon-btn"
-                onClick={() => { setEditing(true); setEditLabel(date.label); setOpen(false) }}
-                title="레이블 수정"
+                className="dup-icon-btn dup-icon-edit"
+                onClick={() => setEditing(true)}
+                title="수정"
               >
                 ✎
               </button>
               <button
                 className="dup-icon-btn dup-icon-danger"
-                onClick={() => { setConfirmDelete(true); setOpen(false) }}
+                onClick={() => setConfirmDelete(true)}
                 title="날짜 삭제"
               >
                 🗑
@@ -263,67 +275,95 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
         </div>
       </div>
 
-      {open && (
+      {/* ── Edit panel (expands below header) ── */}
+      {editing && (
         <div className="dup-upload-body">
-          {hasData && (
-            <div className="dup-current">
-              <span className="dup-current-label">현재:</span>
-              <code>{date.datasetPath}</code>
+          <div className="modal-row">
+            <div className="modal-field">
+              <label>날짜 <span className="modal-hint">(YYYY-MM-DD)</span></label>
+              <DateTextInput
+                value={editObservedAt}
+                onChange={v => { setEditObservedAt(v); setEditError('') }}
+                autoFocus
+                disabled={editSaving}
+              />
             </div>
-          )}
+            <div className="modal-field">
+              <label>이름 / 설명</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={e => { setEditName(e.target.value); setEditError('') }}
+                placeholder="예) 251106_둔포면"
+                disabled={editSaving}
+              />
+            </div>
+          </div>
 
-          <div className="modal-field" style={{ marginBottom: 10 }}>
+          <div className="modal-field">
             <label>데이터 유형</label>
             <div className="dup-type-toggle">
               <button
-                className={`dup-type-btn${datasetType === 'pointcloud' ? ' active' : ''}`}
-                onClick={() => setDatasetType('pointcloud')}
-                disabled={loading}
+                className={`dup-type-btn${editDatasetType === 'pointcloud' ? ' active' : ''}`}
+                onClick={() => setEditDatasetType('pointcloud')}
+                disabled={editSaving}
               >
                 ☁ Point Cloud
               </button>
               <button
-                className={`dup-type-btn${datasetType === 'mesh' ? ' active' : ''}`}
-                onClick={() => setDatasetType('mesh')}
-                disabled={loading}
+                className={`dup-type-btn${editDatasetType === 'mesh' ? ' active' : ''}`}
+                onClick={() => setEditDatasetType('mesh')}
+                disabled={editSaving}
               >
                 ◈ 3D Mesh
               </button>
             </div>
           </div>
-          <div
-            className={`upload-dropzone${dragOver ? ' dragging' : ''}${files.length ? ' has-files' : ''}`}
-            onClick={() => inputRef.current?.click()}
-            onDrop={handleDrop}
-            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              webkitdirectory=""
-              onChange={handleFileChange}
-              disabled={loading}
-            />
-            {files.length === 0 ? (
-              <div>폴더 또는 ZIP을 여기에 드래그<br/>또는 클릭하여 탐색</div>
-            ) : (
-              <div className="upload-selected upload-selected-vertical">
-                <div className="upload-icon">📁</div>
-                <strong className="upload-folder-name">{folderName}</strong>
-                <span className="upload-count">{files.length}개 파일</span>
-              </div>
-            )}
+
+          <div className="modal-field">
+            <label>
+              새 파일 <span className="modal-hint">(선택 사항 — 파일 교체 시 기존 날짜 삭제 후 재생성)</span>
+            </label>
+            <div
+              className={`upload-dropzone${editDrag ? ' dragging' : ''}${editFiles.length ? ' has-files' : ''}`}
+              onClick={() => editInputRef.current?.click()}
+              onDrop={handleEditDrop}
+              onDragOver={e => { e.preventDefault(); setEditDrag(true) }}
+              onDragLeave={() => setEditDrag(false)}
+            >
+              <input
+                ref={editInputRef}
+                type="file"
+                multiple
+                webkitdirectory=""
+                onChange={e => { setEditFiles([...e.target.files]); setEditError('') }}
+                disabled={editSaving}
+              />
+              {editFiles.length === 0 ? (
+                <div>
+                  파일 없이 저장하면 코드/레이블만 변경됩니다
+                  <br />
+                  <span className="modal-hint">새 파일을 드래그하면 기존 데이터가 교체됩니다</span>
+                </div>
+              ) : (
+                <div className="upload-selected upload-selected-vertical">
+                  <div className="upload-icon">📁</div>
+                  <strong className="upload-folder-name">{editFolderName}</strong>
+                  <span className="upload-count">{editFiles.length}개 파일</span>
+                </div>
+              )}
+            </div>
           </div>
-          {error    && <div className="modal-error">{error}</div>}
-          {progress && <div className="modal-progress">{progress}</div>}
+
+          {editError    && <div className="modal-error">{editError}</div>}
+          {editProgress && <div className="modal-progress">{editProgress}</div>}
+
           <div className="dup-actions">
-            <button className="modal-btn-secondary" onClick={() => { setOpen(false); setFiles([]) }} disabled={loading}>
+            <button className="modal-btn-secondary" onClick={cancelEdit} disabled={editSaving}>
               취소
             </button>
-            <button className="modal-btn-primary" onClick={handleUpload} disabled={loading || !files.length}>
-              {loading ? '업로드 중…' : '업로드'}
+            <button className="modal-btn-primary" onClick={handleSave} disabled={editSaving}>
+              {editSaving ? '처리 중…' : editFiles.length ? '교체 저장' : '저장'}
             </button>
           </div>
         </div>
@@ -335,56 +375,42 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
 // ── New date card ─────────────────────────────────────────────────────────
 
 function NewDateCard({ site, onCreated }) {
-  const [open,         setOpen]         = useState(false)
-  const [dateCode,     setDateCode]     = useState('')
-  const [label,        setLabel]        = useState('')
-  const [datasetType,  setDatasetType]  = useState('pointcloud')
-  const [files,        setFiles]        = useState([])
-  const [dragOver,     setDragOver]     = useState(false)
-  const [loading,      setLoading]      = useState(false)
-  const [progress,     setProgress]     = useState('')
-  const [error,        setError]        = useState('')
+  const [open,        setOpen]        = useState(false)
+  const [observedAt,  setObservedAt]  = useState('')
+  const [name,        setName]        = useState('')
+  const [datasetType, setDatasetType] = useState('pointcloud')
+  const [files,       setFiles]       = useState([])
+  const [dragOver,    setDragOver]    = useState(false)
+  const [loading,     setLoading]     = useState(false)
+  const [progress,    setProgress]    = useState('')
+  const [error,       setError]       = useState('')
   const inputRef = useRef(null)
-
-  useEffect(() => {
-    if (/^\d{6}$/.test(dateCode)) setLabel(autoLabel(dateCode))
-  }, [dateCode])
 
   function handleFileChange(e) { setFiles([...e.target.files]); setError('') }
 
   async function handleSubmit() {
-    if (!/^\d{6}$/.test(dateCode)) return setError('날짜 코드는 정확히 6자리여야 합니다 (YYMMDD).')
-    if (!label.trim())              return setError('레이블은 필수입니다.')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observedAt)) return setError('날짜 형식은 YYYY-MM-DD여야 합니다.')
+    if (!name.trim())                              return setError('이름(설명)은 필수입니다.')
+    if (!files.length)                             return setError('파일을 선택하세요 — 데이터 파일이 필요합니다.')
+    console.log('[NewDateCard.handleSubmit] site.id:', site.id, 'observedAt:', observedAt, 'name:', name, 'files:', files.length, files.map(f => f.webkitRelativePath || f.relativePath || f.name))
 
     setLoading(true)
     setError('')
     try {
-      setProgress('날짜 생성 중…')
-      const r1 = await fetch(`${API_BASE}/api/sites/${site.id}/dates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date_code: dateCode, label: label.trim(), dataset_type: datasetType }),
+      await uploadObservation(site.id, {
+        name:       name.trim(),
+        observedAt: observedAt,
+        files,
+        onProgress: p => setProgress(progressLabel(p)),
       })
-      const d1 = await r1.json()
-      if (!r1.ok) { setError(d1.detail || `Error ${r1.status}`); return }
-
-      if (files.length) {
-        setProgress('업로드 중…')
-        const formData = new FormData()
-        files.forEach(f => formData.append('files', f, f.webkitRelativePath || f.relativePath || f.name))
-        const r2 = await fetch(`${API_BASE}/api/sites/${site.id}/dates/${dateCode}/upload`, {
-          method: 'POST', body: formData,
-        })
-        const d2 = await r2.json()
-        if (!r2.ok) { setError(d2.detail || `Upload error ${r2.status}`); return }
-      }
-
+      console.log('[NewDateCard.handleSubmit] upload succeeded')
       setProgress('완료!')
-      setDateCode(''); setLabel(''); setFiles([])
+      setObservedAt(''); setName(''); setFiles([])
       if (inputRef.current) inputRef.current.value = ''
       setTimeout(() => { setProgress(''); setOpen(false); onCreated() }, 800)
     } catch (e) {
-      setError('Network error: ' + e.message)
+      console.error('[NewDateCard.handleSubmit] FAILED:', e.message, e)
+      setError(e.message)
     } finally {
       setLoading(false)
     }
@@ -452,22 +478,21 @@ function NewDateCard({ site, onCreated }) {
 
           <div className="modal-row">
             <div className="modal-field">
-              <label>날짜 코드 <span className="modal-hint">(YYMMDD)</span></label>
-              <input
-                type="text"
-                maxLength={6}
-                value={dateCode}
-                onChange={e => { setDateCode(e.target.value.replace(/\D/g, '')); setError('') }}
-                placeholder="예) 260601"
+              <label>날짜 <span className="modal-hint">(YYYY-MM-DD)</span></label>
+              <DateTextInput
+                value={observedAt}
+                onChange={v => { setObservedAt(v); setError('') }}
+                disabled={loading}
               />
             </div>
             <div className="modal-field">
-              <label>레이블</label>
+              <label>이름 / 설명</label>
               <input
                 type="text"
-                value={label}
-                onChange={e => { setLabel(e.target.value); setError('') }}
-                placeholder="예) Jun 1, 2026"
+                value={name}
+                onChange={e => { setName(e.target.value); setError('') }}
+                placeholder="예) 251106_둔포면"
+                disabled={loading}
               />
             </div>
           </div>
@@ -478,12 +503,14 @@ function NewDateCard({ site, onCreated }) {
               <button
                 className={`dup-type-btn${datasetType === 'pointcloud' ? ' active' : ''}`}
                 onClick={() => setDatasetType('pointcloud')}
+                disabled={loading}
               >
                 ☁ Point Cloud
               </button>
               <button
                 className={`dup-type-btn${datasetType === 'mesh' ? ' active' : ''}`}
                 onClick={() => setDatasetType('mesh')}
+                disabled={loading}
               >
                 ◈ 3D Mesh
               </button>
@@ -491,7 +518,9 @@ function NewDateCard({ site, onCreated }) {
           </div>
 
           <div className="modal-field">
-            <label>데이터 파일 <span className="modal-hint">(선택 사항 — 나중에 업로드 가능)</span></label>
+            <label>
+              데이터 파일 <span className="modal-hint">(필수 — tileset.json 포함 폴더 또는 ZIP)</span>
+            </label>
             <div
               className={`upload-dropzone${dragOver ? ' dragging' : ''}${files.length ? ' has-files' : ''}`}
               onClick={() => inputRef.current?.click()}
@@ -523,7 +552,7 @@ function NewDateCard({ site, onCreated }) {
           {progress && <div className="modal-progress">{progress}</div>}
 
           <div className="dup-actions">
-            <button className="modal-btn-secondary" onClick={() => { setOpen(false); setDateCode(''); setLabel(''); setFiles([]) }} disabled={loading}>
+            <button className="modal-btn-secondary" onClick={() => { setOpen(false); setObservedAt(''); setName(''); setDatasetType('pointcloud'); setFiles([]); setError(''); setProgress('') }} disabled={loading}>
               취소
             </button>
             <button className="modal-btn-primary" onClick={handleSubmit} disabled={loading}>
@@ -548,7 +577,7 @@ export default function DataUploadPage({ site, onUploaded, onCreated }) {
         <div className="dup-header">
           <div>
             <div className="dup-title">데이터 업로드</div>
-            <div className="dup-subtitle">{site.label ?? site.id}</div>
+            <div className="dup-subtitle">{site.name ?? site.id}</div>
           </div>
           <div className="dup-hint">
             각 날짜에는 단일 데이터셋(포인트 클라우드 또는 3D 메쉬)이 있습니다.

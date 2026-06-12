@@ -131,13 +131,15 @@ export default function App() {
    * Fetch all projects then enrich each one with its observations (dates).
    */
   const refreshSites = useCallback(async () => {
+    console.log('[refreshSites] start')
     try {
       const projects = await fetchProjects()
-      // Fetch observations for all projects in parallel
+      console.log('[refreshSites] projects fetched:', projects.length)
       const enriched = await Promise.all(projects.map(p => enrichProjectWithDates(p)))
+      console.log('[refreshSites] enriched sites:', enriched.map(s => `${s.id}:${s.name} (${s.dates.length} dates)`))
       return enriched
     } catch (e) {
-      console.error('[refreshSites]', e)
+      console.error('[refreshSites] FAILED:', e.message, e)
       return []
     }
   }, [])
@@ -310,6 +312,7 @@ export default function App() {
   // ── Handlers ─────────────────────────────────────────────────────────
 
   function handleOpenProject(site) {
+    console.log('[handleOpenProject] site:', site.id, site.name, '— dates:', site.dates.length)
     if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
     clearAllLayers()
     clearPolygon()
@@ -348,16 +351,20 @@ export default function App() {
   }
 
   async function handleDataChanged() {
+    console.log('[handleDataChanged] refreshing sites')
     const updated = await refreshSites()
     setSites(updated)
     if (activeSite) {
       const updatedSite = updated.find(s => s.id === activeSite.id)
+      console.log('[handleDataChanged] updatedSite:', updatedSite?.id, '— dates:', updatedSite?.dates.length)
       if (updatedSite) {
         setActiveSite(updatedSite)
         window.currentSite = updatedSite
         const current = activeDateRef.current
+        console.log('[handleDataChanged] activeDate was:', current?.id, current?.label)
         if (current) {
           const d = updatedSite.dates.find(x => x.id === current.id)
+          console.log('[handleDataChanged] found updated date:', d?.id, 'datasetPath:', d?.datasetPath)
           if (d?.datasetPath) {
             invalidateTilesetUrl(d.datasetPath)
             loadDate(updatedSite, d, modeRef.current, checkState())
@@ -562,13 +569,20 @@ export default function App() {
    */
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
-    // dateId is already the stringified observation id
-    await voxelizeObservation(dateId)
-    // Refresh so the updated voxelPath/voxelStatus is reflected
-    const updated = await refreshSites()
-    setSites(updated)
-    const updatedSite = updated.find(s => s.id === activeSite.id)
-    if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+    console.log('[handleComputeVoxel] dateId:', dateId, '— site:', activeSite.id, activeSite.name)
+    try {
+      await voxelizeObservation(dateId)
+      console.log('[handleComputeVoxel] voxelization triggered, refreshing sites')
+      const updated = await refreshSites()
+      setSites(updated)
+      const updatedSite = updated.find(s => s.id === activeSite.id)
+      const updatedDate = updatedSite?.dates.find(d => d.id === dateId)
+      console.log('[handleComputeVoxel] after refresh — voxelStatus:', updatedDate?.voxelStatus, 'voxelPath:', updatedDate?.voxelPath)
+      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+    } catch (e) {
+      console.error('[handleComputeVoxel] FAILED:', e.message, e)
+      throw e
+    }
   }
 
   function handleCameraSite() {

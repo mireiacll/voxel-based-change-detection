@@ -25,6 +25,20 @@
 
 import { useState } from 'react'
 
+/** Format a YYYY-MM-DD string → "Jun 1, 2026" */
+function isoToLabel(iso) {
+  if (!iso) return iso
+  const [year, month, day] = iso.split('-')
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${M[parseInt(month,10)-1] ?? month} ${parseInt(day,10)}, ${year}`
+}
+
+/** Truncate a string to max chars, adding ellipsis if needed */
+function trunc(str, max = 16) {
+  if (!str) return ''
+  return str.length > max ? str.slice(0, max) + '…' : str
+}
+
 function TypeTag({ type }) {
   if (!type) return null
   return (
@@ -180,12 +194,14 @@ export default function Panel({
                   className={`date-btn${isOn ? ' active' : ''}`}
                   onClick={() => onToggleDate(d)}
                 >
-                  <span className="date-label">{d.label}</span>
-                  <span className="date-id">{d.name}</span>
-                  <TypeTag type={d.datasetType} />
-                  {hasVoxel && (
-                    <span className="ltag ltag-vox" title="Pre-computed voxel available">VOX</span>
-                  )}
+                  <span className="date-label">{isoToLabel(d.observedAt) || d.label}</span>
+                  <span className="date-meta">
+                    <span className="date-name" title={d.name}>{trunc(d.name)}</span>
+                    <TypeTag type={d.datasetType} />
+                    {hasVoxel && (
+                      <span className="ltag ltag-vox" title="Pre-computed voxel available">VOX</span>
+                    )}
+                  </span>
                 </button>
                 {isOn && (
                   <LayerModePill

@@ -6,13 +6,6 @@
  * Internal "site"  ←→  coworker "project"     (ProjectResponse)
  * Internal "date"  ←→  coworker "observation"  (ObservationResponse)
  *
- * Shape philosophy (Step 1 + 2)
- * ──────────────────────────────
- * Projects are returned almost as-is from the API — no deep transformation.
- * The only normalisation is:
- *   - id is stringified (numeric → string) so existing string comparisons work
- *   - dates[] is populated by a separate fetchObservations call
- *
  * Project fields used directly throughout the app:
  *   site.id           — stringified numeric project id
  *   site.name         — display name  (was site.label in the old FastAPI world)
@@ -40,45 +33,60 @@ const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 // ─────────────────────────────────────────────────────────────────────────
 
 async function _get(path) {
-  console.log('[API GET]', `${EXT_API}${path}`)
-  const res = await fetch(`${EXT_API}${path}`)
+  const url = `${EXT_API}${path}`
+  console.log('[api._get] →', url)
+  const res = await fetch(url)
+  console.log('[api._get] ←', res.status, url)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
+    console.error('[api._get] ERROR', res.status, url, body)
     throw new Error(body.message ?? body.detail ?? `HTTP ${res.status} — ${path}`)
   }
   return res.json()
 }
 
 async function _post(path, body) {
-  const res = await fetch(`${EXT_API}${path}`, {
+  const url = `${EXT_API}${path}`
+  console.log('[api._post] →', url, body)
+  const res = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   })
+  console.log('[api._post] ←', res.status, url)
   if (!res.ok) {
     const b = await res.json().catch(() => ({}))
+    console.error('[api._post] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
   }
   return res.json()
 }
 
 async function _put(path, body) {
-  const res = await fetch(`${EXT_API}${path}`, {
+  const url = `${EXT_API}${path}`
+  console.log('[api._put] →', url, body)
+  const res = await fetch(url, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   })
+  console.log('[api._put] ←', res.status, url)
   if (!res.ok) {
     const b = await res.json().catch(() => ({}))
+    console.error('[api._put] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
   }
   return res.json()
 }
 
 async function _delete(path) {
-  const res = await fetch(`${EXT_API}${path}`, { method: 'DELETE' })
+  const url = `${EXT_API}${path}`
+  console.log('[api._delete] →', url)
+  const res = await fetch(url, { method: 'DELETE' })
+  console.log('[api._delete] ←', res.status, url)
   if (!res.ok) {
     const b = await res.json().catch(() => ({}))
+    console.error('[api._delete] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
   }
   return res.status === 204 ? {} : res.json().catch(() => ({}))
@@ -88,66 +96,32 @@ async function _delete(path) {
 //  SHAPE CONVERTERS
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Minimal normalisation of a ProjectResponse.
- * We only stringify the numeric id and attach an empty dates array.
- * All other fields (name, centerLat, centerLon, cameraHeight, status, …)
- * are kept as-is so the rest of the app reads them directly from the API shape.
- */
 function _normaliseProject(p) {
   return {
     ...p,
-    id:    String(p.id),   // normalise numeric → string for consistent comparisons
-    dates: [],             // populated separately by enrichProjectWithDates()
+    id:    String(p.id),
+    dates: [],
   }
 }
 
-/**
- * Convert an ObservationResponse into the internal "date" shape.
- *
- * ObservationResponse fields:
- *   id                 (int64)
- *   projectId          (int64)
- *   name               (string)
- *   observedAt         (date string, YYYY-MM-DD)
- *   originalTilesPath  (string | null)
- *   originalTilesetUrl (string | null)
- *   voxelPath          (string | null)
- *   voxelTilesetUrl    (string | null)
- *   voxelStatus        (enum)
- *   voxelJobId         (int64 | null)
- */
 function _observationToDate(obs) {
   return {
-    // Core identity
     id:          String(obs.id),
     name:        obs.name,
     observedAt:  obs.observedAt,
-
-    // Human-readable label: prefer observedAt date, fall back to name
     label: obs.observedAt
       ? _formatDate(obs.observedAt)
       : obs.name,
-
-    // Dataset — maps to old datasetPath / datasetType
     datasetPath: obs.originalTilesPath ?? null,
     datasetType: obs.originalTilesPath ? 'pointcloud' : null,
-
-    // Pre-computed voxel
     voxelPath:   obs.voxelPath ?? null,
     voxelStatus: obs.voxelStatus ?? 'NONE',
     voxelJobId:  obs.voxelJobId ?? null,
-
-    // Tileset URLs (used for direct Cesium loading if available)
     originalTilesetUrl: obs.originalTilesetUrl ?? null,
     voxelTilesetUrl:    obs.voxelTilesetUrl    ?? null,
   }
 }
 
-/**
- * Format a YYYY-MM-DD date string into a human-readable label.
- * e.g. "2025-04-15" → "Apr 15, 2025"
- */
 function _formatDate(dateStr) {
   if (!dateStr) return dateStr
   const [year, month, day] = dateStr.split('-')
@@ -160,33 +134,23 @@ function _formatDate(dateStr) {
 //  PROJECTS / SITES
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * List all projects. Returns normalised project objects without dates.
- * Call enrichProjectWithDates() on each one to populate site.dates.
- */
 export async function fetchProjects() {
-  const list = await _get('/api/projects')   // ProjectResponse[]
+  console.log('[api.fetchProjects] fetching all projects from', EXT_API)
+  const list = await _get('/api/projects')
+  console.log('[api.fetchProjects] got', list.length, 'projects:', list.map(p => `${p.id}:${p.name}`))
   return list.map(_normaliseProject)
 }
 
-/**
- * Fetch a single project by its id (string or number).
- */
 export async function fetchProject(id) {
   const p = await _get(`/api/projects/${id}`)
   return _normaliseProject(p)
 }
 
-/**
- * Fetch observations for a project and attach them as site.dates.
- * Returns a new site object with dates populated.
- *
- * @param {object} site — normalised project object from fetchProjects()
- * @returns {object} site with dates[] populated
- */
 export async function enrichProjectWithDates(site) {
+  console.log('[api.enrichProjectWithDates] fetching observations for project', site.id, site.name)
   const observations = await _get(`/api/projects/${site.id}/observations`)
-  // Sort by observedAt ascending so oldest date is first
+  console.log('[api.enrichProjectWithDates] got', observations.length, 'observations for', site.name,
+    observations.map(o => `${o.id}:${o.name}:${o.observedAt}`))
   const sorted = [...observations].sort((a, b) =>
     (a.observedAt ?? '').localeCompare(b.observedAt ?? '')
   )
@@ -196,12 +160,6 @@ export async function enrichProjectWithDates(site) {
   }
 }
 
-/**
- * Create a new project.
- *
- * @param {{ name, description?, centerLat, centerLon, cameraHeight }} params
- * @returns normalised project object (no dates)
- */
 export async function createProject({ name, description, centerLat, centerLon, cameraHeight }) {
   const p = await _post('/api/projects', {
     name,
@@ -214,13 +172,6 @@ export async function createProject({ name, description, centerLat, centerLon, c
   return _normaliseProject(p)
 }
 
-/**
- * Update a project's metadata.
- * PUT requires all required fields — we fetch current state to fill gaps.
- *
- * @param {string|number} id
- * @param {{ name?, description?, centerLat?, centerLon?, cameraHeight? }} patch
- */
 export async function updateProject(id, patch) {
   const current = await _get(`/api/projects/${id}`)
   const p = await _put(`/api/projects/${id}`, {
@@ -234,9 +185,6 @@ export async function updateProject(id, patch) {
   return _normaliseProject(p)
 }
 
-/**
- * Delete a project.
- */
 export async function deleteProject(id) {
   await _delete(`/api/projects/${id}`)
 }
@@ -246,10 +194,274 @@ export async function deleteProject(id) {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Fetch a single observation by id and return it as a date object.
+ * Convert a YYMMDD date code (e.g. "260601") to a YYYY-MM-DD string
+ * required by the coworker API's observedAt field (e.g. "2026-06-01").
  */
+export function dateCodeToIso(code) {
+  const m = code.match(/^(\d{2})(\d{2})(\d{2})$/)
+  if (!m) throw new Error(`Invalid date code: ${code}`)
+  const [, yy, mm, dd] = m
+  return `20${yy}-${mm}-${dd}`
+}
+
 export async function fetchObservation(observationId) {
   const obs = await _get(`/api/observations/${observationId}`)
+  return _observationToDate(obs)
+}
+
+export async function updateObservation(observationId, patch) {
+  console.log('[api.updateObservation] fetching current for', observationId)
+  const current = await _get(`/api/observations/${observationId}`)
+  const payload = {
+    name:       patch.name       ?? current.name,
+    observedAt: patch.observedAt ?? current.observedAt,
+  }
+  console.log('[api.updateObservation] PUT', observationId, payload)
+  const res = await fetch(`${EXT_API}/api/observations/${observationId}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  console.log('[api.updateObservation] ←', res.status)
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}))
+    console.error('[api.updateObservation] ERROR', res.status, b)
+    throw new Error(b.message ?? b.detail ?? `HTTP ${res.status}`)
+  }
+  const obs = await res.json()
+  console.log('[api.updateObservation] updated', obs.id, obs.name, obs.observedAt)
+  return _observationToDate(obs)
+}
+
+export async function deleteObservation(observationId) {
+  console.log('[api.deleteObservation] deleting observation', observationId)
+  await _delete(`/api/observations/${observationId}`)
+  console.log('[api.deleteObservation] deleted', observationId)
+}
+
+/**
+ * Given a list of relative paths, return the common leading folder prefix to
+ * strip so that tileset.json ends up at the zip root regardless of whether
+ * the user dropped:
+ *   Case A — already flat:   tileset.json, data/RR1.glb, …
+ *   Case B — one subfolder:  tiles/tileset.json, tiles/data/RR1.glb, …
+ *   Case C — two levels:     251106/tiles/tileset.json, …
+ *
+ * Strategy: find the deepest common prefix such that after stripping it,
+ * at least one path is exactly "tileset.json". Falls back to stripping just
+ * the first path segment (the dropped folder name) if tileset.json isn't found.
+ *
+ * @param {string[]} paths
+ * @returns {string}  prefix to strip including trailing "/"  (may be "")
+ */
+function _commonPrefixToStrip(paths) {
+  // Split each path into segments
+  const segments = paths.map(p => p.split('/'))
+  // Maximum prefix length to try = depth of the shallowest file - 1
+  const maxDepth = Math.min(...segments.map(s => s.length)) - 1
+
+  for (let depth = maxDepth; depth >= 1; depth--) {
+    // All files must share the same first `depth` segments
+    const prefix = segments[0].slice(0, depth)
+    const allMatch = segments.every(s =>
+      prefix.every((seg, i) => s[i] === seg)
+    )
+    if (!allMatch) continue
+
+    const prefixStr = prefix.join('/') + '/'
+    // After stripping this prefix, is tileset.json at the root?
+    const stripped = paths.map(p => p.slice(prefixStr.length))
+    if (stripped.includes('tileset.json')) return prefixStr
+  }
+
+  // No clean tileset.json at root found — just strip the top folder name
+  // (the dropped folder itself) so we don't nest unnecessarily
+  const topFolder = segments[0][0]
+  const allSameTop = segments.every(s => s[0] === topFolder)
+  if (allSameTop && maxDepth >= 1) return topFolder + '/'
+
+  return ''  // already flat
+}
+
+/**
+ * Lazy-load JSZip from CDN — no bundler changes required.
+ * Shared by _buildZip (folder → zip) and _normalizeZip (zip → zip).
+ */
+async function _loadJSZip() {
+  if (!window._JSZip) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script')
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+      s.onload  = resolve
+      s.onerror = () => reject(new Error('Failed to load JSZip'))
+      document.head.appendChild(s)
+    })
+    window._JSZip = window.JSZip
+  }
+  return window._JSZip
+}
+
+/**
+ * Validate that a set of (already prefix-stripped) relative paths represents
+ * a valid tileset upload: tileset.json at the root, plus a data/ folder.
+ * Throws a user-facing error if either is missing — this is what rejects
+ * "other formats" (random files/folders with no tileset.json + data/).
+ *
+ * @param {string[]} paths
+ */
+function _validateTilesetPaths(paths) {
+  if (!paths.includes('tileset.json')) {
+    throw new Error('tileset.json을 찾을 수 없습니다 — 최상위에 tileset.json과 data 폴더가 있는 폴더 또는 ZIP을 선택하세요.')
+  }
+  if (!paths.some(p => p.startsWith('data/'))) {
+    throw new Error('data 폴더를 찾을 수 없습니다 — 최상위에 tileset.json과 data 폴더가 있는 폴더 또는 ZIP을 선택하세요.')
+  }
+}
+
+/**
+ * Build a zip blob from a File array using JSZip (loaded dynamically from CDN).
+ *
+ * Normalises the internal zip structure so tileset.json is always at the root
+ * of the zip, regardless of whether the user dropped a flat folder or a
+ * nested one (e.g. tiles/tileset.json). The backend therefore always sees:
+ *   tileset.json
+ *   data/
+ *     RR1.glb  …
+ *
+ * Calls onProgress(percent 0–100) if provided.
+ *
+ * @param {File[]} files
+ * @param {(pct: number) => void} [onProgress]
+ * @returns {Promise<Blob>}  application/zip blob
+ */
+async function _buildZip(files, onProgress) {
+  const JSZip = await _loadJSZip()
+  const zip   = new JSZip()
+
+  // Collect raw paths
+  const rawPaths = files.map(f => f.webkitRelativePath || f.relativePath || f.name)
+
+  // Figure out how much leading path to strip
+  const prefixToStrip = _commonPrefixToStrip(rawPaths)
+  console.log('[api._buildZip] stripping prefix:', JSON.stringify(prefixToStrip),
+    '— first few paths:', rawPaths.slice(0, 3))
+
+  const strippedPaths = rawPaths.map(p =>
+    prefixToStrip && p.startsWith(prefixToStrip) ? p.slice(prefixToStrip.length) : p
+  )
+  _validateTilesetPaths(strippedPaths)
+
+  for (let i = 0; i < files.length; i++) {
+    zip.file(strippedPaths[i], files[i])
+  }
+
+  const blob = await zip.generateAsync(
+    { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } },
+    meta => onProgress?.(Math.round(meta.percent)),
+  )
+  return blob
+}
+
+/**
+ * Given a .zip File/Blob the user selected or dropped directly, make sure
+ * tileset.json ends up at the root of the zip — stripping any wrapping
+ * folder(s), e.g. "tiles/tileset.json" or "251106/tiles/tileset.json" — and
+ * validate the result contains tileset.json + a data/ folder. Throws the
+ * same error as the folder path if the structure doesn't match.
+ *
+ * If the zip is already flat at the root, it's returned unchanged (no
+ * unnecessary re-zip).
+ *
+ * @param {Blob} blob
+ * @returns {Promise<Blob>}  application/zip blob
+ */
+async function _normalizeZip(blob) {
+  const JSZip = await _loadJSZip()
+  const zip   = await JSZip.loadAsync(blob)
+
+  const entries  = Object.values(zip.files).filter(f => !f.dir)
+  const rawPaths = entries.map(f => f.name)
+
+  const prefixToStrip = _commonPrefixToStrip(rawPaths)
+  const strippedPaths = rawPaths.map(p =>
+    prefixToStrip && p.startsWith(prefixToStrip) ? p.slice(prefixToStrip.length) : p
+  )
+  console.log('[api._normalizeZip] stripping prefix:', JSON.stringify(prefixToStrip),
+    '— first few paths:', rawPaths.slice(0, 3))
+  _validateTilesetPaths(strippedPaths)
+
+  if (!prefixToStrip) return blob  // already flat — send as-is
+
+  console.log('[api._normalizeZip] re-packaging zip with stripped paths')
+  const out = new JSZip()
+  for (let i = 0; i < entries.length; i++) {
+    out.file(strippedPaths[i], await entries[i].async('blob'))
+  }
+  return out.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } })
+}
+
+/**
+ * Upload a new observation (tileset folder or zip) for a project.
+ *
+ * If the user selected a single .zip file, it is validated and (if needed)
+ * re-packaged so tileset.json sits at the zip root alongside data/.
+ * If the user dropped a folder (multiple files), they are bundled into a
+ * zip in-browser via JSZip before upload — the backend only accepts zips.
+ * Either way, an error is thrown if tileset.json + data/ aren't found,
+ * rejecting anything that isn't a valid tileset upload.
+ *
+ * @param {string|number} projectId
+ * @param {{ name, observedAt, files, onProgress? }} params
+ *   name         — observation name (YYMMDD code)
+ *   observedAt   — YYYY-MM-DD string
+ *   files        — File[] from a zip picker or folder drop
+ *   onProgress   — optional (pct: number) => void  (0–100, zipping phase only)
+ * @returns date object
+ */
+export async function uploadObservation(projectId, { name, observedAt, files, onProgress }) {
+  const fileList = [...files]
+  const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`)
+  url.searchParams.set('name', name)
+  url.searchParams.set('observedAt', observedAt)
+
+  // ── Determine what to send ──────────────────────────────────────────────
+  let zipBlob
+  const isSingleZip =
+    fileList.length === 1 &&
+    (fileList[0].name.toLowerCase().endsWith('.zip') ||
+     fileList[0].type === 'application/zip' ||
+     fileList[0].type === 'application/x-zip-compressed')
+
+  if (isSingleZip) {
+    // User picked/dropped a zip directly — validate + normalise its internal
+    // structure (tileset.json must end up at the zip root, alongside data/)
+    console.log('[api.uploadObservation] single zip selected, validating/normalising:', fileList[0].name, fileList[0].size, 'bytes')
+    onProgress?.(0)
+    zipBlob = await _normalizeZip(fileList[0])
+    onProgress?.(100)
+  } else {
+    // Folder drop (or multi-file selection) — bundle into a zip first
+    console.log('[api.uploadObservation] building zip from', fileList.length, 'files…')
+    onProgress?.(0)
+    zipBlob = await _buildZip(fileList, onProgress)
+    console.log('[api.uploadObservation] zip built:', zipBlob.size, 'bytes')
+    onProgress?.(100)
+  }
+
+  console.log('[api.uploadObservation] →', url.toString(), { name, observedAt, zipSize: zipBlob.size })
+
+  const form = new FormData()
+  form.append('file', zipBlob, `${name}.zip`)
+
+  const res = await fetch(url.toString(), { method: 'POST', body: form })
+  console.log('[api.uploadObservation] ←', res.status)
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}))
+    console.error('[api.uploadObservation] ERROR', res.status, b)
+    throw new Error(b.message ?? b.detail ?? `HTTP ${res.status}`)
+  }
+  const obs = await res.json()
+  console.log('[api.uploadObservation] created observation', obs.id, obs.name)
   return _observationToDate(obs)
 }
 
@@ -261,30 +473,8 @@ export async function fetchObservation(observationId) {
  * @param {{ maxLevel?, visualize?, cubeDataType?, recursive? }} options
  */
 export async function voxelizeObservation(observationId, options = {}) {
+  console.log('[api.voxelizeObservation] triggering voxelization for', observationId, options)
   const obs = await _post(`/api/observations/${observationId}/voxelize`, options)
-  return _observationToDate(obs)
-}
-
-/**
- * Upload a new observation (GLB/tileset file) for a project.
- *
- * @param {string|number} projectId
- * @param {{ name, observedAt, file }} params  — observedAt as YYYY-MM-DD string
- * @returns date object
- */
-export async function uploadObservation(projectId, { name, observedAt, file }) {
-  const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`)
-  url.searchParams.set('name', name)
-  url.searchParams.set('observedAt', observedAt)
-
-  const form = new FormData()
-  form.append('file', file)
-
-  const res = await fetch(url.toString(), { method: 'POST', body: form })
-  if (!res.ok) {
-    const b = await res.json().catch(() => ({}))
-    throw new Error(b.message ?? b.detail ?? `HTTP ${res.status}`)
-  }
-  const obs = await res.json()
+  console.log('[api.voxelizeObservation] result — voxelStatus:', obs.voxelStatus, 'voxelPath:', obs.voxelPath)
   return _observationToDate(obs)
 }

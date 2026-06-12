@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 
+import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
 import com.gaia3d.backend.job.JobService;
@@ -42,6 +43,7 @@ public class DiffService {
     private final VoxelizerCommandService commandService;
     private final VoxelizerProcessService processService;
     private final VoxelizerProperties properties;
+    private final TilesetUrlResolver tilesetUrlResolver;
 
     public DiffService(
             DiffRepository diffRepository,
@@ -51,7 +53,8 @@ public class DiffService {
             JobService jobService,
             VoxelizerCommandService commandService,
             VoxelizerProcessService processService,
-            VoxelizerProperties properties) {
+            VoxelizerProperties properties,
+            TilesetUrlResolver tilesetUrlResolver) {
         this.diffRepository = diffRepository;
         this.diffItemRepository = diffItemRepository;
         this.observationRepository = observationRepository;
@@ -60,6 +63,7 @@ public class DiffService {
         this.commandService = commandService;
         this.processService = processService;
         this.properties = properties;
+        this.tilesetUrlResolver = tilesetUrlResolver;
     }
 
     public List<DiffListResponse> findByProject(Long projectId, DiffType type, DiffStatus status) {
@@ -264,7 +268,7 @@ public class DiffService {
         // TODO: Connect filterThreshold and areaWkt when voxelizer exposes matching CLI options.
         item.prepareResult(
                 output.toString(),
-                tilesetUrl(output),
+                tilesetUrlResolver.voxelTilesetUrl(output),
                 summary.toString(),
                 command,
                 logPath.toString());
@@ -361,10 +365,6 @@ public class DiffService {
 
     private Path diffItemVoxelDir(Long projectId, Long diffId, Long itemId) {
         return diffItemDir(projectId, diffId, itemId).resolve("voxel").toAbsolutePath().normalize();
-    }
-
-    private String tilesetUrl(Path directory) {
-        return directory.resolve("tileset.json").toString().replace('\\', '/');
     }
 
     private void deleteDirectoryQuietly(Path directory) {

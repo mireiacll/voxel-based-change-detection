@@ -30,6 +30,10 @@ public class Observation extends BaseTimeEntity {
     @Column(nullable = false)
     private LocalDate observedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private ObservationDatasetType datasetType;
+
     private String originalTilesPath;
 
     private String originalTilesetUrl;
@@ -47,10 +51,11 @@ public class Observation extends BaseTimeEntity {
     protected Observation() {
     }
 
-    public Observation(Long projectId, String name, LocalDate observedAt) {
+    public Observation(Long projectId, String name, LocalDate observedAt, ObservationDatasetType datasetType) {
         this.projectId = projectId;
         this.name = name;
         this.observedAt = observedAt;
+        this.datasetType = datasetType;
     }
 
     public void update(String name, LocalDate observedAt) {
@@ -83,10 +88,18 @@ public class Observation extends BaseTimeEntity {
         this.voxelStatus = ObservationStatus.FAILED;
     }
 
+    public void cancelVoxel() {
+        if (voxelStatus == ObservationStatus.SUCCEEDED || voxelStatus == ObservationStatus.FAILED) {
+            return;
+        }
+        this.voxelStatus = ObservationStatus.CANCELLED;
+    }
+
     public Long getId() { return id; }
     public Long getProjectId() { return projectId; }
     public String getName() { return name; }
     public LocalDate getObservedAt() { return observedAt; }
+    public ObservationDatasetType getDatasetType() { return datasetType; }
     public String getOriginalTilesPath() { return originalTilesPath; }
     public String getOriginalTilesetUrl() { return originalTilesetUrl; }
     public String getVoxelPath() { return voxelPath; }

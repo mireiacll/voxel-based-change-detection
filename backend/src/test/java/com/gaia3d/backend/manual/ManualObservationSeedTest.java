@@ -20,6 +20,7 @@ import com.gaia3d.backend.diff.DiffItemResponse;
 import com.gaia3d.backend.diff.DiffService;
 import com.gaia3d.backend.diff.DiffStatus;
 import com.gaia3d.backend.diff.DiffType;
+import com.gaia3d.backend.observation.ObservationDatasetType;
 import com.gaia3d.backend.observation.ObservationStatus;
 import com.gaia3d.backend.observation.ObservationResponse;
 import com.gaia3d.backend.observation.ObservationService;
@@ -91,7 +92,9 @@ class ManualObservationSeedTest {
                     project.id(),
                     seed.name(),
                     seed.observedAt(),
+                    ObservationDatasetType.POINTCLOUD,
                     file);
+            observation = waitForVoxelSuccess(observation.id());
 
             assertThat(observation.projectId()).isEqualTo(project.id());
             assertThat(observation.originalTilesetUrl()).isNotBlank();
@@ -168,6 +171,22 @@ class ManualObservationSeedTest {
 
         System.out.printf("Seeded project id=%d name=%s%n", project.id(), project.name());
         System.out.printf("Seeded time-series diff id=%d itemCount=%d%n", diff.id(), diff.itemCount());
+    }
+
+    private ObservationResponse waitForVoxelSuccess(Long observationId) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 300_000;
+        while (System.currentTimeMillis() < deadline) {
+            ObservationResponse observation = observationService.findById(observationId);
+            if (observation.voxelStatus() == ObservationStatus.SUCCEEDED) {
+                return observation;
+            }
+            if (observation.voxelStatus() == ObservationStatus.FAILED
+                    || observation.voxelStatus() == ObservationStatus.CANCELLED) {
+                throw new IllegalStateException("Observation voxel job did not succeed: " + observation.voxelStatus());
+            }
+            Thread.sleep(1000);
+        }
+        throw new IllegalStateException("Timed out waiting for observation voxel job: " + observationId);
     }
 
     private void validateInputs() {

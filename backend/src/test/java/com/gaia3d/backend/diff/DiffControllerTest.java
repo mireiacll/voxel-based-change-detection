@@ -12,6 +12,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -21,6 +25,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,6 +35,9 @@ class DiffControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void createsAbDiffWithOneDiffItem() throws Exception {
@@ -90,7 +98,7 @@ class DiffControllerTest {
     @Test
     void createsTimeSeriesDiffFromAdjacentObservations() throws Exception {
         createProjectAndObservations();
-        uploadObservation("2024-03", "2024-03-01");
+        uploadObservation(3, "2024-03", "2024-03-01");
 
         mockMvc.perform(post("/api/projects/1/diffs/time-series")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -113,16 +121,42 @@ class DiffControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"project\"}"))
                 .andExpect(status().isCreated());
-        uploadObservation("2024-01", "2024-01-01");
-        uploadObservation("2024-02", "2024-02-01");
+        uploadObservation(1, "2024-01", "2024-01-01");
+        uploadObservation(2, "2024-02", "2024-02-01");
     }
 
-    private void uploadObservation(String name, String observedAt) throws Exception {
-        mockMvc.perform(multipart("/api/projects/1/observations")
+    private void uploadObservation(long expectedObservationId, String name, String observedAt) throws Exception {
+        MvcResult result = mockMvc.perform(multipart("/api/projects/1/observations")
                         .file(zipFile())
                         .param("name", name)
+                        .param("datasetType", "pointcloud")
                         .param("observedAt", observedAt))
-                .andExpect(status().isOk());
+                .andExpect(status().isAccepted())
+                .andReturn();
+        JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
+        waitForVoxelSuccess(expectedObservationId, json.path("voxelJobId").asLong());
+    }
+
+    private void waitForVoxelSuccess(long observationId, long jobId) throws Exception {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            MvcResult observationResult = mockMvc.perform(get("/api/observations/" + observationId + "/voxel-status"))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            JsonNode observationJson = objectMapper.readTree(observationResult.getResponse().getContentAsString());
+
+            MvcResult jobResult = mockMvc.perform(get("/api/jobs/" + jobId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            JsonNode jobJson = objectMapper.readTree(jobResult.getResponse().getContentAsString());
+
+            if ("SUCCEEDED".equals(observationJson.path("voxelStatus").asText())
+                    && "SUCCEEDED".equals(jobJson.path("status").asText())) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        Assertions.fail("Timed out waiting for observation " + observationId + " job " + jobId + " to succeed");
     }
 
     private MockMultipartFile zipFile() throws Exception {

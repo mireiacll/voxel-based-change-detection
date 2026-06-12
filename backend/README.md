@@ -117,9 +117,15 @@ Input:
 - `projectId`: `1`
 - `name`: `2024-01-01 observation`
 - `observedAt`: `2024-01-01`
+- `datasetType`: `pointcloud` or `mesh`
 - `file`: 3D Tiles zip file
 
 The zip file must contain `tileset.json` at the zip root.
+
+This endpoint now responds as soon as the upload is stored and the voxel job is queued:
+
+- HTTP `202 Accepted`
+- response body includes `voxelStatus=QUEUED` and `voxelJobId`
 
 Default Docker Compose uses:
 
@@ -133,9 +139,24 @@ After upload, check:
 
 ```text
 GET /api/projects/1/observations
+GET /api/observations/{observationId}/voxel-status
 GET /api/jobs/{jobId}
 GET /api/observations/{observationId}/tileset/original
 GET /api/observations/{observationId}/tileset/voxel
+```
+
+`GET /api/observations/{observationId}/voxel-status` returns the observation voxel state (`QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`) together with the linked job state and message. `GET /api/jobs/{jobId}` exposes the same queued background job with progress and timestamps.
+
+`GET /api/observations/{observationId}/tileset/original` now returns a browser-fetchable URL like:
+
+```text
+/files/3dtiles/projects/{projectId}/observations/{observationId}/tileset/tileset.json
+```
+
+Voxel and diff outputs are served the same way under:
+
+```text
+/files/voxelsets/...
 ```
 
 ## 5. Diff Test Flow

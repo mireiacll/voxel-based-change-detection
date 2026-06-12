@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
 import com.gaia3d.backend.job.JobService;
@@ -18,12 +19,8 @@ import com.gaia3d.backend.job.JobTargetType;
 import com.gaia3d.backend.job.JobType;
 import com.gaia3d.backend.project.ProjectService;
 import com.gaia3d.backend.voxelizer.VoxelizerCommandService;
-import com.gaia3d.backend.voxelizer.VoxelizerProcessService;
-import com.gaia3d.backend.voxelizer.VoxelizerProcessService.VoxelizerProcessResult;
 import com.gaia3d.backend.voxelizer.VoxelizerProperties;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,28 +30,29 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class ObservationService {
 
-    private static final Logger log = LoggerFactory.getLogger(ObservationService.class);
-
     private final ObservationRepository observationRepository;
     private final ProjectService projectService;
     private final JobService jobService;
     private final VoxelizerCommandService commandService;
-    private final VoxelizerProcessService processService;
     private final VoxelizerProperties properties;
+    private final TilesetUrlResolver tilesetUrlResolver;
+    private final ObservationVoxelJobQueue observationVoxelJobQueue;
 
     public ObservationService(
             ObservationRepository observationRepository,
             ProjectService projectService,
             JobService jobService,
             VoxelizerCommandService commandService,
-            VoxelizerProcessService processService,
-            VoxelizerProperties properties) {
+            VoxelizerProperties properties,
+            TilesetUrlResolver tilesetUrlResolver,
+            ObservationVoxelJobQueue observationVoxelJobQueue) {
         this.observationRepository = observationRepository;
         this.projectService = projectService;
         this.jobService = jobService;
         this.commandService = commandService;
-        this.processService = processService;
         this.properties = properties;
+        this.tilesetUrlResolver = tilesetUrlResolver;
+        this.observationVoxelJobQueue = observationVoxelJobQueue;
     }
 
     public List<ObservationResponse> findByProject(Long projectId) {
@@ -74,17 +72,21 @@ public class ObservationService {
     }
 
     @Transactional
-    public ObservationResponse upload(Long projectId, String name, LocalDate observedAt, MultipartFile file) {
+    public ObservationResponse upload(Long projectId, String name, LocalDate observedAt,
+            ObservationDatasetType datasetType, MultipartFile file) {
         projectService.getRequired(projectId);
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file is required");
+        }
+        if (datasetType == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "datasetType is required");
         }
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || !originalFilename.toLowerCase().endsWith(".zip")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file must be a zip");
         }
 
-        Observation observation = observationRepository.save(new Observation(projectId, name, observedAt));
+        Observation observation = observationRepository.save(new Observation(projectId, name, observedAt, datasetType));
         Path tilesetDir = observationTilesetDir(projectId, observation.getId());
         Path voxelDir = observationVoxelDir(projectId, observation.getId());
         try {
@@ -98,9 +100,9 @@ public class ObservationService {
             throw new UncheckedIOException(exception);
         }
 
-        observation.setOriginalTiles(tilesetDir.toString(), tilesetUrl(tilesetDir));
+        observation.setOriginalTiles(tilesetDir.toString(), tilesetUrlResolver.visualizationTilesetUrl(tilesetDir));
         observationRepository.save(observation);
-        return voxelize(observation.getId(), new VoxelizeRequest(null, null, null, null, null));
+        return queueVoxelize(observation, new VoxelizeRequest(null, null, null, null, null));
     }
 
     @Transactional
@@ -123,15 +125,31 @@ public class ObservationService {
         return new TilesetUrlResponse(getRequired(id).getVoxelTilesetUrl());
     }
 
+    public ObservationVoxelStatusResponse voxelStatus(Long id) {
+        Observation observation = getRequired(id);
+        Job job = observation.getVoxelJobId() == null ? null : jobService.getRequired(observation.getVoxelJobId());
+        return ObservationVoxelStatusResponse.from(observation, job);
+    }
+
     @Transactional
     public ObservationResponse voxelize(Long observationId, VoxelizeRequest request) {
         Observation observation = getRequired(observationId);
+        return queueVoxelize(observation, request);
+    }
+
+    private ObservationResponse queueVoxelize(Observation observation, VoxelizeRequest request) {
+        if (observation.getVoxelStatus() == ObservationStatus.QUEUED
+                || observation.getVoxelStatus() == ObservationStatus.RUNNING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "voxel job is already queued or running");
+        }
+
+        VoxelizeRequest safeRequest = request == null ? new VoxelizeRequest(null, null, null, null, null) : request;
         VoxelizerProperties.DefaultCreate defaults = properties.defaultCreate();
-        int maxLevel = request.maxLevel() == null ? defaults.maxLevel() : request.maxLevel();
-        boolean visualize = request.visualize() == null ? defaults.visualize() : request.visualize();
-        String visualizeColor = request.visualizeColor() == null ? defaults.visualizeColor() : request.visualizeColor();
-        String cubeDataType = request.cubeDataType() == null ? defaults.cubeDataType() : request.cubeDataType();
-        boolean recursive = request.recursive() == null ? defaults.recursive() : request.recursive();
+        int maxLevel = safeRequest.maxLevel() == null ? defaults.maxLevel() : safeRequest.maxLevel();
+        boolean visualize = safeRequest.visualize() == null ? defaults.visualize() : safeRequest.visualize();
+        String visualizeColor = safeRequest.visualizeColor() == null ? defaults.visualizeColor() : safeRequest.visualizeColor();
+        String cubeDataType = safeRequest.cubeDataType() == null ? defaults.cubeDataType() : safeRequest.cubeDataType();
+        boolean recursive = safeRequest.recursive() == null ? defaults.recursive() : safeRequest.recursive();
 
         Path tilesetDir = Path.of(observation.getOriginalTilesPath());
         Path voxelDir = observationVoxelDir(observation.getProjectId(), observation.getId());
@@ -152,35 +170,9 @@ public class ObservationService {
                 command,
                 logPath.toString());
         observation.queueVoxel(job.getId(), voxelDir.toString());
-        observation.startVoxel();
-        job.start("Creating voxel...");
-        try {
-            Files.createDirectories(voxelDir);
-            if (properties.mockExecution()) {
-                log.info("[observation:{}] mock voxelizer create: {}", observation.getId(), command);
-                observation.succeedVoxel(tilesetUrl(voxelDir));
-                job.succeed("Mock voxel creation completed");
-            } else {
-                log.info("[observation:{}] running voxelizer create", observation.getId());
-                VoxelizerProcessResult result = processService.run(commandArgs, logPath);
-                if (result.succeeded()) {
-                    observation.succeedVoxel(tilesetUrl(voxelDir));
-                    job.succeed("Voxel creation completed. exitCode=" + result.exitCode());
-                } else {
-                    observation.failVoxel();
-                    job.fail("Voxel creation failed. exitCode=" + result.exitCode());
-                }
-            }
-        } catch (IOException | InterruptedException exception) {
-            if (exception instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            log.warn("[observation:{}] voxelizer create failed", observation.getId(), exception);
-            observation.failVoxel();
-            job.fail(exception.getMessage());
-        }
-        jobService.save(job);
-        return ObservationResponse.from(observationRepository.save(observation));
+        Observation savedObservation = observationRepository.save(observation);
+        observationVoxelJobQueue.enqueue(savedObservation.getId(), safeRequest);
+        return ObservationResponse.from(savedObservation);
     }
 
     private void extractZip(MultipartFile file, Path targetDir) throws IOException {
@@ -217,10 +209,6 @@ public class ObservationService {
     private Path jobLogPath(Long id) {
         return properties.storageRoot().resolve("jobs").resolve(id.toString()).resolve("process.log")
                 .toAbsolutePath().normalize();
-    }
-
-    private String tilesetUrl(Path directory) {
-        return directory.resolve("tileset.json").toString().replace('\\', '/');
     }
 
     private void deleteDirectoryIfExists(Path directory) throws IOException {

@@ -360,8 +360,12 @@ export default function App() {
     // Camera uses the flat fields from the coworker API shape directly
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
     // Auto-resume polling for any dates already mid-voxelization
+    console.log('[handleOpenProject] checking dates for auto-resume:',
+      site.dates.map(d => `${d.id} status=${d.voxelStatus} jobId=${d.voxelJobId}`))
     site.dates.forEach(d => {
-      if ((d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') && d.voxelJobId) {
+      if (d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') {
+        console.log('[handleOpenProject] auto-resuming dateId:', d.id,
+          'voxelStatus:', d.voxelStatus, 'voxelJobId:', d.voxelJobId)
         resumeVoxelPoll(d.id, d.voxelJobId)
       }
     })
@@ -640,6 +644,21 @@ export default function App() {
 
   const handleTlRecompute = useCallback(async () => {
     if (!activeSite) return
+
+    // Guard: need at least 2 observations
+    if (activeSite.dates.length < 2) {
+      addToast('시계열 분석을 실행하려면 최소 2개의 관측 데이터가 필요합니다', 'warn')
+      return
+    }
+
+    // Guard: all dates must have a completed voxel
+    const missing = activeSite.dates.filter(d => d.voxelStatus !== 'SUCCEEDED')
+    if (missing.length > 0) {
+      const labels = missing.map(d => d.label ?? d.id).join(', ')
+      addToast(`Voxel이 없는 날짜가 있습니다: ${labels} — 왼쪽 패널에서 먼저 계산하세요`, 'warn')
+      return
+    }
+
     clearAllSnapshotTilesets()
     setTlSnapshots(null)
     setTlRecomputeRunning(true)
@@ -677,11 +696,43 @@ export default function App() {
   async function resumeVoxelPoll(dateId, jobId) {
     const site = activeSiteRef.current
     const dateLabel = site?.dates.find(d => d.id === dateId)?.label ?? dateId
-    console.log('[resumeVoxelPoll] resuming poll for dateId:', dateId, 'jobId:', jobId)
+    console.log('[resumeVoxelPoll] START dateId:', dateId, 'jobId:', jobId,
+      'siteId:', activeSiteRef.current?.id)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
+      // If jobId is missing, re-fetch observation — it may have already
+      // finished while we weren't polling, or the jobId wasn't loaded yet.
+      let resolvedJobId = jobId
+      if (!resolvedJobId) {
+        const fresh = await fetchObservation(dateId)
+        if (fresh.voxelStatus === 'SUCCEEDED') {
+          console.log('[resumeVoxelPoll] already SUCCEEDED — patching state directly')
+          const sid = activeSiteRef.current?.id
+          setSites(prev => {
+            const next = prev.map(s => {
+              if (s.id !== sid) return s
+              const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...fresh } : d)
+              return { ...s, dates: newDates }
+            })
+            const ns = next.find(s => s.id === sid)
+            if (ns) { setActiveSite(ns); window.currentSite = ns }
+            setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+            return next
+          })
+          addToast(`✓ Voxel 완료: ${dateLabel}`, 'ok')
+          return
+        }
+        resolvedJobId = fresh.voxelJobId
+        if (!resolvedJobId) {
+          console.warn('[resumeVoxelPoll] still no jobId after re-fetch, status:',
+            fresh.voxelStatus, '— cannot poll')
+          setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+          return
+        }
+      }
+
       const job = await pollJob(
-        jobId,
+        resolvedJobId,
         ({ status, progress, message }) => {
           const pct = progress ? ` (${progress}%)` : ''
           const msg = message ? ` — ${message}` : ''
@@ -689,23 +740,40 @@ export default function App() {
           setStatusDone(false)
         }
       )
+      console.log('[resumeVoxelPoll] pollJob DONE — status:', job.status)
       if (job.status !== 'SUCCEEDED') throw new Error(`Voxel ${job.status.toLowerCase()}`)
+
       const updatedDate = await fetchObservation(dateId)
-      setSites(prev => prev.map(s => {
-        if (s.id !== activeSiteRef.current?.id) return s
-        const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
-        const newSite = { ...s, dates: newDates }
-        setActiveSite(newSite)
-        window.currentSite = newSite
-        return newSite
-      }))
+      console.log('[resumeVoxelPoll] updatedDate — voxelStatus:', updatedDate?.voxelStatus,
+        'voxelPath:', updatedDate?.voxelPath)
+
+      const pollSiteId = activeSiteRef.current?.id
+      setSites(prev => {
+        console.log('[resumeVoxelPoll] setSites — pollSiteId:', pollSiteId,
+          'prev ids:', prev.map(s => s.id))
+        const next = prev.map(s => {
+          if (s.id !== pollSiteId) return s
+          const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
+          return { ...s, dates: newDates }
+        })
+        const newSite = next.find(s => s.id === pollSiteId)
+        if (newSite) {
+          console.log('[resumeVoxelPoll] setActiveSite — statuses:',
+            newSite.dates.map(d => `${d.id}:${d.voxelStatus}`))
+          setActiveSite(newSite)
+          window.currentSite = newSite
+        } else {
+          console.warn('[resumeVoxelPoll] WARNING: pollSiteId', pollSiteId, 'not in sites!')
+        }
+        setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+        return next
+      })
       setStatusMsg(`Voxel 완료: ${dateLabel}`)
       setStatusDone(true)
       addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
     } catch (e) {
-      console.error('[resumeVoxelPoll] FAILED:', e.message)
+      console.error('[resumeVoxelPoll] FAILED:', e.message, e)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
-    } finally {
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
     }
   }
@@ -717,30 +785,43 @@ export default function App() {
    */
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
+    const siteId = activeSite.id
     const dateLabel = activeSite.dates.find(d => d.id === dateId)?.label ?? dateId
-    console.log('[handleComputeVoxel] dateId:', dateId, '— site:', activeSite.id, activeSite.name)
+    console.log('[handleComputeVoxel] START dateId:', dateId, 'siteId:', siteId)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
       addToast(`⚡ Voxel 생성 시작: ${dateLabel}`, 'ok')
       const updatedDate = await voxelizeAndPoll(
         dateId,
         ({ status, progress, message }) => {
+          console.log('[handleComputeVoxel] poll tick — status:', status, 'progress:', progress)
           const pct = progress ? ` (${progress}%)` : ''
           const msg = message ? ` — ${message}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
           setStatusDone(false)
         }
       )
-      console.log('[handleComputeVoxel] SUCCEEDED — voxelPath:', updatedDate?.voxelPath)
-      // Update the site in state so Panel re-renders with the new voxelPath
-      setSites(prev => prev.map(s => {
-        if (s.id !== activeSite.id) return s
-        const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
-        const newSite = { ...s, dates: newDates }
-        setActiveSite(newSite)
-        window.currentSite = newSite
-        return newSite
-      }))
+      console.log('[handleComputeVoxel] SUCCEEDED — voxelStatus:', updatedDate?.voxelStatus,
+        'voxelPath:', updatedDate?.voxelPath)
+      setSites(prev => {
+        console.log('[handleComputeVoxel] setSites — siteId:', siteId, 'prev ids:', prev.map(s => s.id))
+        const next = prev.map(s => {
+          if (s.id !== siteId) return s
+          const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
+          return { ...s, dates: newDates }
+        })
+        const newSite = next.find(s => s.id === siteId)
+        if (newSite) {
+          console.log('[handleComputeVoxel] setActiveSite — statuses:',
+            newSite.dates.map(d => `${d.id}:${d.voxelStatus}`))
+          setActiveSite(newSite)
+          window.currentSite = newSite
+        } else {
+          console.warn('[handleComputeVoxel] WARNING: siteId', siteId, 'not in sites!')
+        }
+        setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+        return next
+      })
       setStatusMsg(`Voxel 완료: ${dateLabel}`, true)
       setStatusDone(true)
       addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
@@ -749,9 +830,8 @@ export default function App() {
       setStatusMsg(`Voxel 실패: ${e.message}`, true)
       setStatusDone(true)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
-      throw e
-    } finally {
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+      throw e
     }
   }
 
@@ -771,6 +851,55 @@ export default function App() {
 
   const showAnalysis = navTab === 'analysis'
   const showPcSlider = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
+
+  // ── Timeline staleness / readiness checks ─────────────────────────────
+  // missingVoxels: dates that don't yet have a SUCCEEDED voxel
+  const tlMissingVoxels = (activeSite?.dates ?? [])
+    .filter(d => d.voxelStatus !== 'SUCCEEDED')
+    .map(d => d.label ?? d.id)
+
+  // stale: compare the set of observation IDs used to build the current
+  // snapshots against the set of currently SUCCEEDED observations.
+  // A TIME_SERIES diff over obs [A, B, C] produces items A→B and B→C.
+  // The unique obs IDs referenced are the union of all date_a.id / date_b.id.
+  // We compare that set to the current SUCCEEDED obs IDs to detect adds/removes.
+  const tlStaleInfo = (() => {
+    const succeededDates = (activeSite?.dates ?? []).filter(d => d.voxelStatus === 'SUCCEEDED')
+
+    if (!tlSnapshots?.length || succeededDates.length < 2) {
+      return { stale: false, addedLabels: [], removedLabels: [] }
+    }
+
+    // IDs used when the diff was computed (from loaded snapshots)
+    const snapshotObsIds = new Set()
+    tlSnapshots.forEach(s => {
+      snapshotObsIds.add(s.date_a.id)
+      snapshotObsIds.add(s.date_b.id)
+    })
+
+    // IDs of currently SUCCEEDED observations
+    const currentObsIds = new Set(succeededDates.map(d => d.id))
+
+    // Dates added since last diff (in current succeeded set but not in snapshots)
+    const addedLabels = succeededDates
+      .filter(d => !snapshotObsIds.has(d.id))
+      .map(d => d.label ?? d.name ?? d.id)
+
+    // Dates removed since last diff (in snapshots but no longer in succeeded set)
+    const removedLabels = [...snapshotObsIds]
+      .filter(id => !currentObsIds.has(id))
+      .map(id => {
+        // Try to find a label from activeSite.dates (might not exist if deleted)
+        const found = activeSite?.dates.find(d => d.id === id)
+        return found?.label ?? found?.name ?? id
+      })
+
+    const stale = addedLabels.length > 0 || removedLabels.length > 0
+    return { stale, addedLabels, removedLabels }
+  })()
+
+  // Keep a simple boolean alias for prop passing clarity
+  const tlStale = tlStaleInfo.stale
 
   const activeVis = mode === 'timeline'
     ? tlVis
@@ -884,6 +1013,9 @@ export default function App() {
             tlRecomputeRunning={tlRecomputeRunning}
             tlRecomputeStatus={tlRecomputeStatus}
             tlOnCancelRecompute={handleTlCancelRecompute}
+            tlStale={tlStale}
+            tlStaleInfo={tlStaleInfo}
+            tlMissingVoxels={tlMissingVoxels}
             apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
             apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
             apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}   onApiCancel={handleApiCancel}

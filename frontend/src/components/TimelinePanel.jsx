@@ -28,6 +28,8 @@
  *   tlRecomputeRunning — bool    (true while createTimeSeriesDiffAndPoll is in flight)
  *   tlRecomputeStatus  — string  (status message during recompute)
  *   onCancelRecompute  — () => void
+ *   stale              — bool    (loaded snapshots don't match current voxelized date count)
+ *   missingVoxels      — string[] (labels of dates that still lack a SUCCEEDED voxel)
  */
 
 function Toggle({ id, checked, onChange }) {
@@ -104,11 +106,87 @@ export default function TimelinePanel({
   playing, onPlayPause,
   onRecompute, loading,
   tlRecomputeRunning, tlRecomputeStatus, onCancelRecompute,
+  stale, staleInfo, missingVoxels,
 }) {
   const active = snapshots?.[activeIndex] ?? null
 
   return (
     <>
+      {/* ── Missing voxels warning ── */}
+      {missingVoxels?.length > 0 && !loading && (
+        <div className="p-section">
+          <div className="tl-warn-banner tl-warn-voxel">
+            <div className="tl-warn-icon">⚠</div>
+            <div className="tl-warn-body">
+              <div className="tl-warn-title">Voxel 미완료 날짜 있음</div>
+              <div className="tl-warn-detail">
+                시계열 분석 전에 아래 날짜의 Voxel을 먼저 계산하세요
+                (왼쪽 패널 → Voxel Calculation):
+              </div>
+              <ul className="tl-warn-list">
+                {missingVoxels.map(lbl => (
+                  <li key={lbl}>{lbl}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stale snapshots warning ── */}
+      {stale && !loading && (
+        <div className="p-section">
+          <div className="tl-warn-banner tl-warn-stale">
+            <div className="tl-warn-icon">🔄</div>
+            <div className="tl-warn-body">
+              <div className="tl-warn-title">관측 데이터 변경됨 — 재계산 필요</div>
+
+              {/* Added dates */}
+              {staleInfo?.addedLabels?.length > 0 && (
+                <div className="tl-warn-detail" style={{ marginTop: 4 }}>
+                  <span style={{ color: 'var(--added)' }}>＋ 새로 추가된 날짜</span> ({staleInfo.addedLabels.length}개):
+                  <ul className="tl-warn-list">
+                    {staleInfo.addedLabels.map(lbl => <li key={lbl}>{lbl}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Removed dates */}
+              {staleInfo?.removedLabels?.length > 0 && (
+                <div className="tl-warn-detail" style={{ marginTop: 4 }}>
+                  <span style={{ color: 'var(--removed)' }}>－ 삭제된 날짜</span> ({staleInfo.removedLabels.length}개):
+                  <ul className="tl-warn-list">
+                    {staleInfo.removedLabels.map(lbl => <li key={lbl}>{lbl}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Fallback if staleInfo wasn't passed (shouldn't happen) */}
+              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length) && (
+                <div className="tl-warn-detail">
+                  Voxel이 완료된 날짜 수와 현재 스냅샷 수가 맞지 않습니다.
+                  정확한 분석을 위해 전체 재계산을 권장합니다.
+                </div>
+              )}
+
+              <button
+                className="pbtn"
+                style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+                onClick={onRecompute}
+                disabled={tlRecomputeRunning || (missingVoxels?.length > 0)}
+              >
+                ⚡ 전체 재계산
+              </button>
+              {missingVoxels?.length > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                  Voxel 미완료 날짜를 먼저 계산하세요
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Initial loading ── */}
       {loading && (
         <div className="p-section">
@@ -299,7 +377,7 @@ export default function TimelinePanel({
                   ✕ 취소
                 </button>
               </>
-            ) : (
+            ) : !stale && (
               <button className="pbtn" style={{ marginTop: 6, width: '100%' }} onClick={onRecompute}>
                 ⚡ 전체 재계산
               </button>

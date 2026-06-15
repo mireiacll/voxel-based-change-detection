@@ -34,9 +34,7 @@ const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
 async function _get(path) {
   const url = `${EXT_API}${path}`
-  console.log('[api._get] →', url)
   const res = await fetch(url)
-  console.log('[api._get] ←', res.status, url)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     console.error('[api._get] ERROR', res.status, url, body)

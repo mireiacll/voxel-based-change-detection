@@ -50,6 +50,7 @@ export default function RightPanel({
   tlPlaying, tlOnPlayPause,
   tlLoading, tlOnRecompute,
   tlRecomputeRunning, tlRecomputeStatus, tlOnCancelRecompute,
+  tlStale, tlStaleInfo, tlMissingVoxels,
   // compare-api props
   apiDateIdA, onApiDateIdA,
   apiDateIdB, onApiDateIdB,
@@ -235,6 +236,9 @@ export default function RightPanel({
             tlRecomputeRunning={tlRecomputeRunning}
             tlRecomputeStatus={tlRecomputeStatus}
             onCancelRecompute={tlOnCancelRecompute}
+            stale={tlStale}
+            staleInfo={tlStaleInfo}
+            missingVoxels={tlMissingVoxels}
           />
         </div>
       )}

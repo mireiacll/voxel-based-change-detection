@@ -263,9 +263,11 @@ public class DiffService {
                 diff.getUnion(),
                 diff.getMassSummary(),
                 diff.getCubeDataType(),
+                diff.getAreaWkt(),
                 diff.getRecursive());
         String command = commandService.toDisplayCommand(commandArgs);
         // TODO: Connect filterThreshold and areaWkt when voxelizer exposes matching CLI options.
+
         item.prepareResult(
                 output.toString(),
                 tilesetUrlResolver.voxelTilesetUrl(output),
@@ -319,6 +321,7 @@ public class DiffService {
                             diff.getUnion(),
                             diff.getMassSummary(),
                             diff.getCubeDataType(),
+                            diff.getAreaWkt(),
                             diff.getRecursive());
                     VoxelizerProcessResult result = processService.run(commandArgs, Path.of(item.getLogPath()));
                     if (result.succeeded()) {

@@ -81,6 +81,7 @@ public class VoxelizerCommandService {
             boolean union,
             boolean massSummary,
             String cubeDataType,
+            String regionWkt,
             boolean recursive) {
         return toDisplayCommand(createDiffCommandArgs(
                 sourceVoxelDir,
@@ -98,6 +99,7 @@ public class VoxelizerCommandService {
                 union,
                 massSummary,
                 cubeDataType,
+                regionWkt,
                 recursive));
     }
 
@@ -117,6 +119,7 @@ public class VoxelizerCommandService {
             boolean union,
             boolean massSummary,
             String cubeDataType,
+            String regionWkt,
             boolean recursive) {
         List<String> command = new ArrayList<>(List.of(
                 "java",
@@ -148,6 +151,10 @@ public class VoxelizerCommandService {
         }
         command.add("--cubeDataType");
         command.add(cubeDataType);
+        if (regionWkt != null && !regionWkt.isEmpty()) {
+            command.add("--regionWkt");
+            command.add(regionWkt);
+        }
         if (recursive) {
             command.add("--recursive");
         }

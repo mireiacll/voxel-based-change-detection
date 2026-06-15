@@ -55,10 +55,11 @@ function TypeTag({ type }) {
  * canCompute   — no voxelPath but datasetPath exists → VOX triggers compute
  * computing    — a compute is in progress for this date
  */
-function LayerModePill({ dateId, hasVoxel, computing, value, onChange }) {
+function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChange }) {
   // VOX is only clickable when the voxel is fully ready (SUCCEEDED)
   const voxClickable = hasVoxel && !computing
   const voxLabel     = computing ? '⏳' : 'VOX'
+  const pcLabel      = datasetType === 'mesh' ? 'MESH' : 'PC'
   const voxTitle     = computing
     ? 'Voxel 계산 중…'
     : hasVoxel
@@ -71,7 +72,7 @@ function LayerModePill({ dateId, hasVoxel, computing, value, onChange }) {
         className={`dlp-btn${value === 'pc' ? ' dlp-active' : ''}`}
         onClick={e => { e.stopPropagation(); onChange(dateId, 'pc') }}
       >
-        PC
+        {pcLabel}
       </button>
       <button
         className={`dlp-btn${value === 'vox' ? ' dlp-active' : ''}${!voxClickable ? ' dlp-locked' : ''}${computing ? ' dlp-computing' : ''}`}
@@ -196,6 +197,7 @@ export default function Panel({
                 {isOn && (
                   <LayerModePill
                     dateId={d.id}
+                    datasetType={d.datasetType}
                     hasVoxel={hasVoxel}
                     computing={isComputing}
                     value={layerMode}

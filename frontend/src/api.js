@@ -554,3 +554,251 @@ export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
   // Re-fetch the observation so we get the updated voxelPath / voxelStatus
   return fetchObservation(observationId)
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+//  DIFFS
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Create an A/B diff job between two observations.
+ * Returns DiffCreateResponse: { id, projectId, name, type, status, jobId, itemCount }
+ *
+ * @param {string|number} projectId
+ * @param {string|number} sourceObservationId  — observation A (earlier/baseline)
+ * @param {string|number} targetObservationId  — observation B (later)
+ * @param {object} [opts]  — optional diff params (maxLevel, visualize, areaWkt, …)
+ */
+export async function createAbDiff(projectId, sourceObservationId, targetObservationId, opts = {}) {
+  console.log('[api.createAbDiff] projectId:', projectId, 'A:', sourceObservationId, 'B:', targetObservationId)
+  const body = {
+    name:                 opts.name ?? `ab-${sourceObservationId}-${targetObservationId}`,
+    sourceObservationId:  Number(sourceObservationId),
+    targetObservationId:  Number(targetObservationId),
+    visualize:            opts.visualize ?? true,
+    massSummary:          opts.massSummary ?? true,
+    ...( opts.areaWkt ? { areaWkt: opts.areaWkt } : {} ),
+    ...( opts.maxLevel != null ? { maxLevel: opts.maxLevel } : {} ),
+  }
+  const diff = await _post(`/api/projects/${projectId}/diffs/ab`, body)
+  console.log('[api.createAbDiff] created diffId:', diff.id, 'jobId:', diff.jobId, 'status:', diff.status)
+  return diff
+}
+
+/**
+ * Fetch all diff items for a given diff.
+ * Returns DiffItemResponse[].
+ */
+export async function fetchDiffItems(diffId) {
+  console.log('[api.fetchDiffItems] diffId:', diffId)
+  const items = await _get(`/api/diffs/${diffId}/items`)
+  console.log('[api.fetchDiffItems] got', items.length, 'items')
+  return items
+}
+
+/**
+ * Fetch the detailed report for a single diff item.
+ * Returns DiffItemReportResponse: { diffItemId, sourceObservedAt, targetObservedAt,
+ *   addedVolume, removedVolume, changedVolume, summaryPath }
+ */
+export async function fetchDiffItemReport(diffItemId) {
+  console.log('[api.fetchDiffItemReport] diffItemId:', diffItemId)
+  const report = await _get(`/api/diff-items/${diffItemId}/report`)
+  console.log('[api.fetchDiffItemReport] report:', report)
+  return report
+}
+
+/**
+ * Fetch the tileset URL for a single diff item.
+ * Returns TilesetUrlResponse: { tilesetUrl }
+ */
+export async function fetchDiffItemTilesetUrl(diffItemId) {
+  console.log('[api.fetchDiffItemTilesetUrl] diffItemId:', diffItemId)
+  const { tilesetUrl } = await _get(`/api/diff-items/${diffItemId}/tileset`)
+  // Backend returns …/voxel/tileset.json — Cesium needs …/voxel/visualization/tileset.json
+  return _injectVisualizationFolder(_toAbsoluteUrl(tilesetUrl))
+}
+
+/**
+ * Cancel a diff job.
+ */
+export async function cancelDiff(diffId) {
+  console.log('[api.cancelDiff] diffId:', diffId)
+  return _post(`/api/diffs/${diffId}/cancel`, {})
+}
+
+/**
+ * Create an A/B diff and poll until the job completes.
+ * Calls onStatus(msg: string) with progress updates.
+ * Resolves with the first DiffItemResponse enriched with:
+ *   { report: DiffItemReportResponse, tilesetUrl: string|null }
+ *
+ * @param {string|number} projectId
+ * @param {string|number} sourceObservationId
+ * @param {string|number} targetObservationId
+ * @param {{ areaWkt?, maxLevel?, onStatus? }} [opts]
+ */
+export async function createAbDiffAndPoll(projectId, sourceObservationId, targetObservationId, opts = {}) {
+  const onStatus  = opts.onStatus  ?? (() => {})
+  const onDiffId  = opts.onDiffId  ?? (() => {})   // called with diffId once created
+
+  onStatus('A/B 분석 작업 생성 중…')
+  const diff = await createAbDiff(projectId, sourceObservationId, targetObservationId, opts)
+
+  if (!diff.jobId) throw new Error('diff 작업 jobId가 없습니다')
+  onDiffId(diff.id)   // expose diffId to caller so they can cancel
+
+  onStatus('분석 중… (잠시 기다려 주세요)')
+  const job = await pollJob(
+    diff.jobId,
+    j => {
+      const pct = j.progress ? ` (${j.progress}%)` : ''
+      const msg = j.message  ? ` — ${j.message}`  : ''
+      onStatus(`분석 중${pct}${msg}`)
+    },
+    { intervalMs: 3000, timeoutMs: 600_000 },
+  )
+
+  if (job.status !== 'SUCCEEDED') {
+    throw new Error(`분석 ${job.status.toLowerCase()}: ${job.message ?? '오류 없음'}`)
+  }
+
+  onStatus('결과 가져오는 중…')
+  const items = await fetchDiffItems(diff.id)
+  if (!items.length) throw new Error('분석 결과가 없습니다')
+
+  const item = items[0]
+  console.log('[createAbDiffAndPoll] item volumes — added:', item.addedVolume, 'removed:', item.removedVolume, 'changed:', item.changedVolume)
+
+  // Try the /report endpoint for extra fields (summaryPath etc) but don't
+  // rely on it for volumes — the item itself carries addedVolume/removedVolume/
+  // changedVolume directly from the diff computation.
+  let report = null
+  try { report = await fetchDiffItemReport(item.id) } catch (_) {}
+  console.log('[createAbDiffAndPoll] report:', report)
+
+  // The /report endpoint returns zeros — real volumes are in mass-summary.json.
+  // summaryPath from report: /data/voxelsets/.../summary.json
+  // mass-summary served at:  /files/voxelsets/.../voxel/mass-summary.json
+  let massSummary = null
+  if (report?.summaryPath) {
+    try {
+      // Convert /data/voxelsets/…/summary.json → /files/voxelsets/…/voxel/mass-summary.json
+      const massUrl = _toAbsoluteUrl(
+        report.summaryPath
+          .replace(/^\/data\//, '/files/')
+          .replace(/\/summary\.json$/, '/voxel/mass-summary.json')
+      )
+      console.log('[createAbDiffAndPoll] fetching mass-summary from:', massUrl)
+      const res = await fetch(massUrl)
+      if (res.ok) {
+        massSummary = await res.json()
+        console.log('[createAbDiffAndPoll] mass-summary:', massSummary)
+      } else {
+        console.warn('[createAbDiffAndPoll] mass-summary fetch failed:', res.status)
+      }
+    } catch (e) {
+      console.warn('[createAbDiffAndPoll] mass-summary fetch error:', e.message)
+    }
+  }
+
+  // The mass-summary has per-level breakdowns in levelCounts[].
+  // Coarse levels (0-N-1) are large multi-voxel tiles that dominate the totals.
+  // The LAST level is the finest resolution and gives the correct human-scale volume.
+  const lastLevel = massSummary?.levelCounts?.length
+    ? massSummary.levelCounts[massSummary.levelCounts.length - 1]
+    : null
+  if (lastLevel) console.log('[createAbDiffAndPoll] lastLevel:', lastLevel)
+
+  const summary = {
+    diffItemId:       item.id,
+    sourceObservedAt: item.sourceObservedAt ?? report?.sourceObservedAt,
+    targetObservedAt: item.targetObservedAt ?? report?.targetObservedAt,
+    // Use last-level fine-resolution volumes; fall back to totals then item/report
+    addedVolume:   lastLevel?.addApproxVolumeCubicMeters
+                ?? massSummary?.totalAddApproxVolumeCubicMeters
+                ?? item.addedVolume   ?? report?.addedVolume   ?? 0,
+    removedVolume: lastLevel?.removeApproxVolumeCubicMeters
+                ?? massSummary?.totalRemoveApproxVolumeCubicMeters
+                ?? item.removedVolume ?? report?.removedVolume ?? 0,
+    changedVolume: 0,
+    // Voxel counts from last level for display
+    addedCount:   lastLevel?.addVoxelCount    ?? massSummary?.totalAddVoxelCount    ?? 0,
+    removedCount: lastLevel?.removeVoxelCount ?? massSummary?.totalRemoveVoxelCount ?? 0,
+    summaryPath:  report?.summaryPath ?? null,
+  }
+  console.log('[createAbDiffAndPoll] final summary:', summary)
+
+  let tilesetUrl = null
+  if (item.resultTilesetUrl) {
+    // item already has a URL — still needs visualization injection
+    tilesetUrl = _injectVisualizationFolder(_toAbsoluteUrl(item.resultTilesetUrl))
+  } else {
+    try { tilesetUrl = await fetchDiffItemTilesetUrl(item.id) } catch (_) {}
+  }
+
+  onStatus('완료')
+  return { ...item, report: summary, tilesetUrl }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  TIME-SERIES DIFFS
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Create a TIME_SERIES diff job for a project (covers all consecutive obs pairs).
+ * Returns DiffCreateResponse: { id, projectId, name, type, status, jobId, itemCount }
+ *
+ * @param {string|number} projectId
+ * @param {object} [opts]  — optional diff params (maxLevel, visualize, areaWkt, …)
+ */
+export async function createTimeSeriesDiff(projectId, opts = {}) {
+  console.log('[api.createTimeSeriesDiff] projectId:', projectId)
+  const body = {
+    name:        opts.name ?? `timeseries-${projectId}-${Date.now()}`,
+    visualize:   opts.visualize   ?? true,
+    massSummary: opts.massSummary ?? true,
+    ...( opts.areaWkt   ? { areaWkt:   opts.areaWkt   } : {} ),
+    ...( opts.maxLevel != null ? { maxLevel: opts.maxLevel } : {} ),
+  }
+  const diff = await _post(`/api/projects/${projectId}/diffs/time-series`, body)
+  console.log('[api.createTimeSeriesDiff] created diffId:', diff.id, 'jobId:', diff.jobId, 'status:', diff.status)
+  return diff
+}
+
+/**
+ * Create a TIME_SERIES diff and poll until the job completes.
+ * Calls onStatus(msg: string) with progress updates.
+ * Calls onDiffId(diffId) once the diff is created (so caller can cancel).
+ * Resolves with the DiffCreateResponse on success, or throws on failure.
+ *
+ * @param {string|number} projectId
+ * @param {{ onStatus?, onDiffId?, areaWkt?, maxLevel? }} [opts]
+ */
+export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
+  const onStatus = opts.onStatus ?? (() => {})
+  const onDiffId = opts.onDiffId ?? (() => {})
+
+  onStatus('시계열 분석 작업 생성 중…')
+  const diff = await createTimeSeriesDiff(projectId, opts)
+
+  if (!diff.jobId) throw new Error('diff 작업 jobId가 없습니다')
+  onDiffId(diff.id)
+
+  onStatus('시계열 분석 중… (잠시 기다려 주세요)')
+  const job = await pollJob(
+    diff.jobId,
+    j => {
+      const pct = j.progress ? ` (${j.progress}%)` : ''
+      const msg = j.message  ? ` — ${j.message}`   : ''
+      onStatus(`시계열 분석 중${pct}${msg}`)
+    },
+    { intervalMs: 3000, timeoutMs: 900_000 },
+  )
+
+  if (job.status !== 'SUCCEEDED') {
+    throw new Error(`시계열 분석 ${job.status.toLowerCase()}: ${job.message ?? '오류 없음'}`)
+  }
+
+  onStatus('완료')
+  return diff
+}

@@ -4,24 +4,30 @@
  * Left-panel section shown when mode === 'timeline'.
  * Shows:
  *  · Loading state while snapshots fetch
+ *  · "No diffs yet" state with compute button (or cancel during computation)
  *  · Mini bar chart of added/removed per snapshot
- *  · Visibility toggles (added / removed)
- *  · Voxel size indicator (read-only — pre-computed)
- *  · "Recompute all diffs" button (stub — calls onRecompute)
+ *  · Visibility toggles (added / removed / unchanged)
+ *  · Stats for the active snapshot (volumes from mass-summary last level)
+ *  · "Recompute all diffs" button
  *
  * Props
  * ─────
- *   snapshots      — Snapshot[] | null
- *   activeIndex    — number
- *   onSelect       — (i) => void
- *   showAdded      — bool
- *   onShowAdded    — (bool) => void
- *   showRemoved    — bool
- *   onShowRemoved  — (bool) => void
- *   playing        — bool
- *   onPlayPause    — () => void
- *   onRecompute    — () => void    (stub for now)
- *   loading        — bool
+ *   snapshots          — Snapshot[] | null
+ *   activeIndex        — number
+ *   onSelect           — (i) => void
+ *   showAdded          — bool
+ *   onShowAdded        — (bool) => void
+ *   showRemoved        — bool
+ *   onShowRemoved      — (bool) => void
+ *   showUnchanged      — bool
+ *   onShowUnchanged    — (bool) => void
+ *   playing            — bool
+ *   onPlayPause        — () => void
+ *   onRecompute        — () => void
+ *   loading            — bool
+ *   tlRecomputeRunning — bool    (true while createTimeSeriesDiffAndPoll is in flight)
+ *   tlRecomputeStatus  — string  (status message during recompute)
+ *   onCancelRecompute  — () => void
  */
 
 function Toggle({ id, checked, onChange }) {
@@ -34,9 +40,22 @@ function Toggle({ id, checked, onChange }) {
   )
 }
 
-function fmt(n, voxSize) {
-  const m3 = n * (voxSize ?? 0.5) ** 3
-  return m3 < 10000 ? `${m3.toFixed(0)} m³` : `${(m3 / 1000).toFixed(1)}k m³`
+function fmtVol(m3) {
+  if (m3 == null || isNaN(m3)) return '—'
+  const abs = Math.abs(m3)
+  if (abs >= 1_000_000) return `${(m3 / 1_000_000).toFixed(3)} Mm³`
+  if (abs >= 1_000)    return `${(m3 / 1_000).toFixed(2)}k m³`
+  return `${m3.toFixed(1)} m³`
+}
+
+function fmtVoxSize(voxSize, avgVoxVol) {
+  // Prefer a derived edge-length from the actual average voxel volume
+  if (avgVoxVol != null && avgVoxVol > 0) {
+    const edge = Math.cbrt(avgVoxVol)
+    return `${edge.toFixed(3)} m`
+  }
+  if (voxSize != null) return `${voxSize} m`
+  return '—'
 }
 
 // Mini bar chart — one bar pair per snapshot
@@ -51,8 +70,8 @@ function MiniChart({ snapshots, activeIndex, onSelect }) {
   return (
     <div className="tl-chart">
       {snapshots.map((s, i) => {
-        const addH   = ((s.stats?.added_count   ?? 0) / maxVal) * 100
-        const remH   = ((s.stats?.removed_count ?? 0) / maxVal) * 100
+        const addH    = ((s.stats?.added_count   ?? 0) / maxVal) * 100
+        const remH    = ((s.stats?.removed_count ?? 0) / maxVal) * 100
         const isActive = i === activeIndex
         return (
           <button
@@ -84,12 +103,13 @@ export default function TimelinePanel({
   showUnchanged, onShowUnchanged,
   playing, onPlayPause,
   onRecompute, loading,
+  tlRecomputeRunning, tlRecomputeStatus, onCancelRecompute,
 }) {
   const active = snapshots?.[activeIndex] ?? null
 
   return (
     <>
-      {/* ── Loading ── */}
+      {/* ── Initial loading ── */}
       {loading && (
         <div className="p-section">
           <div className="p-label">시계열 변화탐지</div>
@@ -100,17 +120,36 @@ export default function TimelinePanel({
         </div>
       )}
 
-      {/* ── No data ── */}
+      {/* ── No data: compute or show running state ── */}
       {!loading && snapshots?.length === 0 && (
         <div className="p-section">
           <div className="p-label">시계열 변화탐지</div>
-          <div className="tl-empty">
-            사전 계산된 변화 데이터가 없습니다.<br />
-            비교 모드에서 차이를 계산하거나 아래 버튼을 실행하세요.
-          </div>
-          <button className="pbtn" style={{ marginTop: 8 }} onClick={onRecompute}>
-            ⚡ 전체 계산
-          </button>
+
+          {tlRecomputeRunning ? (
+            <>
+              <div className="tl-loading">
+                <div className="tl-loading-dots"><span /><span /><span /></div>
+                {tlRecomputeStatus || '분석 중…'}
+              </div>
+              <button
+                className="pbtn"
+                style={{ marginTop: 8, width: '100%', color: 'var(--removed)' }}
+                onClick={onCancelRecompute}
+              >
+                ✕ 취소
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="tl-empty">
+                사전 계산된 변화 데이터가 없습니다.<br />
+                아래 버튼을 눌러 시계열 diff를 계산하세요.
+              </div>
+              <button className="pbtn" style={{ marginTop: 8, width: '100%' }} onClick={onRecompute}>
+                ⚡ 전체 계산
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -127,7 +166,7 @@ export default function TimelinePanel({
             </div>
           </div>
 
-{/* ── Active snapshot stats ── */}
+          {/* ── Active snapshot stats ── */}
           {active && active.stats && (
             <div className="p-section">
               <div className="p-label">Selected Period</div>
@@ -141,26 +180,36 @@ export default function TimelinePanel({
                 <div className="stat-row">
                   <span className="stat-k">추가</span>
                   <span className="stat-v" style={{ color: 'var(--added)' }}>
-                    {fmt(active.stats.added_count, active.vox_size)}
+                    {active.stats.added_vol != null
+                      ? fmtVol(active.stats.added_vol)
+                      : fmtVol(active.stats.added_count * (active.avg_vox_vol ?? 0))}
                   </span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-k">제거</span>
                   <span className="stat-v" style={{ color: 'var(--removed)' }}>
-                    {fmt(active.stats.removed_count, active.vox_size)}
+                    {active.stats.removed_vol != null
+                      ? fmtVol(active.stats.removed_vol)
+                      : fmtVol(active.stats.removed_count * (active.avg_vox_vol ?? 0))}
                   </span>
                 </div>
                 <div className="stat-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 6 }}>
                   <span className="stat-k">순 변화</span>
-                  <span className="stat-v" style={{ color: active.stats.net >= 0 ? 'var(--added)' : 'var(--removed)' }}>
-                    {active.stats.net >= 0 ? '+' : ''}
-                    {fmt(Math.abs(active.stats.net), active.vox_size)}
-                  </span>
+                  {(() => {
+                    const net = active.stats.added_vol != null
+                      ? (active.stats.added_vol - (active.stats.removed_vol ?? 0))
+                      : active.stats.net * (active.avg_vox_vol ?? 0)
+                    return (
+                      <span className="stat-v" style={{ color: net >= 0 ? 'var(--added)' : 'var(--removed)' }}>
+                        {net >= 0 ? '+' : ''}{fmtVol(Math.abs(net))}
+                      </span>
+                    )
+                  })()}
                 </div>
                 <div className="stat-row">
                   <span className="stat-k">복셀 크기</span>
                   <span className="stat-v" style={{ fontSize: 10, color: 'var(--muted)' }}>
-                    {active.vox_size} m
+                    {fmtVoxSize(active.vox_size, active.avg_vox_vol)}
                   </span>
                 </div>
               </div>
@@ -230,16 +279,31 @@ export default function TimelinePanel({
             </div>
           </div>
 
-          {/* ── Recompute stub ── */}
+          {/* ── Recompute ── */}
           <div className="p-section">
             <div className="p-label">Data</div>
             <div className="tl-data-note">
-              {snapshots.length}개 사전 계산된 변화 로드됨
-              {snapshots[0]?._dummy ? ' (더미 데이터)' : ''}
+              {snapshots.length}개 스냅샷 로드됨
             </div>
-            <button className="pbtn" style={{ marginTop: 6, width: '100%' }} onClick={onRecompute}>
-              ⚡ 전체 재계산
-            </button>
+            {tlRecomputeRunning ? (
+              <>
+                <div className="tl-loading" style={{ marginTop: 6 }}>
+                  <div className="tl-loading-dots"><span /><span /><span /></div>
+                  {tlRecomputeStatus || '분석 중…'}
+                </div>
+                <button
+                  className="pbtn"
+                  style={{ marginTop: 6, width: '100%', color: 'var(--removed)' }}
+                  onClick={onCancelRecompute}
+                >
+                  ✕ 취소
+                </button>
+              </>
+            ) : (
+              <button className="pbtn" style={{ marginTop: 6, width: '100%' }} onClick={onRecompute}>
+                ⚡ 전체 재계산
+              </button>
+            )}
           </div>
         </>
       )}

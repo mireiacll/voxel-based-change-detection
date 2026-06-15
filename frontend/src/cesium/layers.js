@@ -11,6 +11,8 @@
  */
 
 import { CONFIG } from '../config'
+
+const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 import { setStatus, toast, requestRender } from './cesiumInit'
 
 export const state = {
@@ -20,7 +22,8 @@ export const state = {
   pc:              null,   // single-date view layer (point cloud)
   meshA:           null,   // compare A
   meshB:           null,   // compare B
-  diffPrim:        null,   // voxel diff primitive
+  diffPrim:        null,   // voxel diff primitive (local compare mode)
+  diffApiTs:       null,   // A/B full diff result tileset (compare-api mode)
   // Timeline: map of snapshot.id → Cesium3DTileset (all preloaded, show toggled)
   timeseriesTsMap: {},
   // Which snapshot id is currently "active" (show=true) in timeline
@@ -68,6 +71,12 @@ export function syncVisibility(mode, checkboxState) {
   if (state.diffPrim) {
     state.diffPrim.show = inCompare
     console.log(`[syncVisibility]   diffPrim.show = ${state.diffPrim.show}`)
+  }
+
+  // A/B full diff tileset — only in compare-api mode
+  if (state.diffApiTs) {
+    state.diffApiTs.show = inCompareApi
+    console.log(`[syncVisibility]   diffApiTs.show = ${state.diffApiTs.show}`)
   }
 
   // Timeseries tilesets — ALL hidden unless in timeline, then only active one shown
@@ -132,9 +141,9 @@ export function clearAllLayers() {
   console.log('[clearAllLayers] full wipe of all layers')
   _rm(state.mesh);  _rm(state.pc)
   _rm(state.meshA); _rm(state.meshB)
-  _rm(state.diffPrim)
+  _rm(state.diffPrim); _rm(state.diffApiTs)
   for (const ts of Object.values(state.timeseriesTsMap)) _rm(ts)
-  state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = null
+  state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = state.diffApiTs = null
   state.timeseriesTsMap  = {}
   state.activeSnapshotId = null
   if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
@@ -343,6 +352,70 @@ export function renderVoxelDiff(voxels, voxelSize) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  A/B FULL DIFF TILESET (compare-api mode)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Per-channel visibility state for compare-api diff tileset ─────────────
+const _diffApiVis = { added: true, removed: true }
+
+function _applyDiffApiStyle() {
+  const ts = state.diffApiTs
+  if (!ts) return
+  // unchanged is always false for compare-api (tileset has no gray voxels)
+  const shader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, false)
+  ts.customShader = shader ?? undefined
+  console.log(`[_applyDiffApiStyle] added=${_diffApiVis.added} removed=${_diffApiVis.removed} shader=${shader ? 'custom' : 'none'}`)
+  requestAnimationFrame(() => requestRender())
+}
+
+/**
+ * Update added / removed visibility for the compare-api diff tileset.
+ * Call from App.jsx whenever compareApiVis toggles change.
+ */
+export function setDiffApiTilesetVisibility(showAdded, showRemoved) {
+  _diffApiVis.added   = showAdded
+  _diffApiVis.removed = showRemoved
+  console.log(`[setDiffApiTilesetVisibility] added=${showAdded} removed=${showRemoved}`)
+  _applyDiffApiStyle()
+}
+
+/**
+ * Load the result tileset from an A/B full diff and store it in state.diffApiTs.
+ * Replaces any previously loaded diff tileset.
+ * The tileset is shown immediately (mode must be compare-api at this point).
+ *
+ * @param {string} tilesetUrl  — absolute URL to visualization/tileset.json
+ */
+export async function loadDiffApiTileset(tilesetUrl) {
+  console.log('[loadDiffApiTileset] url:', tilesetUrl)
+  _rm(state.diffApiTs)
+  state.diffApiTs = null
+
+  if (!tilesetUrl) return
+
+  const ts = await _loadTileset(tilesetUrl, true, 4, 'mesh', null)
+  if (ts) {
+    state.diffApiTs = ts
+    // Apply current visibility state (honours toggles set before/after load)
+    _applyDiffApiStyle()
+    console.log('[loadDiffApiTileset] loaded OK')
+  } else {
+    console.warn('[loadDiffApiTileset] failed to load tileset:', tilesetUrl)
+  }
+
+  requestAnimationFrame(() => requestRender())
+}
+
+/**
+ * Clear the A/B diff tileset (call on clear/reset).
+ */
+export function clearDiffApiTileset() {
+  _rm(state.diffApiTs)
+  state.diffApiTs = null
+  requestAnimationFrame(() => requestRender())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  TIMESERIES — PRELOAD ALL + SHOW/HIDE BY ID
 //
 //  loadAllSnapshotTilesets(snapshots)
@@ -365,15 +438,15 @@ export function renderVoxelDiff(voxels, voxelSize) {
 export async function loadAllSnapshotTilesets(snapshots) {
   if (!snapshots?.length) return
 
-  const toLoad = snapshots.filter(s => s.tileset_path && !(s.id in state.timeseriesTsMap))
+  const toLoad = snapshots.filter(s => s.tilesetUrl && !(s.id in state.timeseriesTsMap))
   console.log(`[loadAllSnapshotTilesets] ${toLoad.length} to load, ${snapshots.length - toLoad.length} already cached`)
 
   if (!toLoad.length) return
 
   const results = await Promise.allSettled(
     toLoad.map(async s => {
-      console.log(`[loadAllSnapshotTilesets] loading snapshot ${s.id} path=${s.tileset_path}`)
-      const ts = await _loadTileset(s.tileset_path, false, 2, 'mesh', null)
+      console.log(`[loadAllSnapshotTilesets] loading snapshot ${s.id} url=${s.tilesetUrl}`)
+      const ts = await _loadTileset(s.tilesetUrl, false, 2, 'mesh', null)
       if (ts) {
         state.timeseriesTsMap[s.id] = ts
         console.log(`[loadAllSnapshotTilesets] loaded OK snapshot ${s.id}`)

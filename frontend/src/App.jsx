@@ -11,6 +11,8 @@ import {
   renderVoxelDiff, invalidateTilesetUrl,
   loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
   setSnapshotTilesetVisibility,
+  loadDiffApiTileset, clearDiffApiTileset,
+  setDiffApiTilesetVisibility,
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
@@ -25,6 +27,9 @@ import {
   fetchVoxelTilesetUrl,
   fetchObservation,
   pollJob,
+  createAbDiffAndPoll,
+  cancelDiff,
+  createTimeSeriesDiffAndPoll,
 } from './api'
 
 import NavBar             from './components/NavBar'
@@ -88,14 +93,16 @@ export default function App() {
   useEffect(() => { compareApiVisRef.current = compareApiVis }, [compareApiVis])
   useEffect(() => { tlVisRef.current         = tlVis },         [tlVis])
 
-  const [apiDateIdA, setApiDateIdA] = useState('')
-  const [apiDateIdB, setApiDateIdB] = useState('')
-  const [apiRunning, setApiRunning] = useState(false)
-  const [apiStatus,  setApiStatus]  = useState('')
-  const [apiError,   setApiError]   = useState(null)
-  const [apiSummary, setApiSummary] = useState(null)
+  const [apiDateIdA,        setApiDateIdA]        = useState('')
+  const [apiDateIdB,        setApiDateIdB]        = useState('')
+  const [apiRunning,        setApiRunning]        = useState(false)
+  const [apiStatus,         setApiStatus]         = useState('')
+  const [apiError,          setApiError]          = useState(null)
+  const [apiSummary,        setApiSummary]        = useState(null)
+  const [apiDiffTilesetUrl, setApiDiffTilesetUrl] = useState(null)
 
   const lastCompareDiffRef = useRef(null)
+  const apiDiffIdRef      = useRef(null)   // diffId of the in-flight A/B diff (for cancel)
 
   const [voxelSize,   setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
   const [diffRunning, setDiffRunning] = useState(false)
@@ -119,6 +126,9 @@ export default function App() {
   const [tlActiveIndex, setTlActiveIndex] = useState(0)
   const [tlLoading,     setTlLoading]     = useState(false)
   const [tlPlaying,     setTlPlaying]     = useState(false)
+  const [tlRecomputeRunning, setTlRecomputeRunning] = useState(false)
+  const [tlRecomputeStatus,  setTlRecomputeStatus]  = useState('')
+  const [tlRecomputeDiffId,  setTlRecomputeDiffId]  = useState(null)
   const tlPlayTimer    = useRef(null)
   const viewerReady    = useRef(false)
   const tlSnapshotsRef = useRef(null)
@@ -253,6 +263,12 @@ export default function App() {
     }
   }, [compareVis])
 
+  // ── Re-sync compare-api diff tileset style ──────────────────────────────
+  useEffect(() => {
+    if (mode !== 'compare-api') return
+    setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed)
+  }, [compareApiVis])
+
   // ── Re-sync timeline tileset style ───────────────────────────────────
   useEffect(() => {
     if (mode !== 'timeline') return
@@ -333,7 +349,7 @@ export default function App() {
     setCompareIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
     setApiDateIdA(site.dates[0]?.id ?? '')
     setApiDateIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
-    setApiSummary(null); setApiStatus(''); setApiError(null)
+    setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
     setCompareVis({ ...DEFAULT_VIS })
     setCompareApiVis({ ...DEFAULT_VIS })
@@ -555,29 +571,104 @@ export default function App() {
     if (apiRunning) return
     if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
     if (apiDateIdA === apiDateIdB)  { setApiError('서로 다른 날짜를 선택하세요'); return }
-    setApiRunning(true); setApiError(null); setApiSummary(null)
+
+    // Guard: both observations must have a completed voxel before diffing
+    const dA = activeSite.dates.find(d => d.id === apiDateIdA)
+    const dB = activeSite.dates.find(d => d.id === apiDateIdB)
+    if (dA?.voxelStatus !== 'SUCCEEDED') {
+      setApiError(`날짜 A (${dA?.label ?? apiDateIdA})의 Voxel이 아직 생성되지 않았습니다. 왼쪽 패널에서 먼저 계산하세요.`)
+      return
+    }
+    if (dB?.voxelStatus !== 'SUCCEEDED') {
+      setApiError(`날짜 B (${dB?.label ?? apiDateIdB})의 Voxel이 아직 생성되지 않았습니다. 왼쪽 패널에서 먼저 계산하세요.`)
+      return
+    }
+
+    apiDiffIdRef.current = null
+    setApiRunning(true); setApiError(null); setApiSummary(null); setApiDiffTilesetUrl(null)
     try {
-      const { runFullDiff }   = await import('./backendDiff')
-      const { getPolygonGeo } = await import('./cesium/polygonDraw')
-      const result = await runFullDiff({
-        projectId: activeSite.id,
-        dateA: apiDateIdA, dateB: apiDateIdB,
-        polygon: getPolygonGeo(),
-        onStatus: setApiStatus,
-      })
-      setApiSummary(result)
+      const { getPolygonWkt } = await import('./cesium/polygonDraw')
+      const areaWkt = getPolygonWkt?.() ?? undefined
+
+      const result = await createAbDiffAndPoll(
+        activeSite.id,
+        apiDateIdA,
+        apiDateIdB,
+        {
+          areaWkt,
+          onStatus: setApiStatus,
+          onDiffId: id => { apiDiffIdRef.current = id },
+        },
+      )
+
+      // result = { ...DiffItemResponse, report: DiffItemReportResponse, tilesetUrl }
+      setApiSummary(result.report)
+
+      if (result.tilesetUrl) {
+        setApiDiffTilesetUrl(result.tilesetUrl)
+        await loadDiffApiTileset(result.tilesetUrl)
+      }
     } catch (e) {
+      console.error('[handleApiRun] FAILED:', e.message, e)
       setApiError(e.message)
     } finally {
+      apiDiffIdRef.current = null
+      setApiRunning(false)
+    }
+  }
+
+  async function handleApiCancel() {
+    const diffId = apiDiffIdRef.current
+    if (!diffId) { setApiRunning(false); return }
+    try {
+      await cancelDiff(diffId)
+      setApiStatus('취소됨')
+    } catch (e) {
+      console.warn('[handleApiCancel] cancel request failed:', e.message)
+    } finally {
+      apiDiffIdRef.current = null
       setApiRunning(false)
     }
   }
 
   function handleApiClear() {
-    setApiSummary(null); setApiStatus(''); setApiError(null)
+    setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
+    clearDiffApiTileset()
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
+
+  const handleTlRecompute = useCallback(async () => {
+    if (!activeSite) return
+    clearAllSnapshotTilesets()
+    setTlSnapshots(null)
+    setTlRecomputeRunning(true)
+    setTlRecomputeStatus('')
+    setTlRecomputeDiffId(null)
+    try {
+      await createTimeSeriesDiffAndPoll(activeSite.id, {
+        onStatus: msg => setTlRecomputeStatus(msg),
+        onDiffId: id  => setTlRecomputeDiffId(id),
+      })
+      invalidateDiffCache(activeSite.id)
+      setTlSnapshots(null)  // triggers the load effect to re-fetch
+    } catch (e) {
+      console.error('[handleTlRecompute] failed:', e.message)
+      setTlRecomputeStatus(`오류: ${e.message}`)
+    } finally {
+      setTlRecomputeRunning(false)
+      setTlRecomputeDiffId(null)
+    }
+  }, [activeSite])
+
+  const handleTlCancelRecompute = useCallback(async () => {
+    if (tlRecomputeDiffId) {
+      try { await cancelDiff(tlRecomputeDiffId) } catch (_) {}
+    }
+    setTlRecomputeRunning(false)
+    setTlRecomputeStatus('')
+    setTlRecomputeDiffId(null)
+  }, [tlRecomputeDiffId])
 
   /**
    * Resume polling for a date whose voxel job is already QUEUED/RUNNING.
@@ -789,14 +880,13 @@ export default function App() {
             tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
-            tlLoading={tlLoading}           tlOnRecompute={() => {
-              console.log('[tlOnRecompute] clearing snapshots + preloaded tilesets for reload')
-              clearAllSnapshotTilesets()
-              setTlSnapshots(null)
-            }}
+            tlLoading={tlLoading}           tlOnRecompute={handleTlRecompute}
+            tlRecomputeRunning={tlRecomputeRunning}
+            tlRecomputeStatus={tlRecomputeStatus}
+            tlOnCancelRecompute={handleTlCancelRecompute}
             apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
             apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
-            apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}
+            apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}   onApiCancel={handleApiCancel}
             apiStatus={apiStatus}           apiError={apiError}
             apiSummary={apiSummary}
           />

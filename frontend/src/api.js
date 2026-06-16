@@ -800,3 +800,9 @@ export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
   onStatus('완료')
   return diff
 }
+
+
+export async function fetchOriginalTilesetUrl(observationId) {
+  const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/original`)
+  return _toAbsoluteUrl(tilesetUrl)
+}

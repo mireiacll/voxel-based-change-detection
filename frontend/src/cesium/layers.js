@@ -500,32 +500,27 @@ const _tlVis = { added: true, removed: true, unchanged: true }
  *   removed  → #4d9fff  vec3(0.302, 0.624, 1.0)
  */
 function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
-  // Nothing visible — discard everything cheaply
-  if (!showAdded && !showRemoved && !showUnchanged) {
-    return new window.Cesium.CustomShader({
-      fragmentShaderText: `
-void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-  discard;
-}`,
-    })
-  }
-
   const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
   const IS_BLUE = '(material.diffuse.b > material.diffuse.r * 1.2 && material.diffuse.b > material.diffuse.g * 1.2)'
+  const ADDED_COLOR   = 'vec3(1.0, 0.15, 0.15)'
+  const REMOVED_COLOR = 'vec3(0.15, 0.45, 1.0)'
 
-  const ADDED_COLOR   = 'vec3(1.0, 0.15, 0.15)';
-  const REMOVED_COLOR = 'vec3(0.15, 0.45, 1.0)';
+  const discardAdded     = !showAdded     ? 'if (isRed)             { discard; }' : ''
+  const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
+  const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
+  const recolorAdded   = showAdded   ? `if (isRed)  { material.diffuse = ${ADDED_COLOR};   material.emissive = ${ADDED_COLOR};   }` : ''
+  const recolorRemoved = showRemoved ? `if (isBlue) { material.diffuse = ${REMOVED_COLOR}; material.emissive = ${REMOVED_COLOR}; }` : ''
 
   return new window.Cesium.CustomShader({
     fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   bool isRed  = ${IS_RED};
   bool isBlue = ${IS_BLUE};
-  if (isRed) {
-    material.diffuse = ${ADDED_COLOR};
-  } else if (isBlue) {
-    material.diffuse = ${REMOVED_COLOR};
-  } 
+  ${discardAdded}
+  ${discardRemoved}
+  ${discardUnchanged}
+  ${recolorAdded}
+  ${recolorRemoved}
 }`,
   })
 }

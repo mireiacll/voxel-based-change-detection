@@ -539,7 +539,19 @@ export default function App() {
     if (!compareIdA || !compareIdB) { addToast('두 날짜를 먼저 선택하세요', 'warn'); return }
     if (compareIdA === compareIdB)  { addToast('서로 다른 날짜를 선택하세요', 'warn'); return }
     if (!dA || !dB)                 { addToast('날짜를 찾을 수 없습니다', 'warn'); return }
-    if (!dA.datasetPath || !dB.datasetPath) { addToast('선택한 날짜 중 데이터가 없습니다', 'warn'); return }
+    // Mesh is not supported by the Python diff — block early with a clear message
+    if (dA.datasetType === 'mesh' || dB.datasetType === 'mesh') {
+      addToast('메쉬 데이터는 차이 계산을 지원하지 않습니다. 포인트클라우드 날짜를 선택하세요.', 'warn')
+      return
+    }
+    // The diff server now fetches tilesets by URL — no local datasetPath needed.
+    // Warn if neither the URL nor a path is available (observation has no dataset at all).
+    if (!dA.originalTilesetUrl && !dA.datasetPath) {
+      addToast(`날짜 A (${dA.label})에 데이터가 없습니다`, 'warn'); return
+    }
+    if (!dB.originalTilesetUrl && !dB.datasetPath) {
+      addToast(`날짜 B (${dB.label})에 데이터가 없습니다`, 'warn'); return
+    }
     setDiffRunning(true)
     try {
       await runVoxelDiff(

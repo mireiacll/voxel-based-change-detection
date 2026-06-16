@@ -16,11 +16,13 @@ import asyncio
 import os
 import re
 import shutil
+import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,11 +73,15 @@ class PolygonPoint(BaseModel):
     lat: float
 
 class DiffRequest(BaseModel):
-    job_id:   str   = Field(..., description="Client-generated UUID for this job")
-    path_a:   str   = Field(..., description="Relative path to date A tileset.json")
-    path_b:   str   = Field(..., description="Relative path to date B tileset.json")
-    vox_size: float = Field(0.5, ge=0.05, le=20.0)
-    polygon:  Optional[list[PolygonPoint]] = None
+    job_id:        str   = Field(..., description="Client-generated UUID for this job")
+    # New: full URLs served by the external API — preferred over local paths
+    tileset_url_a: Optional[str] = Field(None, description="Absolute URL to date A tileset.json")
+    tileset_url_b: Optional[str] = Field(None, description="Absolute URL to date B tileset.json")
+    # Legacy: relative local paths (kept for backward compatibility)
+    path_a:        Optional[str] = Field(None, description="Relative path to date A tileset.json (legacy)")
+    path_b:        Optional[str] = Field(None, description="Relative path to date B tileset.json (legacy)")
+    vox_size:      float = Field(0.5, ge=0.05, le=20.0)
+    polygon:       Optional[list[PolygonPoint]] = None
 
 class VoxelResult(BaseModel):
     iLon: int
@@ -547,28 +553,130 @@ async def register_voxel(
 #  ROUTES — diff
 # ═════════════════════════════════════════════════════════════════════════
 
+async def _download_tileset_tree(url: str, dest_dir: Path) -> Path:
+    """
+    Download a tileset.json from a URL and all referenced .glb / .b3dm
+    tile files into dest_dir, preserving relative paths.
+
+    The tileset.json may reference tiles as relative URIs like
+    "data/RR1.glb" — we resolve each one relative to the tileset URL
+    and download it into the same relative path under dest_dir.
+
+    Returns the local path to tileset.json.
+    """
+    import json as _json
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tileset_path = dest_dir / "tileset.json"
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        # 1. Download tileset.json
+        r = await client.get(url)
+        r.raise_for_status()
+        tileset_path.write_bytes(r.content)
+
+        # 2. Parse and collect all tile URIs referenced in the tileset
+        tileset_data = _json.loads(r.content)
+        base_url = url.rsplit("/", 1)[0] + "/"
+
+        tile_uris = _collect_tile_uris(tileset_data)
+
+        # 3. Download each tile file
+        for rel_uri in tile_uris:
+            # Skip absolute URLs or data URIs
+            if rel_uri.startswith("http://") or rel_uri.startswith("https://") or rel_uri.startswith("data:"):
+                continue
+            tile_url  = base_url + rel_uri
+            tile_path = dest_dir / rel_uri
+            tile_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                tr = await client.get(tile_url)
+                if tr.status_code == 200:
+                    tile_path.write_bytes(tr.content)
+                else:
+                    print(f"[diff/download] WARNING: {tile_url} → {tr.status_code}")
+            except Exception as e:
+                print(f"[diff/download] WARNING: failed to download {tile_url}: {e}")
+
+    return tileset_path
+
+
+def _collect_tile_uris(node: dict, uris: set = None) -> set:
+    """Recursively collect all content URIs from a 3D Tiles tileset dict."""
+    if uris is None:
+        uris = set()
+    if isinstance(node, dict):
+        if "content" in node:
+            c = node["content"]
+            uri = c.get("uri") or c.get("url")
+            if uri:
+                uris.add(uri)
+        if "children" in node:
+            for child in node["children"]:
+                _collect_tile_uris(child, uris)
+        if "root" in node:
+            _collect_tile_uris(node["root"], uris)
+    return uris
+
+
 @app.post("/api/diff")
 async def run_diff(req: DiffRequest):
 
-    def _resolve(rel: str) -> Path:
-        rel = rel.lstrip("/")
-        if rel.startswith("data/"):
-            rel = rel[len("data/"):]
-        resolved = (DATA_ROOT / rel).resolve()
-        if not str(resolved).startswith(str(DATA_ROOT)):
-            raise HTTPException(status_code=400, detail="Invalid path")
-        return resolved
+    # ── Determine tileset paths ──────────────────────────────────────────
+    # Prefer URL-based (new), fall back to local path (legacy).
 
-    tileset_a = _resolve(req.path_a)
-    tileset_b = _resolve(req.path_b)
+    tmp_dir = None  # will hold temp dir if we downloaded tilesets
 
-    for ts, label in [(tileset_a, "path_a"), (tileset_b, "path_b")]:
-        if not ts.exists():
+    if req.tileset_url_a and req.tileset_url_b:
+        # New path: download tilesets from the external API
+        tmp_dir = Path(tempfile.mkdtemp(prefix="diff_"))
+        dir_a = tmp_dir / "a"
+        dir_b = tmp_dir / "b"
+        try:
+            tileset_a, tileset_b = await asyncio.gather(
+                _download_tileset_tree(req.tileset_url_a, dir_a),
+                _download_tileset_tree(req.tileset_url_b, dir_b),
+            )
+        except httpx.HTTPStatusError as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise HTTPException(
-                status_code=404,
-                detail=f"tileset.json not found for {label}: {ts}",
+                status_code=502,
+                detail=f"Failed to download tileset from external API: {e}",
+            )
+        except Exception as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Tileset download error: {e}",
             )
 
+    elif req.path_a and req.path_b:
+        # Legacy path: resolve local file paths
+        def _resolve(rel: str) -> Path:
+            rel = rel.lstrip("/")
+            if rel.startswith("data/"):
+                rel = rel[len("data/"):]
+            resolved = (DATA_ROOT / rel).resolve()
+            if not str(resolved).startswith(str(DATA_ROOT)):
+                raise HTTPException(status_code=400, detail="Invalid path")
+            return resolved
+
+        tileset_a = _resolve(req.path_a)
+        tileset_b = _resolve(req.path_b)
+
+        for ts, label in [(tileset_a, "path_a"), (tileset_b, "path_b")]:
+            if not ts.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"tileset.json not found for {label}: {ts}",
+                )
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either (tileset_url_a + tileset_url_b) or (path_a + path_b)",
+        )
+
+    # ── Run diff in thread pool ──────────────────────────────────────────
     poly_dicts = (
         [{"lon": p.lon, "lat": p.lat} for p in req.polygon]
         if req.polygon else None
@@ -587,6 +695,8 @@ async def run_diff(req: DiffRequest):
         raise HTTPException(status_code=500, detail=f"Diff computation failed: {e}")
     finally:
         _cancel_flags.pop(job_id, None)
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if result.get("cancelled"):
         return {"cancelled": True, "job_id": job_id}

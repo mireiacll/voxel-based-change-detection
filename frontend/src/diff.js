@@ -3,12 +3,19 @@
  *
  * Offloads voxelization + diff to the FastAPI server (/api/diff).
  * The browser only handles Cesium rendering of the returned voxels.
+ *
+ * Change: now fetches original tileset URLs from the external API
+ * (localhost:8080) and passes them to the Python diff server instead
+ * of relying on local datasetPath strings.
+ *
+ * Mesh observations are NOT supported — only pointcloud.
  */
 
 import { CONFIG } from './config'
 import { toast } from './cesium/cesiumInit'
 import { loadCompare, renderVoxelDiff } from './cesium/layers'
 import { getPolygonGeo } from './cesium/polygonDraw'
+import { fetchOriginalTilesetUrl } from './api'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -21,11 +28,8 @@ window.diffState = {
 }
 
 // ── Cancellation state ────────────────────────────────────────────────────
-// job_id is generated CLIENT-SIDE and sent with the request so we know it
-// before the response arrives — allowing cancel mid-computation.
 let _abortController = null
 let _jobId           = null
-
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function runVoxelDiff(
@@ -33,6 +37,14 @@ export async function runVoxelDiff(
   voxSize, tintA, tintB, checkboxState,
   onDiffStatus, onStats,
 ) {
+  // Guard: only pointcloud is supported by the Python diff
+  if (dateA.datasetType === 'mesh' || dateB.datasetType === 'mesh') {
+    const which = dateA.datasetType === 'mesh' ? dateA.label : dateB.label
+    toast(`메쉬 데이터는 차이 계산을 지원하지 않습니다: ${which}`, 'warn')
+    onDiffStatus('done', '메쉬는 지원하지 않음 — 포인트클라우드를 선택하세요')
+    return
+  }
+
   const polygon = getPolygonGeo()
 
   window.diffState.voxelSize      = voxSize
@@ -43,7 +55,28 @@ export async function runVoxelDiff(
   onDiffStatus('computing', `Loading meshes: ${dateA.label} vs ${dateB.label}…`)
   await loadCompare(site, dateA, dateB, currentMode, tintA, tintB, checkboxState)
 
-  // 2. Generate job ID client-side so we can cancel before the response arrives
+  // 2. Fetch original tileset URLs from the external API (:8080)
+  //    The Python server will download these to run the diff.
+  onDiffStatus('computing', 'Fetching tileset URLs from API…')
+  let tilesetUrlA, tilesetUrlB
+  try {
+    ;[tilesetUrlA, tilesetUrlB] = await Promise.all([
+      fetchOriginalTilesetUrl(dateA.id),
+      fetchOriginalTilesetUrl(dateB.id),
+    ])
+  } catch (e) {
+    toast(`Tileset URL 조회 실패: ${e.message}`, 'err')
+    onDiffStatus('done', `URL 조회 실패: ${e.message}`)
+    return
+  }
+
+  if (!tilesetUrlA || !tilesetUrlB) {
+    toast('선택한 날짜에 원본 tileset이 없습니다', 'warn')
+    onDiffStatus('done', 'Tileset URL 없음')
+    return
+  }
+
+  // 3. Generate job ID client-side so we can cancel before the response arrives
   _jobId           = crypto.randomUUID()
   _abortController = new AbortController()
 
@@ -56,11 +89,11 @@ export async function runVoxelDiff(
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        job_id:  _jobId,
-        path_a:  dateA.datasetPath,
-        path_b:  dateB.datasetPath,
-        vox_size: voxSize,
-        polygon: polygon ?? undefined,
+        job_id:        _jobId,
+        tileset_url_a: tilesetUrlA,
+        tileset_url_b: tilesetUrlB,
+        vox_size:      voxSize,
+        polygon:       polygon ?? undefined,
       }),
       signal: _abortController.signal,
     })
@@ -86,12 +119,11 @@ export async function runVoxelDiff(
     onDiffStatus('done', `Error: ${e.message}`)
     return
   } finally {
-    // Always clean up regardless of success / error / cancel
     _abortController = null
     _jobId           = null
   }
 
-  // 3. Store results
+  // 4. Store results
   window.diffState.gridDef = {
     lonStep: data.grid_def.lon_step,
     latStep: data.grid_def.lat_step,
@@ -102,7 +134,7 @@ export async function runVoxelDiff(
     type:  v.type,
   }))
 
-  // 4. Report stats to React
+  // 5. Report stats to React
   onStats({
     added:   data.stats.added_count,
     removed: data.stats.removed_count,
@@ -110,7 +142,7 @@ export async function runVoxelDiff(
     clipped: data.clipped,
   })
 
-  // 5. Render
+  // 6. Render
   renderVoxelDiff(getFilteredVoxels(), data.vox_size)
 
   onDiffStatus('done',
@@ -120,19 +152,12 @@ export async function runVoxelDiff(
 
 /**
  * Cancel an in-progress diff.
- * 1. Tells the backend to stop the worker process (fire-and-forget).
- * 2. Aborts the fetch immediately so the UI unblocks right away.
  */
 export function cancelVoxelDiff() {
-  // Fire-and-forget cancel request to backend — don't await so the UI
-  // unblocks instantly even if the network request takes a moment.
   if (_jobId) {
     fetch(`${API_BASE}/api/diff/cancel/${_jobId}`, { method: 'POST' })
       .catch(e => console.warn('[diff] cancel request failed:', e))
   }
-
-  // Abort the fetch — this throws AbortError in runVoxelDiff which
-  // is caught and sets status to "Computation cancelled".
   if (_abortController) {
     _abortController.abort()
   }

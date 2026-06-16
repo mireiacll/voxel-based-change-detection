@@ -81,9 +81,14 @@ export default function RightPanel({
                 <span className="compare-ab-lbl">A</span>
                 <select value={compareIdA} onChange={e => onCompareIdA(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
-                  {dates.map(d => (
-                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
-                  ))}
+                  {dates.map(d => {
+                    const isMesh = d.datasetType === 'mesh'
+                    return (
+                      <option key={d.id} value={d.id} disabled={isMesh}>
+                        {d.label} ({d.id}){isMesh ? ' ⚠ 메쉬 불가' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
                 <input type="color" value={colorA} onChange={e => onColorA(e.target.value)}
                   className="dataset-color" title="색상 A" />
@@ -100,9 +105,14 @@ export default function RightPanel({
                 <span className="compare-ab-lbl">B</span>
                 <select value={compareIdB} onChange={e => onCompareIdB(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
-                  {dates.map(d => (
-                    <option key={d.id} value={d.id}>{d.label} ({d.id})</option>
-                  ))}
+                  {dates.map(d => {
+                    const isMesh = d.datasetType === 'mesh'
+                    return (
+                      <option key={d.id} value={d.id} disabled={isMesh}>
+                        {d.label} ({d.id}){isMesh ? ' ⚠ 메쉬 불가' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
                 <input type="color" value={colorB} onChange={e => onColorB(e.target.value)}
                   className="dataset-color" title="색상 B" />
@@ -113,6 +123,12 @@ export default function RightPanel({
                   value={alphaB} onChange={e => onAlphaB(parseFloat(e.target.value))} />
                 <span className="sub-val">{alphaB.toFixed(2)}</span>
               </div>
+
+              {dates.some(d => d.datasetType === 'mesh') && (
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+                  ⚠ 메쉬 데이터는 차이 계산을 지원하지 않습니다 — 포인트클라우드만 선택 가능
+                </div>
+              )}
 
             </div>
           </div>

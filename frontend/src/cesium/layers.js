@@ -393,9 +393,8 @@ export async function loadDiffApiTileset(tilesetUrl) {
   const ts = await _loadTileset(tilesetUrl, true, 4, 'mesh', null)
   if (ts) {
     state.diffApiTs = ts
-    // Apply current visibility state (honours toggles set before/after load)
     _applyDiffApiStyle()
-    console.log('[loadDiffApiTileset] loaded OK')
+    console.log('[loadDiffApiTileset] loaded OK — customShader set?', !!ts.customShader, '— url was:', tilesetUrl)
   } else {
     console.warn('[loadDiffApiTileset] failed to load tileset:', tilesetUrl)
   }
@@ -446,7 +445,7 @@ export async function loadAllSnapshotTilesets(snapshots) {
       const ts = await _loadTileset(s.tilesetUrl, false, 2, 'mesh', null)
       if (ts) {
         state.timeseriesTsMap[s.id] = ts
-        console.log(`[loadAllSnapshotTilesets] loaded OK snapshot ${s.id}`)
+        console.log(`[loadAllSnapshotTilesets] loaded OK snapshot ${s.id} — customShader set?`, !!ts.customShader, '— url was:', s.tilesetUrl)
       } else {
         console.warn(`[loadAllSnapshotTilesets] failed to load snapshot ${s.id}`)
         state.timeseriesTsMap[s.id] = null   // mark as attempted so we don't retry
@@ -510,7 +509,10 @@ function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
   const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
   const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
 
+  // Always use PBR lighting model — this is what makes flat-colored voxels
+  // look 3D. Without it Cesium falls back to UNLIT for voxel tilesets.
   return new window.Cesium.CustomShader({
+    lightingModel: window.Cesium.LightingModel.PBR,
     fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   bool isRed  = ${IS_RED};

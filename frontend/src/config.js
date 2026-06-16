@@ -25,7 +25,6 @@ export const CONFIG = {
     SHOW_ADDED:    true,
     SHOW_REMOVED:  true,
     VOXEL_SIZE:    0.5,
-    MESH_Z_OFFSET: 0,   // Global default; per-site value from DB overrides this
   },
 
   TERRAIN: {

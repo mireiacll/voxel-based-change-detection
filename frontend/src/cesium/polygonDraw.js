@@ -101,6 +101,7 @@ export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) 
     if (from.drawing) {
       if (from.handler) { from.handler.destroy(); from.handler = null }
       _removeEntities(from.entities)
+      if (window.viewer) window.viewer.scene.canvas.style.cursor = ''
       Object.assign(from, _emptyState())
     } else {
       // Save current UI labels into the departing tab

@@ -171,17 +171,15 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
   state.dateId = dateObj.id
   setStatus(`Loading ${site.label} — ${dateObj.label}…`)
 
-  const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
   const isMesh  = dateObj.datasetType === 'mesh'
   const maxSSE  = isMesh ? 8 : 2
-  const useZOff = isMesh ? zOffset : null
 
   // originalTilesetUrl is absolute (http://localhost:8080/…) thanks to
   // _toAbsoluteUrl() in api.js — never pass the raw datasetPath to Cesium.
   const tilesetUrl = dateObj.originalTilesetUrl
 
   const [result] = await Promise.allSettled([
-    _loadTileset(tilesetUrl, true, maxSSE, dateObj.datasetType, useZOff),
+    _loadTileset(tilesetUrl, true, maxSSE, dateObj.datasetType),
   ])
 
   if (result.value) {
@@ -208,11 +206,9 @@ export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB,
 
   setStatus(`비교 로드 중: ${dateA.label} vs ${dateB.label}…`)
 
-  const zOffset = site.meshZOffset ?? CONFIG.DEFAULTS.MESH_Z_OFFSET
-
   const [r0, r1] = await Promise.allSettled([
-    _loadTileset(dateA.originalTilesetUrl, true, 8, dateA.datasetType, zOffset),
-    _loadTileset(dateB.originalTilesetUrl, true, 8, dateB.datasetType, zOffset),
+    _loadTileset(dateA.originalTilesetUrl, true, 8, dateA.datasetType),
+    _loadTileset(dateB.originalTilesetUrl, true, 8, dateB.datasetType),
   ])
 
   state.meshA = r0.value || null
@@ -245,7 +241,7 @@ export function invalidateTilesetUrl(url) {
 //  GENERIC TILESET LOADER (internal)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
+async function _loadTileset(url, show, maxSSE, datasetType) {
   if (!url) return null
   try {
     const Cesium   = window.Cesium
@@ -260,12 +256,12 @@ async function _loadTileset(url, show, maxSSE, datasetType, zOffset) {
     window.viewer.scene.primitives.add(ts)
     ts.show = show
 
-    if (datasetType === 'mesh' && zOffset != null) {
+    if (datasetType === 'mesh') {
       const center = ts.boundingSphere.center
       const carto  = Cesium.Cartographic.fromCartesian(center)
       const offset = Cesium.Cartesian3.fromRadians(
         carto.longitude, carto.latitude,
-        carto.height + zOffset
+        carto.height
       )
       const translation = Cesium.Cartesian3.subtract(
         offset, center, new Cesium.Cartesian3()

@@ -894,8 +894,29 @@ export default function App() {
         return found?.label ?? found?.name ?? id
       })
 
-    const stale = addedLabels.length > 0 || removedLabels.length > 0
-    return { stale, addedLabels, removedLabels }
+    // Reorder detection: compare snapshot ID sequence (sorted by date_a.ts) against
+    // current SUCCEEDED observations sorted by observedAt. If order differs → stale.
+    let reordered = false
+    if (addedLabels.length === 0 && removedLabels.length === 0) {
+      // Unique obs IDs in snapshot order (snapshots are pre-sorted by date_a.ts)
+      const snapshotIdSequence = []
+      tlSnapshots.forEach(s => {
+        if (!snapshotIdSequence.includes(s.date_a.id)) snapshotIdSequence.push(s.date_a.id)
+        if (!snapshotIdSequence.includes(s.date_b.id)) snapshotIdSequence.push(s.date_b.id)
+      })
+      // Current SUCCEEDED observations sorted by observedAt
+      const currentIdSequence = [...succeededDates]
+        .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
+        .map(d => d.id)
+      reordered = snapshotIdSequence.some((id, i) => id !== currentIdSequence[i])
+      if (reordered) console.log(
+        '[tlStaleInfo] reorder detected — snapshot order:', snapshotIdSequence,
+        'current order:', currentIdSequence
+      )
+    }
+
+    const stale = addedLabels.length > 0 || removedLabels.length > 0 || reordered
+    return { stale, addedLabels, removedLabels, reordered }
   })()
 
   // Keep a simple boolean alias for prop passing clarity

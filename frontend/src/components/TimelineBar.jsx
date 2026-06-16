@@ -5,7 +5,7 @@
  * Replaces the status bar — sits at the same bottom position.
  *
  * Features:
- *  · Proportionally-spaced date markers based on real timestamps
+ *  · Equally-spaced date markers (independent of real timestamps)
  *  · Draggable scrubber that snaps to the nearest snapshot
  *  · Play / pause button that auto-advances every `playInterval` ms
  *  · Keyboard: ← → to step, Space to play/pause
@@ -19,19 +19,11 @@
  *   onPlayPause    — () => void
  */
 
-import { useRef, useCallback, useEffect } from 'react'
+import { useRef } from 'react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function lerp(a, b, t) { return a + (b - a) * t }
-
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
-
-// Map timestamp → 0..1 position along the track
-function tsToFrac(ts, minTs, maxTs) {
-  if (maxTs === minTs) return 0
-  return (ts - minTs) / (maxTs - minTs)
-}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -40,14 +32,11 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
 
   if (!snapshots || snapshots.length === 0) return null
 
-  // Timestamps from the "after" date of each snapshot gives us the end points
-  // We anchor left = start of first snapshot (date_a.ts) and right = date_b.ts of last
-  const allTs  = snapshots.flatMap(s => [s.date_a.ts, s.date_b.ts])
-  const minTs  = Math.min(...allTs)
-  const maxTs  = Math.max(...allTs)
+  const n = snapshots.length
 
-  // Each marker sits at the midpoint between its two dates (represents the change period)
-  const markerFracs = snapshots.map(s => tsToFrac((s.date_a.ts + s.date_b.ts) / 2, minTs, maxTs))
+  // Equally space markers: with n snapshots, divide [0, 1] into n+1 segments
+  // so markers sit at 1/(n+1), 2/(n+1), … n/(n+1) — never touching the edges.
+  const markerFracs = snapshots.map((_, i) => (i + 1) / (n + 1))
 
   // The scrubber sits at the active snapshot's marker
   const scrubFrac = markerFracs[activeIndex] ?? 0
@@ -177,7 +166,7 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
             )
           })}
 
-          {/* Date labels below track (at marker positions, only for non-overlapping) */}
+          {/* Date labels below track (at marker positions) */}
           {snapshots.map((s, i) => {
             const frac = markerFracs[i]
             return (

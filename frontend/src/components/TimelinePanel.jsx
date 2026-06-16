@@ -161,8 +161,16 @@ export default function TimelinePanel({
                 </div>
               )}
 
-              {/* Fallback if staleInfo wasn't passed (shouldn't happen) */}
-              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length) && (
+              {/* Reorder: same IDs, different observedAt order */}
+              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length && staleInfo?.reordered) && (
+                <div className="tl-warn-detail">
+                  날짜 순서가 변경되었습니다 — 시계열 diff 순서도 달라집니다.
+                  정확한 분석을 위해 전체 재계산을 권장합니다.
+                </div>
+              )}
+
+              {/* Fallback: stale for unknown reason */}
+              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length && !staleInfo?.reordered) && (
                 <div className="tl-warn-detail">
                   Voxel이 완료된 날짜 수와 현재 스냅샷 수가 맞지 않습니다.
                   정확한 분석을 위해 전체 재계산을 권장합니다.

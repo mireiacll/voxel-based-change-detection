@@ -483,22 +483,24 @@ export function showSnapshotTileset(snapshotId) {
 const _tlVis = { added: true, removed: true, unchanged: true }
 
 /**
- * Build a CustomShader that classifies voxels by their baked diffuse color
- * and discards fragments belonging to hidden categories.
+ * Build a CustomShader that classifies voxels by their baked diffuse color,
+ * discards hidden categories, and recolors visible ones to exact brand colors.
  *
- * Classification (0-1 normalised):
- *   red / pink  → added     R > 0.5 AND R > G*1.4 AND R > B*1.4
- *   blue        → removed   B > 0.5 AND B > R*1.3 AND B > G*1.3
- *   gray        → unchanged everything else (balanced channels)
+ * Classification — just check which RGB channel dominates (loose thresholds
+ * so it works regardless of the exact baked value):
+ *   red dominant  → added
+ *   blue dominant → removed
+ *   neither       → unchanged
  *
- * When all three categories are visible the shader is null and Cesium renders
- * at full speed with no custom code in the pipeline.
+ * Setting material.emissive alongside diffuse ensures lighting doesn't
+ * wash out or darken the recolored result.
+ *
+ * Exact output colors:
+ *   added    → #ff4d4d  vec3(1.0,   0.302, 0.302)
+ *   removed  → #4d9fff  vec3(0.302, 0.624, 1.0)
  */
 function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
-  // All visible — no shader needed
-  if (showAdded && showRemoved && showUnchanged) return null
-
-  // Nothing visible — discard everything
+  // Nothing visible — discard everything cheaply
   if (!showAdded && !showRemoved && !showUnchanged) {
     return new window.Cesium.CustomShader({
       fragmentShaderText: `
@@ -508,19 +510,22 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
     })
   }
 
-  // Classify helpers (mirror the thresholds in comments above)
-  const IS_RED  = 'material.diffuse.r > 0.5 && material.diffuse.r > material.diffuse.g * 1.4 && material.diffuse.r > material.diffuse.b * 1.4'
-  const IS_BLUE = 'material.diffuse.b > 0.5 && material.diffuse.b > material.diffuse.r * 1.3 && material.diffuse.b > material.diffuse.g * 1.3'
+  const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
+  const IS_BLUE = '(material.diffuse.b > material.diffuse.r * 1.2 && material.diffuse.b > material.diffuse.g * 1.2)'
 
-  const lines = []
-  if (!showAdded)     lines.push(`  if (${IS_RED})  { discard; }`)
-  if (!showRemoved)   lines.push(`  if (${IS_BLUE}) { discard; }`)
-  if (!showUnchanged) lines.push(`  if (!(${IS_RED}) && !(${IS_BLUE})) { discard; }`)
+  const ADDED_COLOR   = 'vec3(1.0, 0.15, 0.15)';
+  const REMOVED_COLOR = 'vec3(0.15, 0.45, 1.0)';
 
   return new window.Cesium.CustomShader({
     fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-${lines.join('\n')}
+  bool isRed  = ${IS_RED};
+  bool isBlue = ${IS_BLUE};
+  if (isRed) {
+    material.diffuse = ${ADDED_COLOR};
+  } else if (isBlue) {
+    material.diffuse = ${REMOVED_COLOR};
+  } 
 }`,
   })
 }

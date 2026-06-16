@@ -189,6 +189,9 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
     } else {
       state.pc = result.value
       setPointSize(state.pc, _pointSize)
+      if (dateObj.datasetType === 'voxel') {
+        state.pc.customShader = _buildCustomShader(true, true, true)
+      }
       toast('✓ 포인트 클라우드 로드됨', 'ok')
     }
   } else if (tilesetUrl) {

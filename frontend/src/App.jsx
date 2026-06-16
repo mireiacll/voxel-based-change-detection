@@ -459,7 +459,7 @@ export default function App() {
     if (layerMode === 'vox' && d.voxelPath) {
       try {
         const resolvedUrl = await fetchVoxelTilesetUrl(dateId)
-        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'pointcloud' }, modeRef.current, checkState())
+        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'voxel' }, modeRef.current, checkState())
       } catch (e) {
         console.error('[handleLayerMode] fetchVoxelTilesetUrl failed:', e.message)
         addToast(`Voxel tileset URL 조회 실패: ${e.message}`, 'warn')

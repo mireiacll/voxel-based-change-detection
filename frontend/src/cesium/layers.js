@@ -352,13 +352,13 @@ export function renderVoxelDiff(voxels, voxelSize) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Per-channel visibility state for compare-api diff tileset ─────────────
-const _diffApiVis = { added: true, removed: true }
+const _diffApiVis = { added: true, removed: true, unchanged: true }
 
 function _applyDiffApiStyle() {
   const ts = state.diffApiTs
   if (!ts) return
   // unchanged is always false for compare-api (tileset has no gray voxels)
-  const shader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, false)
+  const shader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, _diffApiVis.unchanged)
   ts.customShader = shader ?? undefined
   console.log(`[_applyDiffApiStyle] added=${_diffApiVis.added} removed=${_diffApiVis.removed} shader=${shader ? 'custom' : 'none'}`)
   requestAnimationFrame(() => requestRender())
@@ -368,10 +368,11 @@ function _applyDiffApiStyle() {
  * Update added / removed visibility for the compare-api diff tileset.
  * Call from App.jsx whenever compareApiVis toggles change.
  */
-export function setDiffApiTilesetVisibility(showAdded, showRemoved) {
-  _diffApiVis.added   = showAdded
-  _diffApiVis.removed = showRemoved
-  console.log(`[setDiffApiTilesetVisibility] added=${showAdded} removed=${showRemoved}`)
+export function setDiffApiTilesetVisibility(showAdded, showRemoved, showUnchanged) {
+  _diffApiVis.added     = showAdded
+  _diffApiVis.removed   = showRemoved
+  _diffApiVis.unchanged = showUnchanged ?? _diffApiVis.unchanged
+  console.log(`[setDiffApiTilesetVisibility] added=${showAdded} removed=${showRemoved} unchanged=${_diffApiVis.unchanged}`)
   _applyDiffApiStyle()
 }
 
@@ -508,8 +509,6 @@ function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
   const discardAdded     = !showAdded     ? 'if (isRed)             { discard; }' : ''
   const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
   const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
-  const recolorAdded   = showAdded   ? `if (isRed)  { material.diffuse = ${ADDED_COLOR};   material.emissive = ${ADDED_COLOR};   }` : ''
-  const recolorRemoved = showRemoved ? `if (isBlue) { material.diffuse = ${REMOVED_COLOR}; material.emissive = ${REMOVED_COLOR}; }` : ''
 
   return new window.Cesium.CustomShader({
     fragmentShaderText: `
@@ -519,8 +518,6 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   ${discardAdded}
   ${discardRemoved}
   ${discardUnchanged}
-  ${recolorAdded}
-  ${recolorRemoved}
 }`,
   })
 }

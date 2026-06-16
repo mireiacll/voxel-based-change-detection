@@ -266,7 +266,7 @@ export default function App() {
   // ── Re-sync compare-api diff tileset style ──────────────────────────────
   useEffect(() => {
     if (mode !== 'compare-api') return
-    setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed)
+    setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed, compareApiVis.unchanged)
   }, [compareApiVis])
 
   // ── Re-sync timeline tileset style ───────────────────────────────────
@@ -553,6 +553,9 @@ export default function App() {
       addToast(`날짜 B (${dB.label})에 데이터가 없습니다`, 'warn'); return
     }
     setDiffRunning(true)
+    const _compareTimer = `[compare] ${dA.label} vs ${dB.label}`
+    console.time(_compareTimer)
+    console.log(`[compare] ⏱ started — ${dA.label} (${dA.id}) vs ${dB.label} (${dB.id})`)
     try {
       await runVoxelDiff(
         activeSite, dA, dB, mode, voxelSize,
@@ -570,11 +573,19 @@ export default function App() {
           }
         },
       )
-    } finally { setDiffRunning(false) }
+    } finally {
+      console.timeEnd(_compareTimer)
+      setDiffRunning(false)
+    }
+  }
+
+  function handleCancelDiff() {
+    cancelVoxelDiff()
+    setDiffRunning(false)
+    setDiffStatus({ state: 'done', msg: 'Computation cancelled' })
   }
 
   function handleClearDiff() {
-    if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
     clearCompareLayers()
     lastCompareDiffRef.current = null
     setStats(null)
@@ -602,6 +613,9 @@ export default function App() {
 
     apiDiffIdRef.current = null
     setApiRunning(true); setApiError(null); setApiSummary(null); setApiDiffTilesetUrl(null)
+    const _apiTimer = `[compare-api] ${dA?.label} vs ${dB?.label}`
+    console.time(_apiTimer)
+    console.log(`[compare-api] ⏱ started — ${dA?.label} (${apiDateIdA}) vs ${dB?.label} (${apiDateIdB})`)
     try {
       const { getPolygonWkt } = await import('./cesium/polygonDraw')
       const areaWkt = getPolygonWkt?.() ?? undefined
@@ -628,6 +642,7 @@ export default function App() {
       console.error('[handleApiRun] FAILED:', e.message, e)
       setApiError(e.message)
     } finally {
+      console.timeEnd(_apiTimer)
       apiDiffIdRef.current = null
       setApiRunning(false)
     }
@@ -1033,7 +1048,7 @@ export default function App() {
             alphaB={alphaB}                 onAlphaB={setAlphaB}
             drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
             voxelSize={voxelSize}           onVoxelSize={setVoxelSize}
-            diffRunning={diffRunning}       onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}
+            diffRunning={diffRunning}       onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}   onCancelDiff={handleCancelDiff}
             diffStatus={diffStatus}
             showAdded={activeVis.added}           onShowAdded={activeVisSetters.onShowAdded}
             showRemoved={activeVis.removed}       onShowRemoved={activeVisSetters.onShowRemoved}

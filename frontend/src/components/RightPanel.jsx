@@ -38,7 +38,7 @@ export default function RightPanel({
   colorB, onColorB, alphaB, onAlphaB,
   drawInfo, drawBtnLabel, onDrawArea,
   voxelSize, onVoxelSize,
-  diffRunning, onRunDiff, onClearDiff,
+  diffRunning, onRunDiff, onClearDiff, onCancelDiff,
   diffStatus,
   // 분석 결과 props
   showAdded, onShowAdded,
@@ -155,11 +155,17 @@ export default function RightPanel({
               <button id="btn-run-diff" disabled={diffRunning} onClick={onRunDiff}>
                 {diffRunning ? '⟳ 계산 중…' : '⚡ 차이 계산'}
               </button>
-              <button id="btn-clear-diff"
-                style={diffRunning ? { borderColor: '#d49050', color: '#d49050' } : {}}
-                onClick={onClearDiff}>
-                {diffRunning ? '⏹ 중지' : '✖ 초기화'}
-              </button>
+              {diffRunning ? (
+                <button
+                  id="btn-clear-diff"
+                  style={{ borderColor: '#d49050', color: '#d49050' }}
+                  onClick={onCancelDiff}
+                >
+                  ⏹ 중지
+                </button>
+              ) : (
+                <button id="btn-clear-diff" onClick={onClearDiff}>✖ 초기화</button>
+              )}
             </div>
 
             <div id="diff-status" data-state={diffStatus.state}>{diffStatus.msg}</div>
@@ -366,6 +372,18 @@ export default function RightPanel({
                     <div className="layer-type">A 존재, B 부재</div>
                   </div>
                   <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
+                </div>
+
+                <div className="layer-row">
+                  <label className="sw">
+                    <input type="checkbox" checked={showUnchanged} onChange={e => onShowUnchanged(e.target.checked)} />
+                    <span />
+                  </label>
+                  <div className="layer-body">
+                    <div className="layer-name">유지된 부피</div>
+                    <div className="layer-type">A·B 모두 존재</div>
+                  </div>
+                  <span className="ltag" style={{ background: '#1a1a2e', color: 'var(--muted)' }}>VOX</span>
                 </div>
 
                 <div id="stats-box" style={{ marginTop: 8 }}>

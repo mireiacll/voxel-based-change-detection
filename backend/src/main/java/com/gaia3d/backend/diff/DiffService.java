@@ -10,6 +10,7 @@ import java.util.List;
 import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
+import com.gaia3d.backend.job.JobQueue;
 import com.gaia3d.backend.job.JobService;
 import com.gaia3d.backend.job.JobTargetType;
 import com.gaia3d.backend.job.JobType;
@@ -18,8 +19,6 @@ import com.gaia3d.backend.observation.ObservationRepository;
 import com.gaia3d.backend.observation.ObservationStatus;
 import com.gaia3d.backend.project.ProjectService;
 import com.gaia3d.backend.voxelizer.VoxelizerCommandService;
-import com.gaia3d.backend.voxelizer.VoxelizerProcessService;
-import com.gaia3d.backend.voxelizer.VoxelizerProcessService.VoxelizerProcessResult;
 import com.gaia3d.backend.voxelizer.VoxelizerProperties;
 
 import org.slf4j.Logger;
@@ -40,8 +39,9 @@ public class DiffService {
     private final ObservationRepository observationRepository;
     private final ProjectService projectService;
     private final JobService jobService;
+    private final JobQueue jobQueue;
+    private final DiffJobRunner diffJobRunner;
     private final VoxelizerCommandService commandService;
-    private final VoxelizerProcessService processService;
     private final VoxelizerProperties properties;
     private final TilesetUrlResolver tilesetUrlResolver;
 
@@ -51,8 +51,9 @@ public class DiffService {
             ObservationRepository observationRepository,
             ProjectService projectService,
             JobService jobService,
+            JobQueue jobQueue,
+            DiffJobRunner diffJobRunner,
             VoxelizerCommandService commandService,
-            VoxelizerProcessService processService,
             VoxelizerProperties properties,
             TilesetUrlResolver tilesetUrlResolver) {
         this.diffRepository = diffRepository;
@@ -60,8 +61,9 @@ public class DiffService {
         this.observationRepository = observationRepository;
         this.projectService = projectService;
         this.jobService = jobService;
+        this.jobQueue = jobQueue;
+        this.diffJobRunner = diffJobRunner;
         this.commandService = commandService;
-        this.processService = processService;
         this.properties = properties;
         this.tilesetUrlResolver = tilesetUrlResolver;
     }
@@ -98,8 +100,9 @@ public class DiffService {
         prepareItem(diff, item);
         Job job = createDiffJob(diff);
         diff.attachJob(job.getId());
-        runMock(diff, job);
-        return DiffCreateResponse.from(diffRepository.save(diff), 1);
+        Diff savedDiff = diffRepository.save(diff);
+        jobQueue.enqueue(job.getId(), () -> diffJobRunner.run(savedDiff.getId(), job.getId()));
+        return DiffCreateResponse.from(savedDiff, 1);
     }
 
     @Transactional
@@ -129,8 +132,9 @@ public class DiffService {
         }
         Job job = createDiffJob(diff);
         diff.attachJob(job.getId());
-        runMock(diff, job);
-        return DiffCreateResponse.from(diffRepository.save(diff), observations.size() - 1L);
+        Diff savedDiff = diffRepository.save(diff);
+        jobQueue.enqueue(job.getId(), () -> diffJobRunner.run(savedDiff.getId(), job.getId()));
+        return DiffCreateResponse.from(savedDiff, observations.size() - 1L);
     }
 
     public DiffDetailResponse findById(Long diffId) {
@@ -157,6 +161,7 @@ public class DiffService {
         diffItemRepository.findByDiffIdOrderBySourceObservedAtAsc(diffId).forEach(DiffItem::cancel);
         if (diff.getJobId() != null) {
             jobService.cancel(diff.getJobId());
+            return findById(diffId);
         }
         return findById(diffId);
     }
@@ -246,7 +251,7 @@ public class DiffService {
         Path output = diffItemVoxelDir(diff.getProjectId(), diff.getId(), item.getId());
         Path itemDir = diffItemDir(diff.getProjectId(), diff.getId(), item.getId());
         Path summary = itemDir.resolve("summary.json");
-        Path logPath = itemDir.resolve("process.log");
+        Path logPath = output.resolve("log.txt").toAbsolutePath().normalize();
         var commandArgs = commandService.createDiffCommandArgs(
                 Path.of(item.getSourceVoxelPath()),
                 Path.of(item.getTargetVoxelPath()),
@@ -288,73 +293,6 @@ public class DiffService {
                 diff.getId(),
                 command,
                 properties.storageRoot().resolve("jobs").resolve("diff-" + diff.getId()).resolve("process.log").toString());
-    }
-
-    private void runMock(Diff diff, Job job) {
-        diff.start();
-        job.start("Creating diff voxel...");
-        List<DiffItem> items = diffItemRepository.findByDiffIdOrderBySourceObservedAtAsc(diff.getId());
-        int succeeded = 0;
-        for (DiffItem item : items) {
-            item.start();
-            try {
-                Files.createDirectories(Path.of(item.getResultVoxelPath()));
-                if (properties.mockExecution()) {
-                    log.info("[diff:{} item:{}] mock voxelizer diff: {}", diff.getId(), item.getId(), item.getCommand());
-                    item.succeed();
-                    succeeded++;
-                } else {
-                    log.info("[diff:{} item:{}] running voxelizer diff", diff.getId(), item.getId());
-                    List<String> commandArgs = commandService.createDiffCommandArgs(
-                            Path.of(item.getSourceVoxelPath()),
-                            Path.of(item.getTargetVoxelPath()),
-                            Path.of(item.getResultVoxelPath()),
-                            Path.of(item.getLogPath()),
-                            diff.getMaxLevel(),
-                            DIFF_OPERATION,
-                            diff.getVisualize(),
-                            diff.getDiffNeighborMode(),
-                            diff.getMinDiffFilterLevel(),
-                            diff.getMinDiffNeighbors(),
-                            diff.getDiffNeighborIterations(),
-                            diff.getMinDiffClusterSize(),
-                            diff.getUnion(),
-                            diff.getMassSummary(),
-                            diff.getCubeDataType(),
-                            diff.getAreaWkt(),
-                            diff.getRecursive());
-                    VoxelizerProcessResult result = processService.run(commandArgs, Path.of(item.getLogPath()));
-                    if (result.succeeded()) {
-                        item.succeed();
-                        succeeded++;
-                    } else {
-                        log.warn("[diff:{} item:{}] voxelizer diff failed exitCode={}",
-                                diff.getId(),
-                                item.getId(),
-                                result.exitCode());
-                        item.fail();
-                    }
-                }
-            } catch (IOException | InterruptedException exception) {
-                if (exception instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                }
-                log.warn("[diff:{} item:{}] voxelizer diff failed", diff.getId(), item.getId(), exception);
-                item.fail();
-            }
-            diffItemRepository.save(item);
-        }
-        if (succeeded == items.size()) {
-            diff.finish(DiffStatus.SUCCEEDED);
-            job.succeed("Mock diff creation completed");
-        } else if (succeeded == 0) {
-            diff.finish(DiffStatus.FAILED);
-            job.fail("All diff items failed");
-        } else {
-            diff.finish(DiffStatus.PARTIAL_FAILED);
-            job.fail("Some diff items failed");
-        }
-        jobService.save(job);
     }
 
     private Path diffDir(Long projectId, Long diffId) {

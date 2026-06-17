@@ -17,4 +17,4 @@ services:
       VOXELIZER_DEFAULT_DIFF_UNION: "true"
     volumes:
       - H:/workspace/change-detection:/data
-      - C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.0-beta.jar:/app/mago-voxelizer.jar:ro
+      - C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.1-beta.jar:/app/mago-voxelizer.jar:ro

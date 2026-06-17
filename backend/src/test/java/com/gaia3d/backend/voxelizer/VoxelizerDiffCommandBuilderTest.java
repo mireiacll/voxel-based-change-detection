@@ -38,7 +38,7 @@ class VoxelizerDiffCommandBuilderTest {
                 "--maxLevel",
                 "15",
                 "--log",
-                normalize(outputPath.resolve("mago-voxelizer.log")),
+                normalize(outputPath.resolve("log.txt")),
                 "--diffOperation",
                 "ADD_AND_REMOVE",
                 "--visualize",

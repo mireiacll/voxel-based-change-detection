@@ -14,6 +14,7 @@ import java.util.zip.ZipInputStream;
 import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
+import com.gaia3d.backend.job.JobQueue;
 import com.gaia3d.backend.job.JobService;
 import com.gaia3d.backend.job.JobTargetType;
 import com.gaia3d.backend.job.JobType;
@@ -36,7 +37,8 @@ public class ObservationService {
     private final VoxelizerCommandService commandService;
     private final VoxelizerProperties properties;
     private final TilesetUrlResolver tilesetUrlResolver;
-    private final ObservationVoxelJobQueue observationVoxelJobQueue;
+    private final JobQueue jobQueue;
+    private final ObservationVoxelJobRunner observationVoxelJobRunner;
 
     public ObservationService(
             ObservationRepository observationRepository,
@@ -45,14 +47,16 @@ public class ObservationService {
             VoxelizerCommandService commandService,
             VoxelizerProperties properties,
             TilesetUrlResolver tilesetUrlResolver,
-            ObservationVoxelJobQueue observationVoxelJobQueue) {
+            JobQueue jobQueue,
+            ObservationVoxelJobRunner observationVoxelJobRunner) {
         this.observationRepository = observationRepository;
         this.projectService = projectService;
         this.jobService = jobService;
         this.commandService = commandService;
         this.properties = properties;
         this.tilesetUrlResolver = tilesetUrlResolver;
-        this.observationVoxelJobQueue = observationVoxelJobQueue;
+        this.jobQueue = jobQueue;
+        this.observationVoxelJobRunner = observationVoxelJobRunner;
     }
 
     public List<ObservationResponse> findByProject(Long projectId) {
@@ -132,6 +136,20 @@ public class ObservationService {
     }
 
     @Transactional
+    public ObservationVoxelStatusResponse cancelVoxel(Long id) {
+        Observation observation = getRequired(id);
+        if (observation.getVoxelJobId() != null) {
+            jobService.cancel(observation.getVoxelJobId());
+        } else {
+            observation.cancelVoxel();
+            observationRepository.save(observation);
+        }
+        Observation updated = getRequired(id);
+        Job job = updated.getVoxelJobId() == null ? null : jobService.getRequired(updated.getVoxelJobId());
+        return ObservationVoxelStatusResponse.from(updated, job);
+    }
+
+    @Transactional
     public ObservationResponse voxelize(Long observationId, VoxelizeRequest request) {
         Observation observation = getRequired(observationId);
         return queueVoxelize(observation, request);
@@ -153,16 +171,17 @@ public class ObservationService {
 
         Path tilesetDir = Path.of(observation.getOriginalTilesPath());
         Path voxelDir = observationVoxelDir(observation.getProjectId(), observation.getId());
+        Path logPath = voxelDir.resolve("log.txt").toAbsolutePath().normalize();
         var commandArgs = commandService.createVoxelCommandArgs(
                 tilesetDir,
                 voxelDir,
+                logPath,
                 maxLevel,
                 visualize,
                 visualizeColor,
                 cubeDataType,
                 recursive);
         String command = commandService.toDisplayCommand(commandArgs);
-        Path logPath = jobLogPath(observation.getId());
         Job job = jobService.create(
                 JobType.VOXEL_CREATE,
                 JobTargetType.OBSERVATION,
@@ -171,7 +190,7 @@ public class ObservationService {
                 logPath.toString());
         observation.queueVoxel(job.getId(), voxelDir.toString());
         Observation savedObservation = observationRepository.save(observation);
-        observationVoxelJobQueue.enqueue(savedObservation.getId(), safeRequest);
+        jobQueue.enqueue(job.getId(), () -> observationVoxelJobRunner.run(savedObservation.getId(), safeRequest));
         return ObservationResponse.from(savedObservation);
     }
 
@@ -203,11 +222,6 @@ public class ObservationService {
     private Path observationVoxelDir(Long projectId, Long observationId) {
         return properties.voxelSetOutputPath().resolve("projects").resolve(projectId.toString())
                 .resolve("observations").resolve(observationId.toString()).resolve("voxel")
-                .toAbsolutePath().normalize();
-    }
-
-    private Path jobLogPath(Long id) {
-        return properties.storageRoot().resolve("jobs").resolve(id.toString()).resolve("process.log")
                 .toAbsolutePath().normalize();
     }
 

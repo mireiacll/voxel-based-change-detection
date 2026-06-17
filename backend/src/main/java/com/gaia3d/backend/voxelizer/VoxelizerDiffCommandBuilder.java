@@ -17,7 +17,7 @@ public class VoxelizerDiffCommandBuilder {
                 "--targetInput", normalize(inputB),
                 "--output", normalize(outputPath),
                 "--maxLevel", "15",
-                "--log", normalize(outputPath.resolve("mago-voxelizer.log")),
+                "--log", normalize(outputPath.resolve("log.txt")),
                 "--diffOperation", "ADD_AND_REMOVE",
                 "--visualize",
                 "--filter-connectivity", "6",

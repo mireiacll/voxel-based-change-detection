@@ -16,6 +16,14 @@ Run from the repository root:
 docker compose -f backend\docker-compose.yml up -d --build
 ```
 
+Run compose up with local configuration:
+```powershell
+docker compose `
+  -f backend\docker-compose.yml `
+  -f backend\docker-compose.local.yml `
+  up -d --build
+```
+
 Check containers:
 
 ```powershell

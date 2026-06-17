@@ -17,7 +17,7 @@ import com.gaia3d.backend.voxelizer.VoxelizerProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class ObservationVoxelJobRunner {
@@ -30,6 +30,7 @@ public class ObservationVoxelJobRunner {
     private final VoxelizerProcessService processService;
     private final VoxelizerProperties properties;
     private final TilesetUrlResolver tilesetUrlResolver;
+    private final TransactionTemplate transactionTemplate;
 
     public ObservationVoxelJobRunner(
             ObservationRepository observationRepository,
@@ -37,17 +38,19 @@ public class ObservationVoxelJobRunner {
             VoxelizerCommandService commandService,
             VoxelizerProcessService processService,
             VoxelizerProperties properties,
-            TilesetUrlResolver tilesetUrlResolver) {
+            TilesetUrlResolver tilesetUrlResolver,
+            TransactionTemplate transactionTemplate) {
         this.observationRepository = observationRepository;
         this.jobService = jobService;
         this.commandService = commandService;
         this.processService = processService;
         this.properties = properties;
         this.tilesetUrlResolver = tilesetUrlResolver;
+        this.transactionTemplate = transactionTemplate;
     }
 
     public void run(Long observationId, VoxelizeRequest request) {
-        ObservationVoxelExecution execution = begin(observationId, request);
+        ObservationVoxelExecution execution = transactionTemplate.execute(status -> begin(observationId, request));
         if (execution == null) {
             return;
         }
@@ -56,37 +59,36 @@ public class ObservationVoxelJobRunner {
             Files.createDirectories(execution.voxelDir());
             if (properties.mockExecution()) {
                 log.info("[observation:{}] mock queued voxelizer create: {}", observationId, execution.command());
-                markSucceeded(
+                transactionTemplate.executeWithoutResult(status -> markSucceeded(
                         execution.observationId(),
                         execution.jobId(),
                         tilesetUrlResolver.voxelTilesetUrl(execution.voxelDir()),
-                        "Mock voxel creation completed");
+                        "Mock voxel creation completed"));
                 return;
             }
 
             log.info("[observation:{}] running queued voxelizer create", observationId);
-            VoxelizerProcessResult result = processService.run(execution.commandArgs(), execution.logPath());
+            VoxelizerProcessResult result = processService.run(execution.jobId(), execution.commandArgs(), execution.logPath());
             if (result.succeeded()) {
-                markSucceeded(
+                transactionTemplate.executeWithoutResult(status -> markSucceeded(
                         execution.observationId(),
                         execution.jobId(),
                         tilesetUrlResolver.voxelTilesetUrl(execution.voxelDir()),
-                        "Voxel creation completed. exitCode=" + result.exitCode());
+                        "Voxel creation completed. exitCode=" + result.exitCode()));
             } else {
-                markFailed(execution.observationId(), execution.jobId(),
-                        "Voxel creation failed. exitCode=" + result.exitCode());
+                transactionTemplate.executeWithoutResult(status -> markFailed(execution.observationId(), execution.jobId(),
+                        "Voxel creation failed. exitCode=" + result.exitCode()));
             }
         } catch (IOException | InterruptedException exception) {
             if (exception instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
             log.warn("[observation:{}] queued voxelizer create failed", observationId, exception);
-            markFailed(execution.observationId(), execution.jobId(), exception.getMessage());
+            transactionTemplate.executeWithoutResult(status -> markFailed(execution.observationId(), execution.jobId(), exception.getMessage()));
         }
     }
 
-    @Transactional
-    protected ObservationVoxelExecution begin(Long observationId, VoxelizeRequest request) {
+    private ObservationVoxelExecution begin(Long observationId, VoxelizeRequest request) {
         Observation observation = observationRepository.findById(observationId).orElse(null);
         if (observation == null || observation.getVoxelJobId() == null) {
             return null;
@@ -109,10 +111,11 @@ public class ObservationVoxelJobRunner {
 
         Path tilesetDir = Path.of(observation.getOriginalTilesPath());
         Path voxelDir = Path.of(observation.getVoxelPath());
-        Path logPath = Path.of(job.getLogPath());
+        Path logPath = voxelDir.resolve("log.txt").toAbsolutePath().normalize();
         List<String> commandArgs = commandService.createVoxelCommandArgs(
                 tilesetDir,
                 voxelDir,
+                logPath,
                 maxLevel,
                 visualize,
                 visualizeColor,
@@ -128,8 +131,7 @@ public class ObservationVoxelJobRunner {
         return new ObservationVoxelExecution(observationId, job.getId(), commandArgs, command, voxelDir, logPath);
     }
 
-    @Transactional
-    protected void markSucceeded(Long observationId, Long jobId, String tilesetUrl, String message) {
+    private void markSucceeded(Long observationId, Long jobId, String tilesetUrl, String message) {
         Observation observation = observationRepository.findById(observationId).orElse(null);
         if (observation == null) {
             return;
@@ -144,8 +146,7 @@ public class ObservationVoxelJobRunner {
         jobService.save(job);
     }
 
-    @Transactional
-    protected void markFailed(Long observationId, Long jobId, String message) {
+    private void markFailed(Long observationId, Long jobId, String message) {
         Observation observation = observationRepository.findById(observationId).orElse(null);
         if (observation == null) {
             return;

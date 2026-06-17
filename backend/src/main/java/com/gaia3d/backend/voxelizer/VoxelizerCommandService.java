@@ -18,6 +18,7 @@ public class VoxelizerCommandService {
     public String createVoxelCommand(
             Path inputTilesetDir,
             Path outputVoxelDir,
+            Path logPath,
             int maxLevel,
             boolean visualize,
             String visualizeColor,
@@ -26,6 +27,7 @@ public class VoxelizerCommandService {
         return toDisplayCommand(createVoxelCommandArgs(
                 inputTilesetDir,
                 outputVoxelDir,
+                logPath,
                 maxLevel,
                 visualize,
                 visualizeColor,
@@ -36,6 +38,7 @@ public class VoxelizerCommandService {
     public List<String> createVoxelCommandArgs(
             Path inputTilesetDir,
             Path outputVoxelDir,
+            Path logPath,
             int maxLevel,
             boolean visualize,
             String visualizeColor,
@@ -50,6 +53,8 @@ public class VoxelizerCommandService {
                 normalize(inputTilesetDir),
                 "--output",
                 normalize(outputVoxelDir),
+                "--log",
+                normalize(logPath),
                 "--maxLevel",
                 String.valueOf(maxLevel)));
         if (visualize) {
@@ -128,7 +133,7 @@ public class VoxelizerCommandService {
                 "--targetInput", normalize(targetVoxelDir),
                 "--output", normalize(outputDiffVoxelDir),
                 "--maxLevel", String.valueOf(maxLevel),
-                "--log", normalize(logPath),
+                "--log", normalize(outputDiffVoxelDir.resolve("log.txt")),
                 "--diffOperation", diffOperation));
         if (visualize) {
             command.add("--visualize");

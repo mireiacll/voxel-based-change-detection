@@ -43,7 +43,7 @@ class DiffControllerTest {
     void createsAbDiffWithOneDiffItem() throws Exception {
         createProjectAndObservations();
 
-        mockMvc.perform(post("/api/projects/1/diffs/ab")
+        MvcResult createResult = mockMvc.perform(post("/api/projects/1/diffs/ab")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -57,11 +57,16 @@ class DiffControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.type").value("A_B"))
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.itemCount").value(1));
+                .andExpect(jsonPath("$.status").value("QUEUED"))
+                .andExpect(jsonPath("$.itemCount").value(1))
+                .andReturn();
+        JsonNode createJson = objectMapper.readTree(createResult.getResponse().getContentAsString());
+
+        waitForDiffSuccess(1, createJson.path("jobId").asLong());
 
         mockMvc.perform(get("/api/diffs/1"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.items[0].sourceObservationId").value(1))
                 .andExpect(jsonPath("$.items[0].targetObservationId").value(2))
                 .andExpect(jsonPath("$.items[0].command").value(containsString("--sourceInput")))
@@ -100,13 +105,17 @@ class DiffControllerTest {
         createProjectAndObservations();
         uploadObservation(3, "2024-03", "2024-03-01");
 
-        mockMvc.perform(post("/api/projects/1/diffs/time-series")
+        MvcResult createResult = mockMvc.perform(post("/api/projects/1/diffs/time-series")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"full time series\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.type").value("TIME_SERIES"))
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.itemCount").value(2));
+                .andExpect(jsonPath("$.status").value("QUEUED"))
+                .andExpect(jsonPath("$.itemCount").value(2))
+                .andReturn();
+        JsonNode createJson = objectMapper.readTree(createResult.getResponse().getContentAsString());
+
+        waitForDiffSuccess(1, createJson.path("jobId").asLong());
 
         mockMvc.perform(get("/api/diffs/1/items"))
                 .andExpect(status().isOk())
@@ -157,6 +166,28 @@ class DiffControllerTest {
             Thread.sleep(50);
         }
         Assertions.fail("Timed out waiting for observation " + observationId + " job " + jobId + " to succeed");
+    }
+
+    private void waitForDiffSuccess(long diffId, long jobId) throws Exception {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            MvcResult diffResult = mockMvc.perform(get("/api/diffs/" + diffId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            JsonNode diffJson = objectMapper.readTree(diffResult.getResponse().getContentAsString());
+
+            MvcResult jobResult = mockMvc.perform(get("/api/jobs/" + jobId))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            JsonNode jobJson = objectMapper.readTree(jobResult.getResponse().getContentAsString());
+
+            if ("SUCCEEDED".equals(diffJson.path("status").asText())
+                    && "SUCCEEDED".equals(jobJson.path("status").asText())) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        Assertions.fail("Timed out waiting for diff " + diffId + " job " + jobId + " to succeed");
     }
 
     private MockMultipartFile zipFile() throws Exception {

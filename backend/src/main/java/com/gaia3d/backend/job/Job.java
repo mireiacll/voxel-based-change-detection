@@ -93,6 +93,25 @@ public class Job extends BaseTimeEntity {
         message = "Cancelled";
     }
 
+    public void update(JobStatus status, Integer progress, String message) {
+        if (status != null) {
+            this.status = status;
+            if (status == JobStatus.RUNNING && startedAt == null) {
+                startedAt = LocalDateTime.now();
+            }
+            if ((status == JobStatus.SUCCEEDED || status == JobStatus.FAILED || status == JobStatus.CANCELLED)
+                    && finishedAt == null) {
+                finishedAt = LocalDateTime.now();
+            }
+        }
+        if (progress != null) {
+            this.progress = progress;
+        }
+        if (message != null) {
+            this.message = message;
+        }
+    }
+
     public Long getId() { return id; }
     public JobType getJobType() { return jobType; }
     public JobTargetType getTargetType() { return targetType; }

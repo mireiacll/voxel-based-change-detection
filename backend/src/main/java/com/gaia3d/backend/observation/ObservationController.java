@@ -87,4 +87,9 @@ public class ObservationController {
         VoxelizeRequest safeRequest = request == null ? new VoxelizeRequest(null, null, null, null, null) : request;
         return ResponseEntity.accepted().body(observationService.voxelize(observationId, safeRequest));
     }
+
+    @PostMapping("/api/observations/{observationId}/voxelize/cancel")
+    public ObservationVoxelStatusResponse cancelVoxelize(@PathVariable Long observationId) {
+        return observationService.cancelVoxel(observationId);
+    }
 }

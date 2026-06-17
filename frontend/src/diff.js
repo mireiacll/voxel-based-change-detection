@@ -13,7 +13,7 @@
 
 import { CONFIG } from './config'
 import { toast } from './cesium/cesiumInit'
-import { loadCompare, renderVoxelDiff } from './cesium/layers'
+import { renderVoxelDiff } from './cesium/layers'
 import { getPolygonGeo } from './cesium/polygonDraw'
 import { fetchOriginalTilesetUrl } from './api'
 
@@ -51,11 +51,7 @@ export async function runVoxelDiff(
   window.diffState.addedVisible   = checkboxState?.added   ?? true
   window.diffState.removedVisible = checkboxState?.removed ?? true
 
-  // 1. Load meshes for visual overlay
-  onDiffStatus('computing', `Loading meshes: ${dateA.label} vs ${dateB.label}…`)
-  await loadCompare(site, dateA, dateB, currentMode, tintA, tintB, checkboxState)
-
-  // 2. Fetch original tileset URLs from the external API (:8080)
+  // 1. Fetch original tileset URLs from the external API (:8080)
   //    The Python server will download these to run the diff.
   onDiffStatus('computing', 'Fetching tileset URLs from API…')
   let tilesetUrlA, tilesetUrlB
@@ -76,7 +72,7 @@ export async function runVoxelDiff(
     return
   }
 
-  // 3. Generate job ID client-side so we can cancel before the response arrives
+  // 2. Generate job ID client-side so we can cancel before the response arrives
   _jobId           = crypto.randomUUID()
   _abortController = new AbortController()
 
@@ -123,7 +119,7 @@ export async function runVoxelDiff(
     _jobId           = null
   }
 
-  // 4. Store results
+  // 3. Store results
   window.diffState.gridDef = {
     lonStep: data.grid_def.lon_step,
     latStep: data.grid_def.lat_step,
@@ -134,7 +130,7 @@ export async function runVoxelDiff(
     type:  v.type,
   }))
 
-  // 5. Report stats to React
+  // 4. Report stats to React
   onStats({
     added:   data.stats.added_count,
     removed: data.stats.removed_count,
@@ -142,7 +138,7 @@ export async function runVoxelDiff(
     clipped: data.clipped,
   })
 
-  // 6. Render
+  // 5. Render
   renderVoxelDiff(getFilteredVoxels(), data.vox_size)
 
   onDiffStatus('done',

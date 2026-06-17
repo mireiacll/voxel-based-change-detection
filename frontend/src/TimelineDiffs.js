@@ -23,8 +23,11 @@
 
 const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
-// ── In-memory cache: siteId → snapshot[] ─────────────────────────────────
+// ── In-memory cache: siteId → snapshot[] (latest diff per site) ──────────
 const _cache = new Map()
+
+// ── In-memory cache: diffId → snapshot[] (specific historical diff) ──────
+const _diffCache = new Map()
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -173,12 +176,44 @@ async function _buildSnapshot(item, projectId) {
   }
 }
 
+// ── Shared: diffId → snapshot[] ────────────────────────────────────────
+
+/**
+ * Fetch a specific diff's detail (items[]) and build snapshots from it.
+ * Shared by both "latest for site" and "specific historical diffId" paths
+ * so the two never disagree about how a snapshot is shaped.
+ */
+async function _fetchAndBuildSnapshotsForDiff(diffId, projectId) {
+  const detailRes = await fetch(`${EXT_API}/api/diffs/${diffId}`)
+  if (!detailRes.ok) {
+    console.warn(`[_fetchAndBuildSnapshotsForDiff] could not fetch diff detail: ${detailRes.status}`)
+    return []
+  }
+  const detail = await detailRes.json()
+  const items  = detail.items ?? []
+  console.log(`[_fetchAndBuildSnapshotsForDiff] diff ${diffId} has ${items.length} items`)
+
+  if (items.length === 0) return []
+
+  const settled = await Promise.allSettled(
+    items.map(item => _buildSnapshot(item, projectId))
+  )
+  return settled
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value)
+    .sort((a, b) => a.date_a.ts - b.date_a.ts)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 /**
  * Load all pre-computed TIME_SERIES diff snapshots for a site/project.
  * Returns from cache if already loaded.
  * Returns [] (not dummy data) when no SUCCEEDED time-series diffs exist yet.
+ *
+ * Always resolves to the LATEST SUCCEEDED time-series diff for the site.
+ * To load a specific historical diff (e.g. restoring a Diff History entry),
+ * use loadDiffSnapshotsByDiffId instead.
  */
 export async function loadDiffSnapshots(site) {
   console.log(`[loadDiffSnapshots] site=${site.id} cached=${_cache.has(site.id)}`)
@@ -207,31 +242,12 @@ export async function loadDiffSnapshots(site) {
     const latestDiff = [...allDiffs].sort((a, b) => b.id - a.id)[0]
     console.log(`[loadDiffSnapshots] using latest diff id=${latestDiff.id}`)
 
-    // Fetch detail to get items[]
-    const detailRes = await fetch(`${EXT_API}/api/diffs/${latestDiff.id}`)
-    if (!detailRes.ok) {
-      console.warn(`[loadDiffSnapshots] could not fetch diff detail: ${detailRes.status}`)
-      return []
-    }
-    const detail = await detailRes.json()
-    const items  = detail.items ?? []
-    console.log(`[loadDiffSnapshots] diff ${latestDiff.id} has ${items.length} items`)
-
-    if (items.length === 0) {
-      _cache.set(site.id, [])
-      return []
-    }
-
-    const settled = await Promise.allSettled(
-      items.map(item => _buildSnapshot(item, site.id))
-    )
-    const snapshots = settled
-      .filter(r => r.status === 'fulfilled' && r.value)
-      .map(r => r.value)
-      .sort((a, b) => a.date_a.ts - b.date_a.ts)
-
+    const snapshots = await _fetchAndBuildSnapshotsForDiff(latestDiff.id, site.id)
     console.log(`[loadDiffSnapshots] built ${snapshots.length} snapshots`)
     _cache.set(site.id, snapshots)
+    // Also seed the per-diffId cache so re-selecting this same diff from
+    // history doesn't trigger a redundant fetch.
+    _diffCache.set(String(latestDiff.id), snapshots)
     return snapshots
 
   } catch (e) {
@@ -241,7 +257,35 @@ export async function loadDiffSnapshots(site) {
 }
 
 /**
+ * Load snapshots for ONE SPECIFIC historical TIME_SERIES diff by its diffId,
+ * regardless of whether it's the latest one for the site.
+ *
+ * Used to restore a Diff History entry exactly as it was when computed,
+ * instead of silently falling back to "whatever is current for the site"
+ * (which is what loadDiffSnapshots does).
+ *
+ * Returns [] if the diff can't be found/fetched.
+ */
+export async function loadDiffSnapshotsByDiffId(diffId, projectId) {
+  const key = String(diffId)
+  console.log(`[loadDiffSnapshotsByDiffId] diffId=${key} cached=${_diffCache.has(key)}`)
+  if (_diffCache.has(key)) return _diffCache.get(key)
+
+  try {
+    const snapshots = await _fetchAndBuildSnapshotsForDiff(diffId, projectId)
+    console.log(`[loadDiffSnapshotsByDiffId] built ${snapshots.length} snapshots for diffId=${key}`)
+    _diffCache.set(key, snapshots)
+    return snapshots
+  } catch (e) {
+    console.warn('[loadDiffSnapshotsByDiffId] error —', e.message)
+    return []
+  }
+}
+
+/**
  * Invalidate cache for a site (call after new diffs are computed).
+ * Only clears the "latest for site" cache — historical per-diffId entries
+ * in _diffCache remain valid forever since a past diff's data never changes.
  */
 export function invalidateDiffCache(siteId) {
   console.log(`[invalidateDiffCache] clearing cache for site=${siteId}`)

@@ -34,8 +34,6 @@ export default function RightPanel({
   // compare-only props
   compareIdA, onCompareIdA,
   compareIdB, onCompareIdB,
-  colorA, onColorA, alphaA, onAlphaA,
-  colorB, onColorB, alphaB, onAlphaB,
   drawInfo, drawBtnLabel, onDrawArea,
   voxelSize, onVoxelSize,
   diffRunning, onRunDiff, onClearDiff, onCancelDiff,
@@ -75,9 +73,7 @@ export default function RightPanel({
           <div className="p-section">
             <div className="p-label">Dates to Compare</div>
             <div className="compare-pair">
-
               <div className="compare-row">
-                <span className="compare-dot" style={{ background: colorA }} />
                 <span className="compare-ab-lbl">A</span>
                 <select value={compareIdA} onChange={e => onCompareIdA(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
@@ -85,23 +81,13 @@ export default function RightPanel({
                     const isMesh = d.datasetType === 'mesh'
                     return (
                       <option key={d.id} value={d.id} disabled={isMesh}>
-                        {d.label} ({d.id}){isMesh ? ' ⚠ 메쉬 불가' : ''}
+                        {d.label}{isMesh ? ' ⚠ 메쉬 불가' : ''}
                       </option>
                     )
                   })}
                 </select>
-                <input type="color" value={colorA} onChange={e => onColorA(e.target.value)}
-                  className="dataset-color" title="색상 A" />
               </div>
-              <div className="sub-row dataset-opacity">
-                <span className="sub-label">투명도</span>
-                <input type="range" min="0" max="1" step="0.05"
-                  value={alphaA} onChange={e => onAlphaA(parseFloat(e.target.value))} />
-                <span className="sub-val">{alphaA.toFixed(2)}</span>
-              </div>
-
               <div className="compare-row" style={{ marginTop: 8 }}>
-                <span className="compare-dot" style={{ background: colorB }} />
                 <span className="compare-ab-lbl">B</span>
                 <select value={compareIdB} onChange={e => onCompareIdB(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
@@ -109,27 +95,17 @@ export default function RightPanel({
                     const isMesh = d.datasetType === 'mesh'
                     return (
                       <option key={d.id} value={d.id} disabled={isMesh}>
-                        {d.label} ({d.id}){isMesh ? ' ⚠ 메쉬 불가' : ''}
+                        {d.label}{isMesh ? ' ⚠ 메쉬 불가' : ''}
                       </option>
                     )
                   })}
                 </select>
-                <input type="color" value={colorB} onChange={e => onColorB(e.target.value)}
-                  className="dataset-color" title="색상 B" />
               </div>
-              <div className="sub-row dataset-opacity">
-                <span className="sub-label">투명도</span>
-                <input type="range" min="0" max="1" step="0.05"
-                  value={alphaB} onChange={e => onAlphaB(parseFloat(e.target.value))} />
-                <span className="sub-val">{alphaB.toFixed(2)}</span>
-              </div>
-
               {dates.some(d => d.datasetType === 'mesh') && (
                 <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
                   ⚠ 메쉬 데이터는 차이 계산을 지원하지 않습니다 — 포인트클라우드만 선택 가능
                 </div>
               )}
-
             </div>
           </div>
 

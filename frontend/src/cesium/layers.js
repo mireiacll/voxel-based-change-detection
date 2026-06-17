@@ -2,9 +2,12 @@
  * layers.js — ES module
  *
  * VISIBILITY RULES (strict per-mode isolation):
- *   compare      → mesh/pc ✓  meshA/meshB ✓  diffPrim ✓  timeseriesTs[any] ✗
- *   compare-api  → mesh/pc ✓  meshA/meshB ✗  diffPrim ✗  timeseriesTs[any] ✗
- *   timeline     → mesh/pc ✓  meshA/meshB ✗  diffPrim ✗  timeseriesTs[active] ✓
+ *   compare      → mesh/pc ✓  diffPrim ✓  timeseriesTs[any] ✗
+ *   compare-api  → mesh/pc ✓  diffApiTs ✓  timeseriesTs[any] ✗
+ *   timeline     → mesh/pc ✓  timeseriesTs[active] ✓
+ *
+ * In compare mode, A/B tileset URLs are fetched via api.js for server-side
+ * diff computation only — they are never loaded into Cesium.
  *
  * Timeseries tilesets are ALL preloaded once per site (show=false), then we
  * just flip .show on the active one in timeline mode. No reload on scrub.
@@ -16,17 +19,13 @@ const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 import { setStatus, toast, requestRender } from './cesiumInit'
 
 export const state = {
-  siteId:          null,
-  dateId:          null,
-  mesh:            null,   // single-date view layer (mesh)
-  pc:              null,   // single-date view layer (point cloud)
-  meshA:           null,   // compare A
-  meshB:           null,   // compare B
-  diffPrim:        null,   // voxel diff primitive (local compare mode)
-  diffApiTs:       null,   // A/B full diff result tileset (compare-api mode)
-  // Timeline: map of snapshot.id → Cesium3DTileset (all preloaded, show toggled)
-  timeseriesTsMap: {},
-  // Which snapshot id is currently "active" (show=true) in timeline
+  siteId:           null,
+  dateId:           null,
+  mesh:             null,   // single-date view layer (mesh)
+  pc:               null,   // single-date view layer (point cloud)
+  diffPrim:         null,   // voxel diff primitive (compare mode)
+  diffApiTs:        null,   // A/B full diff result tileset (compare-api mode)
+  timeseriesTsMap:  {},     // snapshot.id → Cesium3DTileset (all preloaded, show toggled)
   activeSnapshotId: null,
 }
 
@@ -38,14 +37,10 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 
 /**
  * @param {string}  mode           — 'compare' | 'compare-api' | 'timeline'
- * @param {object}  checkboxState  — { dataset, dateA, dateB }
+ * @param {object}  checkboxState  — { dataset }
  */
 export function syncVisibility(mode, checkboxState) {
-  const {
-    dataset = true,
-    dateA   = true,
-    dateB   = true,
-  } = checkboxState || {}
+  const { dataset = true } = checkboxState || {}
 
   const inCompare    = mode === 'compare'
   const inCompareApi = mode === 'compare-api'
@@ -53,21 +48,16 @@ export function syncVisibility(mode, checkboxState) {
 
   console.log(`[syncVisibility] mode=${mode}`, {
     hasMesh: !!state.mesh, hasPc: !!state.pc,
-    hasMeshA: !!state.meshA, hasMeshB: !!state.meshB,
     hasDiffPrim: !!state.diffPrim,
     timeseriesTsCount: Object.keys(state.timeseriesTsMap).length,
     activeSnapshotId: state.activeSnapshotId,
   })
 
   // Single-date background layer
-  if (state.mesh) { state.mesh.show =  dataset; console.log(`[syncVisibility]   mesh.show = ${state.mesh.show}`) }
+  if (state.mesh) { state.mesh.show = dataset; console.log(`[syncVisibility]   mesh.show = ${state.mesh.show}`) }
   if (state.pc)   { state.pc.show   = dataset; console.log(`[syncVisibility]   pc.show   = ${state.pc.show}`) }
 
-  // A/B comparison layers — only in compare mode
-  if (state.meshA) { state.meshA.show = inCompare && dateA; console.log(`[syncVisibility]   meshA.show = ${state.meshA.show}`) }
-  if (state.meshB) { state.meshB.show = inCompare && dateB; console.log(`[syncVisibility]   meshB.show = ${state.meshB.show}`) }
-
-  // Diff primitive — only in compare mode, never in timeline/compare-api
+  // Diff primitive — only in compare mode
   if (state.diffPrim) {
     state.diffPrim.show = inCompare
     console.log(`[syncVisibility]   diffPrim.show = ${state.diffPrim.show}`)
@@ -109,16 +99,6 @@ function _makeTintStyle(hex, alpha) {
   })
 }
 
-export function setDateATint(hex, alpha) {
-  if (state.meshA) state.meshA.style = _makeTintStyle(hex, alpha)
-  requestAnimationFrame(() => requestRender())
-}
-
-export function setDateBTint(hex, alpha) {
-  if (state.meshB) state.meshB.style = _makeTintStyle(hex, alpha)
-  requestAnimationFrame(() => requestRender())
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLEAR HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -127,33 +107,32 @@ function _rm(t) {
   if (t) try { window.viewer.scene.primitives.remove(t) } catch (_) {}
 }
 
+/** Remove the single-date background layers (mesh/pc). Does not touch diffPrim or timeseries. */
 export function clearLayers() {
-  console.log('[clearLayers] removing background date layers (mesh/pc) — preserving diffPrim and compare layers')
-  _rm(state.mesh);  _rm(state.pc)
+  console.log('[clearLayers] removing background date layers (mesh/pc)')
+  _rm(state.mesh); _rm(state.pc)
   state.mesh = state.pc = null
-  // NOTE: does NOT touch meshA, meshB, diffPrim — those are owned by compare flow
-  // NOTE: does NOT touch timeseriesTsMap — those are owned by timeline flow
   requestAnimationFrame(() => requestRender())
 }
 
 /** Full wipe — use only on project open/close, not on date toggles. */
 export function clearAllLayers() {
   console.log('[clearAllLayers] full wipe of all layers')
-  _rm(state.mesh);  _rm(state.pc)
-  _rm(state.meshA); _rm(state.meshB)
+  _rm(state.mesh); _rm(state.pc)
   _rm(state.diffPrim); _rm(state.diffApiTs)
   for (const ts of Object.values(state.timeseriesTsMap)) _rm(ts)
-  state.mesh = state.pc = state.meshA = state.meshB = state.diffPrim = state.diffApiTs = null
+  state.mesh = state.pc = state.diffPrim = state.diffApiTs = null
   state.timeseriesTsMap  = {}
   state.activeSnapshotId = null
   if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
   requestAnimationFrame(() => requestRender())
 }
 
+/** Remove the compare diff primitive. */
 export function clearCompareLayers() {
   console.log('[clearCompareLayers] removing compare layers')
-  _rm(state.meshA); _rm(state.meshB); _rm(state.diffPrim)
-  state.meshA = state.meshB = state.diffPrim = null
+  _rm(state.diffPrim)
+  state.diffPrim = null
   if (window.diffState) window.diffState.voxels = []
   requestAnimationFrame(() => requestRender())
 }
@@ -171,9 +150,8 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
   state.dateId = dateObj.id
   setStatus(`Loading ${site.label} — ${dateObj.label}…`)
 
-  const isMesh  = dateObj.datasetType === 'mesh'
-  const maxSSE  = isMesh ? 8 : 2
-
+  const isMesh     = dateObj.datasetType === 'mesh'
+  const maxSSE     = isMesh ? 8 : 2
   // originalTilesetUrl is absolute (http://localhost:8080/…) thanks to
   // _toAbsoluteUrl() in api.js — never pass the raw datasetPath to Cesium.
   const tilesetUrl = dateObj.originalTilesetUrl
@@ -200,31 +178,6 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
 
   syncVisibility(currentMode || 'compare', checkboxState)
   setStatus(`${site.label} — ${dateObj.label} 준비됨`, true)
-}
-
-export async function loadCompare(site, dateA, dateB, currentMode, tintA, tintB, checkboxState) {
-  console.log(`[loadCompare] site=${site.id} A=${dateA.id} B=${dateB.id} mode=${currentMode}`)
-  _rm(state.meshA); _rm(state.meshB)
-  state.meshA = state.meshB = null
-
-  setStatus(`비교 로드 중: ${dateA.label} vs ${dateB.label}…`)
-
-  const [r0, r1] = await Promise.allSettled([
-    _loadTileset(dateA.originalTilesetUrl, true, 8, dateA.datasetType),
-    _loadTileset(dateB.originalTilesetUrl, true, 8, dateB.datasetType),
-  ])
-
-  state.meshA = r0.value || null
-  state.meshB = r1.value || null
-
-  const ta = tintA || { hex: '#d49050', alpha: 0.9 }
-  const tb = tintB || { hex: '#4d9fff', alpha: 0.9 }
-  if (state.meshA) state.meshA.style = _makeTintStyle(ta.hex, ta.alpha)
-  if (state.meshB) state.meshB.style = _makeTintStyle(tb.hex, tb.alpha)
-
-  syncVisibility(currentMode || 'compare', checkboxState)
-  setStatus(`비교: ${dateA.label} vs ${dateB.label}`, true)
-  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -354,7 +307,7 @@ export function renderVoxelDiff(voxels, voxelSize) {
 //  A/B FULL DIFF TILESET (compare-api mode)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── Per-channel visibility state for compare-api diff tileset ─────────────
+// Per-channel visibility state for compare-api diff tileset
 const _diffApiVis = { added: true, removed: true, unchanged: true }
 
 function _applyDiffApiStyle() {
@@ -405,9 +358,7 @@ export async function loadDiffApiTileset(tilesetUrl) {
   requestAnimationFrame(() => requestRender())
 }
 
-/**
- * Clear the A/B diff tileset (call on clear/reset).
- */
+/** Clear the A/B diff tileset (call on clear/reset). */
 export function clearDiffApiTileset() {
   _rm(state.diffApiTs)
   state.diffApiTs = null
@@ -424,9 +375,6 @@ export function clearDiffApiTileset() {
 //  showSnapshotTileset(snapshotId)
 //    → hides all timeseries tilesets, shows only the one for snapshotId.
 //      Call this ONLY when mode === 'timeline'.
-//
-//  These replace the old renderSnapshotTileset / clearTimeseriesLayer / 
-//  loadTimeseriesTileset pattern which destroyed and reloaded on every scrub.
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -475,13 +423,12 @@ export function showSnapshotTileset(snapshotId) {
   }
   console.log(`[showSnapshotTileset] shown=${shown} hidden=${hidden}`)
 
-  // Re-apply current visibility filter to the newly active tileset
   _applySnapshotStyle(state.activeSnapshotId)
 
   requestAnimationFrame(() => requestRender())
 }
 
-// ── Per-channel visibility state for timeline tilesets ─────────────────────
+// Per-channel visibility state for timeline tilesets.
 // Defaults mirror CONFIG.DEFAULTS so the initial view shows everything.
 const _tlVis = { added: true, removed: true, unchanged: true }
 
@@ -489,18 +436,11 @@ const _tlVis = { added: true, removed: true, unchanged: true }
  * Build a CustomShader that classifies voxels by their baked diffuse color,
  * discards hidden categories, and recolors visible ones to exact brand colors.
  *
- * Classification — just check which RGB channel dominates (loose thresholds
+ * Classification — check which RGB channel dominates (loose thresholds
  * so it works regardless of the exact baked value):
- *   red dominant  → added
- *   blue dominant → removed
+ *   red dominant  → added     (#ff4d4d  vec3(1.0,   0.302, 0.302))
+ *   blue dominant → removed   (#4d9fff  vec3(0.302, 0.624, 1.0))
  *   neither       → unchanged
- *
- * Setting material.emissive alongside diffuse ensures lighting doesn't
- * wash out or darken the recolored result.
- *
- * Exact output colors:
- *   added    → #ff4d4d  vec3(1.0,   0.302, 0.302)
- *   removed  → #4d9fff  vec3(0.302, 0.624, 1.0)
  */
 function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
   const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
@@ -528,15 +468,15 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
 }
 
 /**
- * Apply (or remove) a CustomShader to the active snapshot tileset.
- * Called internally after every show/hide and whenever toggles change.
+ * Apply a CustomShader to the active snapshot tileset.
+ * Called after every show/hide and whenever visibility toggles change.
  */
 function _applySnapshotStyle(snapshotId) {
   const ts = snapshotId ? state.timeseriesTsMap[snapshotId] : null
   if (!ts) return
 
   const shader = _buildCustomShader(_tlVis.added, _tlVis.removed, _tlVis.unchanged)
-  ts.customShader = shader ?? undefined   // undefined removes any previously set shader
+  ts.customShader = shader ?? undefined
 
   console.log(`[_applySnapshotStyle] snapshot=${snapshotId} shader=${shader ? 'custom' : 'none (all visible)'}`)
   requestAnimationFrame(() => requestRender())
@@ -544,11 +484,7 @@ function _applySnapshotStyle(snapshotId) {
 
 /**
  * Update added / removed / unchanged visibility for the active timeline tileset.
- * Call this from App.jsx whenever the timeline visibility toggles change.
- *
- * @param {boolean} showAdded
- * @param {boolean} showRemoved
- * @param {boolean} showUnchanged
+ * Call from App.jsx whenever the timeline visibility toggles change.
  */
 export function setSnapshotTilesetVisibility(showAdded, showRemoved, showUnchanged) {
   _tlVis.added     = showAdded
@@ -558,9 +494,7 @@ export function setSnapshotTilesetVisibility(showAdded, showRemoved, showUnchang
   _applySnapshotStyle(state.activeSnapshotId)
 }
 
-/**
- * Clear all preloaded timeseries tilesets (call when forcing a recompute).
- */
+/** Clear all preloaded timeseries tilesets (call when forcing a recompute). */
 export function clearAllSnapshotTilesets() {
   console.log(`[clearAllSnapshotTilesets] removing ${Object.keys(state.timeseriesTsMap).length} tilesets`)
   for (const ts of Object.values(state.timeseriesTsMap)) _rm(ts)

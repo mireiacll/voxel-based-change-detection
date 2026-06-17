@@ -24,6 +24,7 @@
  */
 
 import { useState } from 'react'
+import DiffHistory from './DiffHistory'
 
 /** Format a YYYY-MM-DD string → "Jun 1, 2026" */
 function isoToLabel(iso) {
@@ -102,6 +103,10 @@ export default function Panel({
   onComputeVoxel,   // (dateId) → Promise<void>
   mode,             // 'compare' | 'compare-api' | 'timeline'
   onMode,           // (mode) => void
+  diffHistory,      // entry[] from localStorage for this project
+  activeDiffId,     // id of the diff history entry currently loaded/displayed
+  onLoadDiff,       // (entry) → void — restore a past result
+  onDeleteDiff,     // (diffId) → void — remove a history entry
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
@@ -307,6 +312,17 @@ export default function Panel({
             {computeMsg && <div className="vox-compute-msg">{computeMsg}</div>}
           </>
         )}
+      </div>
+
+      {/* ── Diff History ── */}
+      <div className="p-section">
+        <div className="p-label">Diff History</div>
+        <DiffHistory
+          entries={diffHistory ?? []}
+          activeId={activeDiffId}
+          onLoad={onLoadDiff}
+          onDelete={onDeleteDiff}
+        />
       </div>
 
       {/* ── Camera ── */}

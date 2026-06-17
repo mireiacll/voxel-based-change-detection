@@ -7,7 +7,8 @@ import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiumInit'
 import {
   loadDate, syncVisibility, clearLayers, clearAllLayers, clearCompareLayers,
-  applyPcStyle, setDateATint, setDateBTint,
+  applyPcStyle, 
+  //setDateATint, setDateBTint,
   renderVoxelDiff, invalidateTilesetUrl,
   loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
   setSnapshotTilesetVisibility,
@@ -16,7 +17,7 @@ import {
 } from './cesium/layers'
 import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
-import { loadDiffSnapshots, invalidateDiffCache } from './timelineDiffs'
+import { loadDiffSnapshots, loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
 import {
   fetchProjects,
   enrichProjectWithDates,
@@ -31,6 +32,11 @@ import {
   cancelDiff,
   createTimeSeriesDiffAndPoll,
 } from './api'
+import {
+  loadDiffHistory,
+  addDiffHistoryEntry,
+  removeDiffHistoryEntry,
+} from './components/DiffHistory'
 
 import NavBar             from './components/NavBar'
 import Panel              from './components/Panel'
@@ -99,6 +105,9 @@ export default function App() {
   const [apiError,          setApiError]          = useState(null)
   const [apiSummary,        setApiSummary]        = useState(null)
   const [apiDiffTilesetUrl, setApiDiffTilesetUrl] = useState(null)
+
+  const [diffHistory, setDiffHistory] = useState([])   // entries for current project
+  const [activeDiffId, setActiveDiffId] = useState(null)  // id of the history entry currently loaded/displayed
 
   const lastCompareDiffRef = useRef(null)
   const apiDiffIdRef      = useRef(null)   // diffId of the in-flight A/B diff (for cancel)
@@ -275,8 +284,8 @@ export default function App() {
   }, [tlVis])
 
   // ── Sync side-effects ────────────────────────────────────────────────
-  useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
-  useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
+  // useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
+  // useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
   useEffect(() => { applyPcStyle(pcSize) },          [pcSize])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
   useEffect(() => { setBasemap(basemap) },            [basemap])
@@ -356,6 +365,9 @@ export default function App() {
     setActiveSite(site)
     window.currentSite = site
     setNavTab('analysis')
+    // Load persisted diff history for this project
+    setDiffHistory(loadDiffHistory(site.id))
+    setActiveDiffId(null)
     // Camera uses the flat fields from the coworker API shape directly
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
     // Auto-resume polling for any dates already mid-voxelization
@@ -633,6 +645,25 @@ export default function App() {
       // result = { ...DiffItemResponse, report: DiffItemReportResponse, tilesetUrl }
       setApiSummary(result.report)
 
+      // Persist to diff history
+      const histEntry = {
+        id:            apiDiffIdRef.current ?? result.diffId ?? result.id ?? Date.now(),
+        type:          'AB',
+        name:          result.name ?? `AB-${apiDateIdA}-${apiDateIdB}`,
+        createdAt:     new Date().toISOString(),
+        status:        'SUCCEEDED',
+        labelA:        dA?.label ?? dA?.observedAt ?? apiDateIdA,
+        labelB:        dB?.label ?? dB?.observedAt ?? apiDateIdB,
+        areaWkt:       areaWkt ?? null,
+        addedVolume:   result.report?.addedVolume   ?? 0,
+        removedVolume: result.report?.removedVolume ?? 0,
+        diffItemId:    result.report?.diffItemId    ?? result.id,
+        tilesetUrl:    result.tilesetUrl ?? null,
+      }
+      const nextHistory = addDiffHistoryEntry(activeSite.id, histEntry)
+      setDiffHistory(nextHistory)
+      setActiveDiffId(histEntry.id)
+
       if (result.tilesetUrl) {
         setApiDiffTilesetUrl(result.tilesetUrl)
         await loadDiffApiTileset(result.tilesetUrl)
@@ -663,6 +694,7 @@ export default function App() {
 
   function handleApiClear() {
     setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
+    setActiveDiffId(null)
     clearDiffApiTileset()
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
@@ -691,11 +723,35 @@ export default function App() {
     setTlRecomputeStatus('')
     setTlRecomputeDiffId(null)
     try {
-      await createTimeSeriesDiffAndPoll(activeSite.id, {
+      const diff = await createTimeSeriesDiffAndPoll(activeSite.id, {
         onStatus: msg => setTlRecomputeStatus(msg),
         onDiffId: id  => setTlRecomputeDiffId(id),
       })
       invalidateDiffCache(activeSite.id)
+
+      // Persist to diff history — store the REAL diffId (from the resolved
+      // diff object, not the transient tlRecomputeDiffId state) so this
+      // specific computation can be restored later via loadDiffSnapshotsByDiffId.
+      const succeededDates = activeSite.dates
+        .filter(d => d.voxelStatus === 'SUCCEEDED')
+        .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
+      const tsEntry = {
+        id:        diff?.id ?? `ts-${activeSite.id}-${Date.now()}`,
+        diffId:    diff?.id ?? null,
+        type:      'TIME_SERIES',
+        name:      `TimeSeries-${activeSite.id}`,
+        createdAt: new Date().toISOString(),
+        status:    'SUCCEEDED',
+        labelA:    succeededDates[0]?.label ?? succeededDates[0]?.observedAt ?? '?',
+        labelB:    succeededDates[succeededDates.length - 1]?.label
+                ?? succeededDates[succeededDates.length - 1]?.observedAt ?? '?',
+        areaWkt:   null,
+        observationCount: succeededDates.length,
+      }
+      const nextHist = addDiffHistoryEntry(activeSite.id, tsEntry)
+      setDiffHistory(nextHist)
+      setActiveDiffId(tsEntry.id)
+
       setTlSnapshots(null)  // triggers the load effect to re-fetch
     } catch (e) {
       console.error('[handleTlRecompute] failed:', e.message)
@@ -859,6 +915,85 @@ export default function App() {
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       throw e
     }
+  }
+
+  async function handleLoadDiff(entry) {
+    if (!activeSite) return
+
+    // Toggle off: clicking the already-active entry clears it, same as
+    // clicking an active date row deselects it instead of reloading it.
+    if (activeDiffId != null && String(activeDiffId) === String(entry.id)) {
+      if (entry.type === 'TIME_SERIES') {
+        clearAllSnapshotTilesets()
+        setTlSnapshots(null)
+        setTlActiveIndex(0)
+      } else if (entry.type === 'AB') {
+        handleApiClear()
+      }
+      setActiveDiffId(null)
+      return
+    }
+
+    if (entry.type === 'TIME_SERIES') {
+      if (!entry.diffId) {
+        // Legacy history entries (saved before diffId was tracked) have no
+        // way to be restored individually — fall back to "latest" with a heads-up.
+        addToast('이 기록은 특정 결과를 다시 불러올 수 없습니다 (이전 버전에서 저장됨) — 최신 결과를 표시합니다', 'warn')
+        handleModeChange('timeline')
+        setActiveDiffId(entry.id)
+        return
+      }
+      try {
+        setTlLoading(true)
+        const snaps = await loadDiffSnapshotsByDiffId(entry.diffId, activeSite.id)
+        if (!snaps.length) {
+          addToast('해당 시계열 결과를 불러올 수 없습니다', 'warn')
+          return
+        }
+        clearAllSnapshotTilesets()
+        setTlSnapshots(snaps)
+        setTlActiveIndex(0)
+        await loadAllSnapshotTilesets(snaps)
+        handleModeChange('timeline')
+        showSnapshotTileset(snaps[0].id)
+        setActiveDiffId(entry.id)
+      } catch (e) {
+        addToast(`기록 불러오기 실패: ${e.message}`, 'warn')
+      } finally {
+        setTlLoading(false)
+      }
+    } else if (entry.type === 'AB') {
+      // Switch to compare-api mode and restore summary + tileset
+      handleModeChange('compare-api')
+      setApiSummary({
+        diffItemId:       entry.diffItemId ?? null,
+        sourceObservedAt: entry.labelA,
+        targetObservedAt: entry.labelB,
+        addedVolume:      entry.addedVolume   ?? 0,
+        removedVolume:    entry.removedVolume ?? 0,
+        changedVolume:    0,
+        addedCount:       null,
+        removedCount:     null,
+      })
+      if (entry.tilesetUrl) {
+        setApiDiffTilesetUrl(entry.tilesetUrl)
+        try {
+          await loadDiffApiTileset(entry.tilesetUrl)
+        } catch (e) {
+          addToast(`Tileset 로드 실패: ${e.message}`, 'warn')
+        }
+      }
+      setApiStatus('기록에서 불러옴')
+      setApiError(null)
+      setActiveDiffId(entry.id)
+    }
+  }
+
+  function handleDeleteDiff(diffId) {
+    if (!activeSite) return
+    const next = removeDiffHistoryEntry(activeSite.id, diffId)
+    setDiffHistory(next)
+    if (activeDiffId === diffId) setActiveDiffId(null)
   }
 
   function handleCameraSite() {
@@ -1027,6 +1162,10 @@ export default function App() {
             onLayerMode={handleLayerMode}
             onComputeVoxel={handleComputeVoxel}
             mode={mode}                     onMode={handleModeChange}
+            diffHistory={diffHistory}
+            activeDiffId={activeDiffId}
+            onLoadDiff={handleLoadDiff}
+            onDeleteDiff={handleDeleteDiff}
           />
 
           <RightPanel

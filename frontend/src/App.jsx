@@ -33,7 +33,6 @@ import {
 } from './api'
 
 import NavBar             from './components/NavBar'
-import MapSubHeader       from './components/MapSubHeader'
 import Panel              from './components/Panel'
 import RightPanel         from './components/RightPanel'
 import MapOverlayControls from './components/MapOverlayControls'
@@ -58,7 +57,7 @@ export default function App() {
   const [sites,      setSites]      = useState([])
   const [activeSite, setActiveSite] = useState(null)
 
-  const [mode, setMode] = useState('compare')
+  const [mode, setMode] = useState('compare-api')
 
   const [visibleDateIds, setVisibleDateIds] = useState(new Set())
   const [activeDate, setActiveDate]         = useState(null)
@@ -68,7 +67,7 @@ export default function App() {
   const activeDateRef  = useRef(null)
   const activeSiteRef  = useRef(null)
   const visibleIdsRef  = useRef(new Set())
-  const modeRef        = useRef('compare')
+  const modeRef        = useRef('compare-api')
 
   useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
@@ -337,7 +336,7 @@ export default function App() {
     clearAllLayers()
     clearPolygon()
     lastCompareDiffRef.current = null
-    setMode('compare')
+    setMode('compare-api')
     setStats(null)
     setDiffStatus({ state: '', msg: '' })
     setDrawInfo(DEFAULT_DRAW_INFO)
@@ -1018,14 +1017,6 @@ export default function App() {
         <>
           <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
 
-          <MapSubHeader
-            mode={mode}
-            onMode={handleModeChange}
-            compareIdA={compareIdA}
-            compareIdB={compareIdB}
-            activeSite={activeSite}
-          />
-
           <Panel
             activeSite={activeSite}
             visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
@@ -1035,6 +1026,7 @@ export default function App() {
             voxelPollingIds={voxelPollingIds}
             onLayerMode={handleLayerMode}
             onComputeVoxel={handleComputeVoxel}
+            mode={mode}                     onMode={handleModeChange}
           />
 
           <RightPanel

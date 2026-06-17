@@ -53,7 +53,7 @@ html, body {
 /* ── Cesium container ─────────────────────────────────────── */
 #cesiumContainer {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh));
+  top: var(--nav-h);
   left: var(--pw);
   right: var(--rpw);
   bottom: var(--bbh);
@@ -240,6 +240,30 @@ html, body {
 }
 .status-ok   { background: rgba(76,201,122,.15); color: #4cc97a; border: 1px solid rgba(76,201,122,.3); }
 .status-warn { background: rgba(212,144,80,.15);  color: #d49050; border: 1px solid rgba(212,144,80,.3); }
+
+/* ── Analysis mode dropdown ── */
+.mode-select {
+  width: 100%;
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 10px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2355556a'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  transition: border-color .15s;
+}
+.mode-select:hover  { border-color: var(--accent); }
+.mode-select:focus  { outline: none; border-color: var(--accent); }
+.mode-select option { background: var(--surf3); color: var(--text); }
 
 /* ── Date list ──────────────────────────────────────────────── */
 #date-list { display: flex; flex-direction: column; gap: 4px; }
@@ -486,7 +510,7 @@ select {
 /* ── Draw banner ────────────────────────────────────────────── */
 #draw-banner {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh));
+  top: var(--nav-h);
   left: var(--pw); right: var(--rpw);
   z-index: 150;
   display: flex; align-items: center; gap: 12px;
@@ -753,7 +777,7 @@ select {
 /* ── Map overlay controls ───────────────────────────────────── */
 #map-overlay-controls {
   position: fixed;
-  top: calc(var(--nav-h) + var(--mshh) + 10px);
+  top: calc(var(--nav-h) + 10px);
   right: calc(var(--rpw) + 12px);
   z-index: 120;
   display: flex; flex-direction: row;

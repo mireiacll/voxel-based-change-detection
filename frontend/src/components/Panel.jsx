@@ -86,6 +86,12 @@ function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChan
   )
 }
 
+const ANALYSIS_MODES = [
+  { value: 'compare-api', label: 'A vs B 비교' },
+  { value: 'compare',     label: 'A vs B 비교 (Simple)' },
+  { value: 'timeline',    label: '시계열 변화탐지' },
+]
+
 export default function Panel({
   activeSite,
   visibleDateIds, onToggleDate,
@@ -94,6 +100,8 @@ export default function Panel({
   voxelPollingIds,  // Set<dateId> — dates currently being voxelized
   onLayerMode,      // (dateId, 'pc' | 'vox') → void
   onComputeVoxel,   // (dateId) → Promise<void>
+  mode,             // 'compare' | 'compare-api' | 'timeline'
+  onMode,           // (mode) => void
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
@@ -164,6 +172,20 @@ export default function Panel({
             </span>
           </div>
         </div>
+      </div>
+
+      {/* ── Analysis Mode ── */}
+      <div className="p-section">
+        <div className="p-label">Analysis Mode</div>
+        <select
+          className="mode-select"
+          value={mode ?? 'compare'}
+          onChange={e => onMode?.(e.target.value)}
+        >
+          {ANALYSIS_MODES.map(m => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* ── Survey Dates ── */}

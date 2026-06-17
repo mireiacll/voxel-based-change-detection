@@ -108,22 +108,30 @@ function _normaliseProject(p) {
  * which knows nothing about those paths and returns an HTML page.
  * Prefix any relative URL with EXT_API (localhost:8080) so Cesium always
  * gets a fully-qualified URL pointing at the correct backend.
+ *
+ * Exported so TimelineDiffs.js can reuse it instead of duplicating.
  */
-function _toAbsoluteUrl(url) {
+export function toAbsoluteUrl(url) {
   if (!url) return null
   if (url.startsWith('http://') || url.startsWith('https://')) return url
   return `${EXT_API}${url.startsWith('/') ? '' : '/'}${url}`
 }
+// Internal alias — keeps all existing _toAbsoluteUrl(...) call sites working.
+const _toAbsoluteUrl = toAbsoluteUrl
 
 /**
  * Rewrite a voxel tileset URL so it points to the visualization sub-folder.
  * Backend returns: …/voxel/tileset.json
  * Cesium needs:   …/voxel/visualization/tileset.json
+ *
+ * Exported so TimelineDiffs.js can reuse it instead of duplicating.
  */
-function _injectVisualizationFolder(url) {
+export function injectVisualizationFolder(url) {
   if (!url) return url
   return url.replace(/\/voxel\/tileset\.json$/, '/voxel/visualization/tileset.json')
 }
+// Internal alias — keeps all existing _injectVisualizationFolder(...) call sites working.
+const _injectVisualizationFolder = injectVisualizationFolder
 
 function _observationToDate(obs) {
   return {
@@ -143,13 +151,20 @@ function _observationToDate(obs) {
   }
 }
 
-function _formatDate(dateStr) {
+/**
+ * Format a YYYY-MM-DD string → "Mon D, YYYY" (e.g. "Jun 1, 2026").
+ * Exported so Panel.jsx, DataUploadPage.jsx, and TimelineDiffs.js can reuse
+ * it instead of each defining their own isoToLabel / _formatDate copy.
+ */
+export function formatDate(dateStr) {
   if (!dateStr) return dateStr
   const [year, month, day] = dateStr.split('-')
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const m = months[parseInt(month, 10) - 1] ?? month
   return `${m} ${parseInt(day, 10)}, ${year}`
 }
+// Internal alias keeps _observationToDate's existing call site working.
+const _formatDate = formatDate
 
 // ─────────────────────────────────────────────────────────────────────────
 //  PROJECTS / SITES
@@ -160,11 +175,6 @@ export async function fetchProjects() {
   const list = await _get('/api/projects')
   console.log('[api.fetchProjects] got', list.length, 'projects:', list.map(p => `${p.id}:${p.name}`))
   return list.map(_normaliseProject)
-}
-
-export async function fetchProject(id) {
-  const p = await _get(`/api/projects/${id}`)
-  return _normaliseProject(p)
 }
 
 export async function enrichProjectWithDates(site) {
@@ -799,10 +809,4 @@ export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
 
   onStatus('완료')
   return diff
-}
-
-
-export async function fetchOriginalTilesetUrl(observationId) {
-  const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/original`)
-  return _toAbsoluteUrl(tilesetUrl)
 }

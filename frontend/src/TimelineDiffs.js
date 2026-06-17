@@ -21,6 +21,8 @@
  *     → averageVoxelVolumeCubicMeters from last level → actual vox_size
  */
 
+import { formatDate, toAbsoluteUrl, injectVisualizationFolder } from './api'
+
 const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
 // ── In-memory cache: siteId → snapshot[] (latest diff per site) ──────────
@@ -31,23 +33,9 @@ const _diffCache = new Map()
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function _formatDate(dateStr) {
-  if (!dateStr) return dateStr
-  const [year, month, day] = dateStr.split('-')
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const m = months[parseInt(month, 10) - 1] ?? month
-  return `${m} ${parseInt(day, 10)}, ${year}`
-}
-
 function _dateToMs(dateStr) {
   if (!dateStr) return 0
   return new Date(dateStr).getTime()
-}
-
-function _toAbsUrl(url) {
-  if (!url) return null
-  if (url.startsWith('http://') || url.startsWith('https://')) return url
-  return `${EXT_API}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
 /**
@@ -55,18 +43,13 @@ function _toAbsUrl(url) {
  * Backend returns: …/voxel/tileset.json
  * Cesium needs:   …/voxel/visualization/tileset.json
  */
-function _injectVisualizationFolder(url) {
-  if (!url) return null
-  return url.replace(/\/voxel\/tileset\.json$/, '/voxel/visualization/tileset.json')
-}
-
 /**
  * Convert summaryPath → mass-summary URL.
  * /data/voxelsets/…/summary.json → /files/voxelsets/…/voxel/mass-summary.json
  */
 function _toMassUrl(summaryPath) {
   if (!summaryPath) return null
-  return _toAbsUrl(
+  return toAbsoluteUrl(
     summaryPath
       .replace(/^\/data\//, '/files/')
       .replace(/\/summary\.json$/, '/voxel/mass-summary.json')
@@ -81,7 +64,7 @@ async function _buildSnapshot(item, projectId) {
 
   // Tileset URL comes directly from the item
   const rawTilesetUrl = item.resultTilesetUrl
-  const tilesetUrl = _injectVisualizationFolder(_toAbsUrl(rawTilesetUrl))
+  const tilesetUrl = injectVisualizationFolder(toAbsoluteUrl(rawTilesetUrl))
   console.log(`[_buildSnapshot] item=${item.id} rawTilesetUrl=${rawTilesetUrl} → tilesetUrl=${tilesetUrl}`)
 
   // Fetch report for summaryPath
@@ -154,15 +137,15 @@ async function _buildSnapshot(item, projectId) {
     diffItemId:   item.id,
     date_a: {
       id:    String(item.sourceObservationId),
-      label: _formatDate(sourceDate) ?? `Obs ${item.sourceObservationId}`,
+      label: formatDate(sourceDate) ?? `Obs ${item.sourceObservationId}`,
       ts:    _dateToMs(sourceDate),
     },
     date_b: {
       id:    String(item.targetObservationId),
-      label: _formatDate(targetDate) ?? `Obs ${item.targetObservationId}`,
+      label: formatDate(targetDate) ?? `Obs ${item.targetObservationId}`,
       ts:    _dateToMs(targetDate),
     },
-    label:       `${_formatDate(sourceDate)} → ${_formatDate(targetDate)}`,
+    label:       `${formatDate(sourceDate)} → ${formatDate(targetDate)}`,
     tilesetUrl,              // renamed from tileset_path — absolute URL ready for Cesium
     vox_size:    voxSize,    // null if unknown
     avg_vox_vol: avgVoxVol,  // m³ per voxel at finest level — use directly in stats display

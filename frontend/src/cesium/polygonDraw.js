@@ -6,8 +6,9 @@ import { toast, requestRender } from './cesiumInit'
 // swapping), each tab owns its own independent state object at all times.
 // Only the ACTIVE tab's entities are visible; others are hidden.
 //
-// Tab keys: 'compare' | 'compare-api'
-// (Timeline never has a polygon, so it is not a key here.)
+// Tab key: 'compare-api'  (the only remaining compare mode)
+// Timeline never has a polygon so it is not a key here.
+// The old 'compare' (simple) mode has been removed — see RightPanel.jsx.
 
 function _emptyState() {
   return {
@@ -23,12 +24,11 @@ function _emptyState() {
 }
 
 const _tabs = {
-  'compare':     _emptyState(),
   'compare-api': _emptyState(),
 }
 
-// Which tab is currently active (visible). Starts as 'compare'.
-let _activeTab = 'compare'
+// Which tab is currently active (visible).
+let _activeTab = 'compare-api'
 
 // Shorthand for the active tab's state
 function _s() { return _tabs[_activeTab] }
@@ -88,8 +88,8 @@ export function clearPolygon() {
  * Hides the departing tab's entities, shows the arriving tab's entities,
  * and updates the UI labels to match the arriving tab.
  *
- * @param {string} fromTab  'compare' | 'compare-api' | 'timeline-hidden'
- * @param {string} toTab    'compare' | 'compare-api' | 'timeline-hidden'
+ * @param {string} fromTab  'compare-api' | 'timeline-hidden'
+ * @param {string} toTab    'compare-api' | 'timeline-hidden'
  * @param {string} currentDrawInfo   current UI drawInfo (saved into departing tab)
  * @param {string} currentDrawBtn    current UI drawBtn  (saved into departing tab)
  */
@@ -282,11 +282,6 @@ function _clearActivePoly() {
 
 // ── Getters ───────────────────────────────────────────────────────────────
 
-export function getPolygonGeo() {
-  const s = _s()
-  return s.closed ? s.geo : null
-}
-
 /**
  * Returns a WKT POLYGON string from the active tab's closed polygon, or null.
  * Format: POLYGON((lon1 lat1, lon2 lat2, ..., lon1 lat1))
@@ -298,9 +293,4 @@ export function getPolygonWkt() {
     .map(p => `${p.lon} ${p.lat}`)
     .join(', ')
   return `POLYGON((${coords}))`
-}
-
-// ── Legacy / visibility helper (used by App.jsx in some paths) ────────────
-export function setPolygonVisible(visible) {
-  _showEntities(_s().entities, visible)
 }

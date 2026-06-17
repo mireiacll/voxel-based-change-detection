@@ -26,16 +26,8 @@ import {
   uploadObservation,
   updateObservation,
   deleteObservation,
+  formatDate,
 } from '../api'
-
-/** Format a YYYY-MM-DD string into a pretty label like "Jun 1, 2026". */
-function isoToLabel(iso) {
-  if (!iso) return iso
-  const [year, month, day] = iso.split('-')
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const m = MONTHS[parseInt(month, 10) - 1] ?? month
-  return `${m} ${parseInt(day, 10)}, ${year}`
-}
 
 /**
  * Map an api.js uploadObservation onProgress({ phase, pct }) event to a
@@ -93,6 +85,44 @@ function DateTextInput({ value, onChange, disabled, autoFocus }) {
       autoFocus={autoFocus}
     />
   )
+}
+
+// ── Folder drag-and-drop helpers (shared by DateRow and NewDateCard) ─────────
+
+function readAllEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const all = []
+    function readBatch() {
+      reader.readEntries(entries => {
+        if (!entries.length) { resolve(all); return }
+        all.push(...entries); readBatch()
+      }, reject)
+    }
+    readBatch()
+  })
+}
+
+async function readEntry(entry, path = '') {
+  if (entry.isFile) return new Promise((resolve, reject) => {
+    entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
+  })
+  if (entry.isDirectory) {
+    const entries = await readAllEntries(entry.createReader())
+    const results = []
+    for (const child of entries)
+      results.push(...await readEntry(child, path + entry.name + '/'))
+    return results
+  }
+  return []
+}
+
+async function getDroppedFiles(items) {
+  const fs = []
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.()
+    if (entry) fs.push(...await readEntry(entry))
+  }
+  return fs
 }
 
 // ── Single-date row ───────────────────────────────────────────────────────
@@ -185,44 +215,6 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
     }
   }
 
-  // ── Folder drop helpers (shared with NewDateCard) ────────────────────────
-
-  function readAllEntries(reader) {
-    return new Promise((resolve, reject) => {
-      const all = []
-      function readBatch() {
-        reader.readEntries(entries => {
-          if (!entries.length) { resolve(all); return }
-          all.push(...entries); readBatch()
-        }, reject)
-      }
-      readBatch()
-    })
-  }
-
-  async function readEntry(entry, path = '') {
-    if (entry.isFile) return new Promise((resolve, reject) => {
-      entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
-    })
-    if (entry.isDirectory) {
-      const entries = await readAllEntries(entry.createReader())
-      const results = []
-      for (const child of entries)
-        results.push(...await readEntry(child, path + entry.name + '/'))
-      return results
-    }
-    return []
-  }
-
-  async function getDroppedFiles(items) {
-    const fs = []
-    for (const item of items) {
-      const entry = item.webkitGetAsEntry?.()
-      if (entry) fs.push(...await readEntry(entry))
-    }
-    return fs
-  }
-
   async function handleEditDrop(e) {
     e.preventDefault(); setEditDrag(false)
     const dropped = await getDroppedFiles([...e.dataTransfer.items])
@@ -240,7 +232,7 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
       {/* ── Header row ── */}
       <div className="dup-date-header">
         <div className="dup-date-info">
-          <span className="dup-date-label">{isoToLabel(date.observedAt) || date.label}</span>
+          <span className="dup-date-label">{formatDate(date.observedAt) || date.label}</span>
           <span className="dup-date-name" title={date.name}>{date.name}</span>
         </div>
 
@@ -423,43 +415,6 @@ function NewDateCard({ site, onCreated }) {
     const droppedFiles = await getDroppedFiles([...e.dataTransfer.items])
     if (!droppedFiles.length) return
     setFiles(droppedFiles); setError('')
-  }
-
-  function readAllEntries(reader) {
-    return new Promise((resolve, reject) => {
-      const all = []
-      function readBatch() {
-        reader.readEntries(entries => {
-          if (!entries.length) { resolve(all); return }
-          all.push(...entries)
-          readBatch()
-        }, reject)
-      }
-      readBatch()
-    })
-  }
-
-  async function readEntry(entry, path = '') {
-    if (entry.isFile) return new Promise((resolve, reject) => {
-      entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
-    })
-    if (entry.isDirectory) {
-      const entries = await readAllEntries(entry.createReader())
-      const results = []
-      for (const child of entries)
-        results.push(...await readEntry(child, path + entry.name + '/'))
-      return results
-    }
-    return []
-  }
-
-  async function getDroppedFiles(items) {
-    const fs = []
-    for (const item of items) {
-      const entry = item.webkitGetAsEntry?.()
-      if (entry) fs.push(...await readEntry(entry))
-    }
-    return fs
   }
 
   const folderName =

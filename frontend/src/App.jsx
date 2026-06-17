@@ -6,16 +6,14 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiumInit'
 import {
-  loadDate, syncVisibility, clearLayers, clearAllLayers, clearCompareLayers,
-  applyPcStyle, 
-  //setDateATint, setDateBTint,
-  renderVoxelDiff, invalidateTilesetUrl,
+  loadDate, syncVisibility, clearLayers, clearAllLayers,
+  applyPcStyle,
+  invalidateTilesetUrl,
   loadAllSnapshotTilesets, showSnapshotTileset, clearAllSnapshotTilesets,
   setSnapshotTilesetVisibility,
   loadDiffApiTileset, clearDiffApiTileset,
   setDiffApiTilesetVisibility,
 } from './cesium/layers'
-import { runVoxelDiff, cancelVoxelDiff } from './diff'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
 import { loadDiffSnapshots, loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
 import {
@@ -80,21 +78,11 @@ export default function App() {
   useEffect(() => { visibleIdsRef.current = visibleDateIds }, [visibleDateIds])
   useEffect(() => { modeRef.current       = mode },           [mode])
 
-  const [compareIdA, setCompareIdA] = useState('')
-  const [compareIdB, setCompareIdB] = useState('')
-  const [colorA, setColorA] = useState('#d49050')
-  const [alphaA, setAlphaA] = useState(0.9)
-  const [colorB, setColorB] = useState('#4d9fff')
-  const [alphaB, setAlphaB] = useState(0.9)
-
-  const [compareVis,    setCompareVis]    = useState({ ...DEFAULT_VIS })
   const [compareApiVis, setCompareApiVis] = useState({ ...DEFAULT_VIS })
   const [tlVis,         setTlVis]         = useState({ ...DEFAULT_VIS })
 
-  const compareVisRef    = useRef({ ...DEFAULT_VIS })
   const compareApiVisRef = useRef({ ...DEFAULT_VIS })
   const tlVisRef         = useRef({ ...DEFAULT_VIS })
-  useEffect(() => { compareVisRef.current    = compareVis },    [compareVis])
   useEffect(() => { compareApiVisRef.current = compareApiVis }, [compareApiVis])
   useEffect(() => { tlVisRef.current         = tlVis },         [tlVis])
 
@@ -106,16 +94,10 @@ export default function App() {
   const [apiSummary,        setApiSummary]        = useState(null)
   const [apiDiffTilesetUrl, setApiDiffTilesetUrl] = useState(null)
 
-  const [diffHistory, setDiffHistory] = useState([])   // entries for current project
-  const [activeDiffId, setActiveDiffId] = useState(null)  // id of the history entry currently loaded/displayed
+  const [diffHistory,  setDiffHistory]  = useState([])
+  const [activeDiffId, setActiveDiffId] = useState(null)
 
-  const lastCompareDiffRef = useRef(null)
-  const apiDiffIdRef      = useRef(null)   // diffId of the in-flight A/B diff (for cancel)
-
-  const [voxelSize,   setVoxelSize]   = useState(CONFIG.DEFAULTS.VOXEL_SIZE)
-  const [diffRunning, setDiffRunning] = useState(false)
-  const [diffStatus,  setDiffStatus]  = useState({ state: '', msg: '' })
-  const [stats,       setStats]       = useState(null)
+  const apiDiffIdRef = useRef(null)
 
   const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
   const [drawBtnLabel, setDrawBtnLabel] = useState(DEFAULT_DRAW_BTN)
@@ -149,9 +131,6 @@ export default function App() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
   }, [])
 
-  /**
-   * Fetch all projects then enrich each one with its observations (dates).
-   */
   const refreshSites = useCallback(async () => {
     console.log('[refreshSites] start')
     try {
@@ -165,17 +144,6 @@ export default function App() {
       return []
     }
   }, [])
-
-  function checkState(overrides = {}) {
-    return {
-      dataset: true,
-      dateA:   true,
-      dateB:   true,
-      added:   compareVisRef.current.added,
-      removed: compareVisRef.current.removed,
-      ...overrides,
-    }
-  }
 
   // ── Init ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -252,26 +220,7 @@ export default function App() {
     showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
 
-  // ── Re-sync compare voxel visibility ────────────────────────────────
-  useEffect(() => {
-    if (mode !== 'compare') return
-    if (lastCompareDiffRef.current) {
-      const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
-      window.diffState = window.diffState ?? {}
-      window.diffState.gridDef = gridDef
-      renderVoxelDiff(
-        voxels.filter(v =>
-          (v.type === 'added'   && compareVis.added) ||
-          (v.type === 'removed' && compareVis.removed)
-        ),
-        vs
-      )
-    } else {
-      syncVisibility('compare', checkState())
-    }
-  }, [compareVis])
-
-  // ── Re-sync compare-api diff tileset style ──────────────────────────────
+  // ── Re-sync compare-api diff tileset style ───────────────────────────
   useEffect(() => {
     if (mode !== 'compare-api') return
     setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed, compareApiVis.unchanged)
@@ -284,8 +233,6 @@ export default function App() {
   }, [tlVis])
 
   // ── Sync side-effects ────────────────────────────────────────────────
-  // useEffect(() => { setDateATint(colorA, alphaA) }, [colorA, alphaA])
-  // useEffect(() => { setDateBTint(colorB, alphaB) }, [colorB, alphaB])
   useEffect(() => { applyPcStyle(pcSize) },          [pcSize])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
   useEffect(() => { setBasemap(basemap) },            [basemap])
@@ -311,15 +258,13 @@ export default function App() {
 
       if (e.key === 'a') {
         const m = modeRef.current
-        if (m === 'compare')          setCompareVis(v    => ({ ...v, added: !v.added }))
-        else if (m === 'compare-api') setCompareApiVis(v => ({ ...v, added: !v.added }))
-        else if (m === 'timeline')    setTlVis(v => ({ ...v, added: !v.added }))
+        if (m === 'compare-api') setCompareApiVis(v => ({ ...v, added: !v.added }))
+        else if (m === 'timeline') setTlVis(v => ({ ...v, added: !v.added }))
       }
       if (e.key === 'r') {
         const m = modeRef.current
-        if (m === 'compare')          setCompareVis(v    => ({ ...v, removed: !v.removed }))
-        else if (m === 'compare-api') setCompareApiVis(v => ({ ...v, removed: !v.removed }))
-        else if (m === 'timeline')    setTlVis(v => ({ ...v, removed: !v.removed }))
+        if (m === 'compare-api') setCompareApiVis(v => ({ ...v, removed: !v.removed }))
+        else if (m === 'timeline') setTlVis(v => ({ ...v, removed: !v.removed }))
       }
 
       if (e.key === 'd') togglePolygonDraw()
@@ -341,36 +286,26 @@ export default function App() {
 
   function handleOpenProject(site) {
     console.log('[handleOpenProject] site:', site.id, site.name, '— dates:', site.dates.length)
-    if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
     clearAllLayers()
     clearPolygon()
-    lastCompareDiffRef.current = null
     setMode('compare-api')
-    setStats(null)
-    setDiffStatus({ state: '', msg: '' })
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
     setDrawBanner(false)
     setVisibleDateIds(new Set())
     setActiveDate(null)
-    setCompareIdA(site.dates[0]?.id ?? '')
-    setCompareIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
     setApiDateIdA(site.dates[0]?.id ?? '')
     setApiDateIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
     setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
-    setCompareVis({ ...DEFAULT_VIS })
     setCompareApiVis({ ...DEFAULT_VIS })
     setTlVis({ ...DEFAULT_VIS })
     setActiveSite(site)
     window.currentSite = site
     setNavTab('analysis')
-    // Load persisted diff history for this project
     setDiffHistory(loadDiffHistory(site.id))
     setActiveDiffId(null)
-    // Camera uses the flat fields from the coworker API shape directly
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
-    // Auto-resume polling for any dates already mid-voxelization
     console.log('[handleOpenProject] checking dates for auto-resume:',
       site.dates.map(d => `${d.id} status=${d.voxelStatus} jobId=${d.voxelJobId}`))
     site.dates.forEach(d => {
@@ -408,7 +343,7 @@ export default function App() {
           console.log('[handleDataChanged] found updated date:', d?.id, 'datasetPath:', d?.datasetPath)
           if (d?.originalTilesetUrl) {
             invalidateTilesetUrl(d.originalTilesetUrl)
-            loadDate(updatedSite, d, modeRef.current, checkState())
+            loadDate(updatedSite, d, modeRef.current, {})
           }
         }
       }
@@ -430,10 +365,8 @@ export default function App() {
     const updated = await refreshSites()
     setSites(updated)
     if (activeSite?.id === siteId) {
-      if (diffRunning) { cancelVoxelDiff(); setDiffRunning(false) }
       clearAllLayers()
       clearPolygon()
-      lastCompareDiffRef.current = null
       setActiveSite(null)
       window.currentSite = null
       setNavTab('projects')
@@ -455,7 +388,7 @@ export default function App() {
         next.add(d.id)
         setActiveDate(d)
         setActiveDateLayerMode('pc')
-        loadDate(site, d, modeRef.current, checkState())
+        loadDate(site, d, modeRef.current, {})
       }
       return next
     })
@@ -470,13 +403,13 @@ export default function App() {
     if (layerMode === 'vox' && d.voxelPath) {
       try {
         const resolvedUrl = await fetchVoxelTilesetUrl(dateId)
-        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'voxel' }, modeRef.current, checkState())
+        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'voxel' }, modeRef.current, {})
       } catch (e) {
         console.error('[handleLayerMode] fetchVoxelTilesetUrl failed:', e.message)
         addToast(`Voxel tileset URL 조회 실패: ${e.message}`, 'warn')
       }
     } else {
-      loadDate(activeSite, d, modeRef.current, checkState())
+      loadDate(activeSite, d, modeRef.current, {})
     }
   }
 
@@ -493,11 +426,9 @@ export default function App() {
     modeRef.current = newMode
 
     if (newMode === 'timeline') {
-      if (prevMode === 'compare' || prevMode === 'compare-api') {
-        swapPolygonTab(prevMode, 'timeline-hidden', drawInfo, drawBtnLabel)
-        setDrawBanner(false)
-      }
-      syncVisibility('timeline', checkState())
+      swapPolygonTab(prevMode, 'timeline-hidden', drawInfo, drawBtnLabel)
+      setDrawBanner(false)
+      syncVisibility('timeline', {})
       const snaps = tlSnapshotsRef.current
       if (snaps?.length) {
         const activeSnap = snaps[tlActiveIndexRef.current]
@@ -505,104 +436,11 @@ export default function App() {
       }
       setSnapshotTilesetVisibility(tlVisRef.current.added, tlVisRef.current.removed, tlVisRef.current.unchanged)
 
-    } else if (newMode === 'compare') {
-      if (prevMode === 'compare-api') {
-        swapPolygonTab('compare-api', 'compare', drawInfo, drawBtnLabel)
-        setDrawBanner(false)
-      } else if (prevMode === 'timeline') {
-        swapPolygonTab('timeline-hidden', 'compare', drawInfo, drawBtnLabel)
-        setDrawBanner(false)
-      }
-
-      if (lastCompareDiffRef.current) {
-        const { voxels, gridDef, voxelSize: vs } = lastCompareDiffRef.current
-        window.diffState = window.diffState ?? {}
-        window.diffState.gridDef = gridDef
-        renderVoxelDiff(
-          voxels.filter(v =>
-            (v.type === 'added'   && compareVisRef.current.added) ||
-            (v.type === 'removed' && compareVisRef.current.removed)
-          ),
-          vs
-        )
-      } else {
-        renderVoxelDiff([], 0.5)
-      }
-      syncVisibility('compare', checkState())
-
     } else if (newMode === 'compare-api') {
-      if (prevMode === 'compare') {
-        swapPolygonTab('compare', 'compare-api', drawInfo, drawBtnLabel)
-        setDrawBanner(false)
-      } else if (prevMode === 'timeline') {
-        swapPolygonTab('timeline-hidden', 'compare-api', drawInfo, drawBtnLabel)
-        setDrawBanner(false)
-      }
-      renderVoxelDiff([], 0.5)
-      syncVisibility('compare-api', checkState())
+      swapPolygonTab(prevMode === 'timeline' ? 'timeline-hidden' : prevMode, 'compare-api', drawInfo, drawBtnLabel)
+      setDrawBanner(false)
+      syncVisibility('compare-api', {})
     }
-  }
-
-  async function handleRunDiff() {
-    if (diffRunning) return
-    const dA = activeSite.dates.find(d => d.id === compareIdA)
-    const dB = activeSite.dates.find(d => d.id === compareIdB)
-    if (!compareIdA || !compareIdB) { addToast('두 날짜를 먼저 선택하세요', 'warn'); return }
-    if (compareIdA === compareIdB)  { addToast('서로 다른 날짜를 선택하세요', 'warn'); return }
-    if (!dA || !dB)                 { addToast('날짜를 찾을 수 없습니다', 'warn'); return }
-    // Mesh is not supported by the Python diff — block early with a clear message
-    if (dA.datasetType === 'mesh' || dB.datasetType === 'mesh') {
-      addToast('메쉬 데이터는 차이 계산을 지원하지 않습니다. 포인트클라우드 날짜를 선택하세요.', 'warn')
-      return
-    }
-    // The diff server now fetches tilesets by URL — no local datasetPath needed.
-    // Warn if neither the URL nor a path is available (observation has no dataset at all).
-    if (!dA.originalTilesetUrl && !dA.datasetPath) {
-      addToast(`날짜 A (${dA.label})에 데이터가 없습니다`, 'warn'); return
-    }
-    if (!dB.originalTilesetUrl && !dB.datasetPath) {
-      addToast(`날짜 B (${dB.label})에 데이터가 없습니다`, 'warn'); return
-    }
-    setDiffRunning(true)
-    const _compareTimer = `[compare] ${dA.label} vs ${dB.label}`
-    console.time(_compareTimer)
-    console.log(`[compare] ⏱ started — ${dA.label} (${dA.id}) vs ${dB.label} (${dB.id})`)
-    try {
-      await runVoxelDiff(
-        activeSite, dA, dB, mode, voxelSize,
-        { hex: colorA, alpha: alphaA }, { hex: colorB, alpha: alphaB },
-        checkState(),
-        (st, msg) => setDiffStatus({ state: st, msg }),
-        s => {
-          setStats(s)
-          if (s && window.diffState?.voxels?.length && window.diffState?.gridDef) {
-            lastCompareDiffRef.current = {
-              voxels:    window.diffState.voxels.map(v => ({ type: v.type, voxel: { ...v.voxel } })),
-              gridDef:   { ...window.diffState.gridDef },
-              voxelSize: s.voxSize,
-            }
-          }
-        },
-      )
-    } finally {
-      console.timeEnd(_compareTimer)
-      setDiffRunning(false)
-    }
-  }
-
-  function handleCancelDiff() {
-    cancelVoxelDiff()
-    setDiffRunning(false)
-    setDiffStatus({ state: 'done', msg: 'Computation cancelled' })
-  }
-
-  function handleClearDiff() {
-    clearCompareLayers()
-    lastCompareDiffRef.current = null
-    setStats(null)
-    setDiffStatus({ state: '', msg: '' })
-    setDrawInfo(DEFAULT_DRAW_INFO)
-    setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
   async function handleApiRun() {
@@ -610,7 +448,6 @@ export default function App() {
     if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
     if (apiDateIdA === apiDateIdB)  { setApiError('서로 다른 날짜를 선택하세요'); return }
 
-    // Guard: both observations must have a completed voxel before diffing
     const dA = activeSite.dates.find(d => d.id === apiDateIdA)
     const dB = activeSite.dates.find(d => d.id === apiDateIdB)
     if (dA?.voxelStatus !== 'SUCCEEDED') {
@@ -642,10 +479,8 @@ export default function App() {
         },
       )
 
-      // result = { ...DiffItemResponse, report: DiffItemReportResponse, tilesetUrl }
       setApiSummary(result.report)
 
-      // Persist to diff history
       const histEntry = {
         id:            apiDiffIdRef.current ?? result.diffId ?? result.id ?? Date.now(),
         type:          'AB',
@@ -703,13 +538,11 @@ export default function App() {
   const handleTlRecompute = useCallback(async () => {
     if (!activeSite) return
 
-    // Guard: need at least 2 observations
     if (activeSite.dates.length < 2) {
       addToast('시계열 분석을 실행하려면 최소 2개의 관측 데이터가 필요합니다', 'warn')
       return
     }
 
-    // Guard: all dates must have a completed voxel
     const missing = activeSite.dates.filter(d => d.voxelStatus !== 'SUCCEEDED')
     if (missing.length > 0) {
       const labels = missing.map(d => d.label ?? d.id).join(', ')
@@ -729,9 +562,6 @@ export default function App() {
       })
       invalidateDiffCache(activeSite.id)
 
-      // Persist to diff history — store the REAL diffId (from the resolved
-      // diff object, not the transient tlRecomputeDiffId state) so this
-      // specific computation can be restored later via loadDiffSnapshotsByDiffId.
       const succeededDates = activeSite.dates
         .filter(d => d.voxelStatus === 'SUCCEEDED')
         .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
@@ -752,7 +582,7 @@ export default function App() {
       setDiffHistory(nextHist)
       setActiveDiffId(tsEntry.id)
 
-      setTlSnapshots(null)  // triggers the load effect to re-fetch
+      setTlSnapshots(null)
     } catch (e) {
       console.error('[handleTlRecompute] failed:', e.message)
       setTlRecomputeStatus(`오류: ${e.message}`)
@@ -771,10 +601,6 @@ export default function App() {
     setTlRecomputeDiffId(null)
   }, [tlRecomputeDiffId])
 
-  /**
-   * Resume polling for a date whose voxel job is already QUEUED/RUNNING.
-   * Called automatically on project open for any such dates.
-   */
   async function resumeVoxelPoll(dateId, jobId) {
     const site = activeSiteRef.current
     const dateLabel = site?.dates.find(d => d.id === dateId)?.label ?? dateId
@@ -782,8 +608,6 @@ export default function App() {
       'siteId:', activeSiteRef.current?.id)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
-      // If jobId is missing, re-fetch observation — it may have already
-      // finished while we weren't polling, or the jobId wasn't loaded yet.
       let resolvedJobId = jobId
       if (!resolvedJobId) {
         const fresh = await fetchObservation(dateId)
@@ -860,11 +684,6 @@ export default function App() {
     }
   }
 
-  /**
-   * Trigger voxelization for a date (observation) and poll until complete.
-   * Shows live progress in the status bar while the job runs.
-   * Throws on failure so Panel.jsx can show an error message.
-   */
   async function handleComputeVoxel(dateId) {
     if (!activeSite) return
     const siteId = activeSite.id
@@ -920,8 +739,6 @@ export default function App() {
   async function handleLoadDiff(entry) {
     if (!activeSite) return
 
-    // Toggle off: clicking the already-active entry clears it, same as
-    // clicking an active date row deselects it instead of reloading it.
     if (activeDiffId != null && String(activeDiffId) === String(entry.id)) {
       if (entry.type === 'TIME_SERIES') {
         clearAllSnapshotTilesets()
@@ -936,8 +753,6 @@ export default function App() {
 
     if (entry.type === 'TIME_SERIES') {
       if (!entry.diffId) {
-        // Legacy history entries (saved before diffId was tracked) have no
-        // way to be restored individually — fall back to "latest" with a heads-up.
         addToast('이 기록은 특정 결과를 다시 불러올 수 없습니다 (이전 버전에서 저장됨) — 최신 결과를 표시합니다', 'warn')
         handleModeChange('timeline')
         setActiveDiffId(entry.id)
@@ -963,7 +778,6 @@ export default function App() {
         setTlLoading(false)
       }
     } else if (entry.type === 'AB') {
-      // Switch to compare-api mode and restore summary + tileset
       handleModeChange('compare-api')
       setApiSummary({
         diffItemId:       entry.diffItemId ?? null,
@@ -1014,16 +828,10 @@ export default function App() {
   const showPcSlider = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
 
   // ── Timeline staleness / readiness checks ─────────────────────────────
-  // missingVoxels: dates that don't yet have a SUCCEEDED voxel
   const tlMissingVoxels = (activeSite?.dates ?? [])
     .filter(d => d.voxelStatus !== 'SUCCEEDED')
     .map(d => d.label ?? d.id)
 
-  // stale: compare the set of observation IDs used to build the current
-  // snapshots against the set of currently SUCCEEDED observations.
-  // A TIME_SERIES diff over obs [A, B, C] produces items A→B and B→C.
-  // The unique obs IDs referenced are the union of all date_a.id / date_b.id.
-  // We compare that set to the current SUCCEEDED obs IDs to detect adds/removes.
   const tlStaleInfo = (() => {
     const succeededDates = (activeSite?.dates ?? []).filter(d => d.voxelStatus === 'SUCCEEDED')
 
@@ -1031,41 +839,32 @@ export default function App() {
       return { stale: false, addedLabels: [], removedLabels: [] }
     }
 
-    // IDs used when the diff was computed (from loaded snapshots)
     const snapshotObsIds = new Set()
     tlSnapshots.forEach(s => {
       snapshotObsIds.add(s.date_a.id)
       snapshotObsIds.add(s.date_b.id)
     })
 
-    // IDs of currently SUCCEEDED observations
     const currentObsIds = new Set(succeededDates.map(d => d.id))
 
-    // Dates added since last diff (in current succeeded set but not in snapshots)
     const addedLabels = succeededDates
       .filter(d => !snapshotObsIds.has(d.id))
       .map(d => d.label ?? d.name ?? d.id)
 
-    // Dates removed since last diff (in snapshots but no longer in succeeded set)
     const removedLabels = [...snapshotObsIds]
       .filter(id => !currentObsIds.has(id))
       .map(id => {
-        // Try to find a label from activeSite.dates (might not exist if deleted)
         const found = activeSite?.dates.find(d => d.id === id)
         return found?.label ?? found?.name ?? id
       })
 
-    // Reorder detection: compare snapshot ID sequence (sorted by date_a.ts) against
-    // current SUCCEEDED observations sorted by observedAt. If order differs → stale.
     let reordered = false
     if (addedLabels.length === 0 && removedLabels.length === 0) {
-      // Unique obs IDs in snapshot order (snapshots are pre-sorted by date_a.ts)
       const snapshotIdSequence = []
       tlSnapshots.forEach(s => {
         if (!snapshotIdSequence.includes(s.date_a.id)) snapshotIdSequence.push(s.date_a.id)
         if (!snapshotIdSequence.includes(s.date_b.id)) snapshotIdSequence.push(s.date_b.id)
       })
-      // Current SUCCEEDED observations sorted by observedAt
       const currentIdSequence = [...succeededDates]
         .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
         .map(d => d.id)
@@ -1080,14 +879,9 @@ export default function App() {
     return { stale, addedLabels, removedLabels, reordered }
   })()
 
-  // Keep a simple boolean alias for prop passing clarity
   const tlStale = tlStaleInfo.stale
 
-  const activeVis = mode === 'timeline'
-    ? tlVis
-    : mode === 'compare-api'
-      ? compareApiVis
-      : compareVis
+  const activeVis = mode === 'timeline' ? tlVis : compareApiVis
 
   const activeVisSetters = mode === 'timeline'
     ? {
@@ -1095,17 +889,11 @@ export default function App() {
         onShowRemoved:   v => setTlVis(s => ({ ...s, removed: v })),
         onShowUnchanged: v => setTlVis(s => ({ ...s, unchanged: v })),
       }
-    : mode === 'compare-api'
-      ? {
-          onShowAdded:     v => setCompareApiVis(s => ({ ...s, added: v })),
-          onShowRemoved:   v => setCompareApiVis(s => ({ ...s, removed: v })),
-          onShowUnchanged: v => setCompareApiVis(s => ({ ...s, unchanged: v })),
-        }
-      : {
-          onShowAdded:     v => setCompareVis(s => ({ ...s, added: v })),
-          onShowRemoved:   v => setCompareVis(s => ({ ...s, removed: v })),
-          onShowUnchanged: v => setCompareVis(s => ({ ...s, unchanged: v })),
-        }
+    : {
+        onShowAdded:     v => setCompareApiVis(s => ({ ...s, added: v })),
+        onShowRemoved:   v => setCompareApiVis(s => ({ ...s, removed: v })),
+        onShowUnchanged: v => setCompareApiVis(s => ({ ...s, unchanged: v })),
+      }
 
   return (
     <>
@@ -1171,20 +959,10 @@ export default function App() {
           <RightPanel
             mode={mode}
             activeSite={activeSite}
-            compareIdA={compareIdA}         onCompareIdA={setCompareIdA}
-            compareIdB={compareIdB}         onCompareIdB={setCompareIdB}
-            colorA={colorA}                 onColorA={setColorA}
-            alphaA={alphaA}                 onAlphaA={setAlphaA}
-            colorB={colorB}                 onColorB={setColorB}
-            alphaB={alphaB}                 onAlphaB={setAlphaB}
             drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
-            voxelSize={voxelSize}           onVoxelSize={setVoxelSize}
-            diffRunning={diffRunning}       onRunDiff={handleRunDiff}   onClearDiff={handleClearDiff}   onCancelDiff={handleCancelDiff}
-            diffStatus={diffStatus}
             showAdded={activeVis.added}           onShowAdded={activeVisSetters.onShowAdded}
             showRemoved={activeVis.removed}       onShowRemoved={activeVisSetters.onShowRemoved}
             showUnchanged={activeVis.unchanged}   onShowUnchanged={activeVisSetters.onShowUnchanged}
-            stats={stats}
             tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
@@ -1221,7 +999,7 @@ export default function App() {
       )}
 
       {showAnalysis && !activeSite && (
-        <BottomBar statusMsg={statusMsg} statusDone={statusDone} mode="compare" />
+        <BottomBar statusMsg={statusMsg} statusDone={statusDone} mode="compare-api" />
       )}
 
       <Toasts items={toasts} />

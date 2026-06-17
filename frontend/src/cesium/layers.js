@@ -2,20 +2,14 @@
  * layers.js — ES module
  *
  * VISIBILITY RULES (strict per-mode isolation):
- *   compare      → mesh/pc ✓  diffPrim ✓  timeseriesTs[any] ✗
  *   compare-api  → mesh/pc ✓  diffApiTs ✓  timeseriesTs[any] ✗
  *   timeline     → mesh/pc ✓  timeseriesTs[active] ✓
- *
- * In compare mode, A/B tileset URLs are fetched via api.js for server-side
- * diff computation only — they are never loaded into Cesium.
  *
  * Timeseries tilesets are ALL preloaded once per site (show=false), then we
  * just flip .show on the active one in timeline mode. No reload on scrub.
  */
 
 import { CONFIG } from '../config'
-
-const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 import { setStatus, toast, requestRender } from './cesiumInit'
 
 export const state = {
@@ -23,7 +17,6 @@ export const state = {
   dateId:           null,
   mesh:             null,   // single-date view layer (mesh)
   pc:               null,   // single-date view layer (point cloud)
-  diffPrim:         null,   // voxel diff primitive (compare mode)
   diffApiTs:        null,   // A/B full diff result tileset (compare-api mode)
   timeseriesTsMap:  {},     // snapshot.id → Cesium3DTileset (all preloaded, show toggled)
   activeSnapshotId: null,
@@ -36,32 +29,21 @@ let _pointSize = CONFIG.DEFAULTS.POINT_SIZE
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * @param {string}  mode           — 'compare' | 'compare-api' | 'timeline'
- * @param {object}  checkboxState  — { dataset }
+ * @param {string} mode — 'compare-api' | 'timeline'
  */
-export function syncVisibility(mode, checkboxState) {
-  const { dataset = true } = checkboxState || {}
-
-  const inCompare    = mode === 'compare'
+export function syncVisibility(mode) {
   const inCompareApi = mode === 'compare-api'
   const inTimeline   = mode === 'timeline'
 
   console.log(`[syncVisibility] mode=${mode}`, {
     hasMesh: !!state.mesh, hasPc: !!state.pc,
-    hasDiffPrim: !!state.diffPrim,
     timeseriesTsCount: Object.keys(state.timeseriesTsMap).length,
     activeSnapshotId: state.activeSnapshotId,
   })
 
-  // Single-date background layer
-  if (state.mesh) { state.mesh.show = dataset; console.log(`[syncVisibility]   mesh.show = ${state.mesh.show}`) }
-  if (state.pc)   { state.pc.show   = dataset; console.log(`[syncVisibility]   pc.show   = ${state.pc.show}`) }
-
-  // Diff primitive — only in compare mode
-  if (state.diffPrim) {
-    state.diffPrim.show = inCompare
-    console.log(`[syncVisibility]   diffPrim.show = ${state.diffPrim.show}`)
-  }
+  // Single-date background layer — always visible
+  if (state.mesh) { state.mesh.show = true; console.log(`[syncVisibility]   mesh.show = true`) }
+  if (state.pc)   { state.pc.show   = true; console.log(`[syncVisibility]   pc.show   = true`) }
 
   // A/B full diff tileset — only in compare-api mode
   if (state.diffApiTs) {
@@ -81,25 +63,6 @@ export function syncVisibility(mode, checkboxState) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  TINT HELPERS
-// ═══════════════════════════════════════════════════════════════════════════
-
-function _hexToRgb(hex) {
-  return {
-    r: parseInt(hex.slice(1, 3), 16),
-    g: parseInt(hex.slice(3, 5), 16),
-    b: parseInt(hex.slice(5, 7), 16),
-  }
-}
-
-function _makeTintStyle(hex, alpha) {
-  const { r, g, b } = _hexToRgb(hex)
-  return new window.Cesium.Cesium3DTileStyle({
-    color: `rgba(${r}, ${g}, ${b}, ${alpha})`
-  })
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 //  CLEAR HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -107,7 +70,7 @@ function _rm(t) {
   if (t) try { window.viewer.scene.primitives.remove(t) } catch (_) {}
 }
 
-/** Remove the single-date background layers (mesh/pc). Does not touch diffPrim or timeseries. */
+/** Remove the single-date background layers (mesh/pc). Does not touch timeseries. */
 export function clearLayers() {
   console.log('[clearLayers] removing background date layers (mesh/pc)')
   _rm(state.mesh); _rm(state.pc)
@@ -119,21 +82,11 @@ export function clearLayers() {
 export function clearAllLayers() {
   console.log('[clearAllLayers] full wipe of all layers')
   _rm(state.mesh); _rm(state.pc)
-  _rm(state.diffPrim); _rm(state.diffApiTs)
+  _rm(state.diffApiTs)
   for (const ts of Object.values(state.timeseriesTsMap)) _rm(ts)
-  state.mesh = state.pc = state.diffPrim = state.diffApiTs = null
+  state.mesh = state.pc = state.diffApiTs = null
   state.timeseriesTsMap  = {}
   state.activeSnapshotId = null
-  if (window.diffState) { window.diffState.voxels = []; window.diffState.gridDef = null }
-  requestAnimationFrame(() => requestRender())
-}
-
-/** Remove the compare diff primitive. */
-export function clearCompareLayers() {
-  console.log('[clearCompareLayers] removing compare layers')
-  _rm(state.diffPrim)
-  state.diffPrim = null
-  if (window.diffState) window.diffState.voxels = []
   requestAnimationFrame(() => requestRender())
 }
 
@@ -141,7 +94,7 @@ export function clearCompareLayers() {
 //  LOADERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function loadDate(site, dateObj, currentMode, checkboxState) {
+export async function loadDate(site, dateObj, currentMode) {
   console.log(`[loadDate] site=${site.id} date=${dateObj.id} mode=${currentMode}`)
   _rm(state.mesh); _rm(state.pc)
   state.mesh = state.pc = null
@@ -176,7 +129,7 @@ export async function loadDate(site, dateObj, currentMode, checkboxState) {
     toast('데이터셋을 찾을 수 없습니다 — 경로를 확인하세요', 'warn')
   }
 
-  syncVisibility(currentMode || 'compare', checkboxState)
+  syncVisibility(currentMode || 'compare-api')
   setStatus(`${site.label} — ${dateObj.label} 준비됨`, true)
 }
 
@@ -254,69 +207,51 @@ export function applyPcStyle(pointSize) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  VOXEL DIFF RENDERER
+//  CUSTOM SHADER (voxel color classification)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function renderVoxelDiff(voxels, voxelSize) {
-  console.log(`[renderVoxelDiff] voxels=${voxels?.length ?? 0} voxelSize=${voxelSize}`)
-  _rm(state.diffPrim)
-  state.diffPrim = null
+/**
+ * Build a CustomShader that classifies voxels by their baked diffuse color,
+ * discards hidden categories, and recolors visible ones to exact brand colors.
+ *
+ * Classification — check which RGB channel dominates (loose thresholds
+ * so it works regardless of the exact baked value):
+ *   red dominant  → added     (#ff4d4d  vec3(1.0,   0.302, 0.302))
+ *   blue dominant → removed   (#4d9fff  vec3(0.302, 0.624, 1.0))
+ *   neither       → unchanged
+ */
+function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
+  const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
+  const IS_BLUE = '(material.diffuse.b > material.diffuse.r * 1.2 && material.diffuse.b > material.diffuse.g * 1.2)'
 
-  if (!voxels?.length) {
-    requestAnimationFrame(() => requestRender())
-    return
-  }
+  const discardAdded     = !showAdded     ? 'if (isRed)             { discard; }' : ''
+  const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
+  const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
 
-  const Cesium   = window.Cesium
-  const addedC   = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.ADDED)
-  const removedC = Cesium.Color.fromCssColorString(CONFIG.DIFF_COLORS.REMOVED)
-
-  const { lonStep, latStep, hStep } = window.diffState.gridDef
-
-  const instances = voxels.map(v => {
-    const { iLon, iLat, iH } = v.voxel
-    const lon    = (iLon + 0.5) * lonStep
-    const lat    = (iLat + 0.5) * latStep
-    const h      = (iH   + 0.5) * hStep
-    const center = Cesium.Cartesian3.fromDegrees(lon, lat, h)
-    const col    = (v.type === 'added' ? addedC : removedC).withAlpha(0.85)
-
-    return new Cesium.GeometryInstance({
-      geometry: Cesium.BoxGeometry.fromDimensions({
-        dimensions:   new Cesium.Cartesian3(voxelSize, voxelSize, voxelSize),
-        vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
-      }),
-      modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(center),
-      attributes:  { color: Cesium.ColorGeometryInstanceAttribute.fromColor(col) },
-    })
+  return new window.Cesium.CustomShader({
+    lightingModel: window.Cesium.LightingModel.PBR,
+    fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  bool isRed  = ${IS_RED};
+  bool isBlue = ${IS_BLUE};
+  ${discardAdded}
+  ${discardRemoved}
+  ${discardUnchanged}
+}`,
   })
-
-  state.diffPrim = window.viewer.scene.primitives.add(
-    new Cesium.Primitive({
-      geometryInstances:        instances,
-      appearance:               new Cesium.PerInstanceColorAppearance({ translucent: true, closed: true }),
-      releaseGeometryInstances: true,
-      compressVertices:         false,
-    })
-  )
-
-  requestAnimationFrame(() => requestRender())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  A/B FULL DIFF TILESET (compare-api mode)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Per-channel visibility state for compare-api diff tileset
 const _diffApiVis = { added: true, removed: true, unchanged: true }
 
 function _applyDiffApiStyle() {
   const ts = state.diffApiTs
   if (!ts) return
-  // unchanged is always false for compare-api (tileset has no gray voxels)
-  const shader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, _diffApiVis.unchanged)
-  ts.customShader = shader ?? undefined
-  console.log(`[_applyDiffApiStyle] added=${_diffApiVis.added} removed=${_diffApiVis.removed} shader=${shader ? 'custom' : 'none'}`)
+  ts.customShader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, _diffApiVis.unchanged) ?? undefined
+  console.log(`[_applyDiffApiStyle] added=${_diffApiVis.added} removed=${_diffApiVis.removed}`)
   requestAnimationFrame(() => requestRender())
 }
 
@@ -335,9 +270,8 @@ export function setDiffApiTilesetVisibility(showAdded, showRemoved, showUnchange
 /**
  * Load the result tileset from an A/B full diff and store it in state.diffApiTs.
  * Replaces any previously loaded diff tileset.
- * The tileset is shown immediately (mode must be compare-api at this point).
  *
- * @param {string} tilesetUrl  — absolute URL to visualization/tileset.json
+ * @param {string} tilesetUrl — absolute URL to visualization/tileset.json
  */
 export async function loadDiffApiTileset(tilesetUrl) {
   console.log('[loadDiffApiTileset] url:', tilesetUrl)
@@ -346,11 +280,11 @@ export async function loadDiffApiTileset(tilesetUrl) {
 
   if (!tilesetUrl) return
 
-  const ts = await _loadTileset(tilesetUrl, true, 4, 'mesh', null)
+  const ts = await _loadTileset(tilesetUrl, true, 4, 'mesh')
   if (ts) {
     state.diffApiTs = ts
     _applyDiffApiStyle()
-    console.log('[loadDiffApiTileset] loaded OK — customShader set?', !!ts.customShader, '— url was:', tilesetUrl)
+    console.log('[loadDiffApiTileset] loaded OK — url was:', tilesetUrl)
   } else {
     console.warn('[loadDiffApiTileset] failed to load tileset:', tilesetUrl)
   }
@@ -369,7 +303,7 @@ export function clearDiffApiTileset() {
 //  TIMESERIES — PRELOAD ALL + SHOW/HIDE BY ID
 //
 //  loadAllSnapshotTilesets(snapshots)
-//    → loads every snapshot with a tileset_path into state.timeseriesTsMap,
+//    → loads every snapshot with a tilesetUrl into state.timeseriesTsMap,
 //      all with show=false. Safe to call multiple times (skips already loaded).
 //
 //  showSnapshotTileset(snapshotId)
@@ -379,8 +313,7 @@ export function clearDiffApiTileset() {
 
 /**
  * Preload all snapshot tilesets for a site (all hidden).
- * No-ops for snapshots already in the map or without a tileset_path.
- * Returns a promise that resolves when all loads settle.
+ * No-ops for snapshots already in the map or without a tilesetUrl.
  */
 export async function loadAllSnapshotTilesets(snapshots) {
   if (!snapshots?.length) return
@@ -390,13 +323,13 @@ export async function loadAllSnapshotTilesets(snapshots) {
 
   if (!toLoad.length) return
 
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     toLoad.map(async s => {
       console.log(`[loadAllSnapshotTilesets] loading snapshot ${s.id} url=${s.tilesetUrl}`)
-      const ts = await _loadTileset(s.tilesetUrl, false, 2, 'mesh', null)
+      const ts = await _loadTileset(s.tilesetUrl, false, 2, 'mesh')
       if (ts) {
         state.timeseriesTsMap[s.id] = ts
-        console.log(`[loadAllSnapshotTilesets] loaded OK snapshot ${s.id} — customShader set?`, !!ts.customShader, '— url was:', s.tilesetUrl)
+        console.log(`[loadAllSnapshotTilesets] loaded OK snapshot ${s.id}`)
       } else {
         console.warn(`[loadAllSnapshotTilesets] failed to load snapshot ${s.id}`)
         state.timeseriesTsMap[s.id] = null   // mark as attempted so we don't retry
@@ -424,61 +357,17 @@ export function showSnapshotTileset(snapshotId) {
   console.log(`[showSnapshotTileset] shown=${shown} hidden=${hidden}`)
 
   _applySnapshotStyle(state.activeSnapshotId)
-
   requestAnimationFrame(() => requestRender())
 }
 
-// Per-channel visibility state for timeline tilesets.
-// Defaults mirror CONFIG.DEFAULTS so the initial view shows everything.
+// Per-channel visibility state for timeline tilesets
 const _tlVis = { added: true, removed: true, unchanged: true }
 
-/**
- * Build a CustomShader that classifies voxels by their baked diffuse color,
- * discards hidden categories, and recolors visible ones to exact brand colors.
- *
- * Classification — check which RGB channel dominates (loose thresholds
- * so it works regardless of the exact baked value):
- *   red dominant  → added     (#ff4d4d  vec3(1.0,   0.302, 0.302))
- *   blue dominant → removed   (#4d9fff  vec3(0.302, 0.624, 1.0))
- *   neither       → unchanged
- */
-function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
-  const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
-  const IS_BLUE = '(material.diffuse.b > material.diffuse.r * 1.2 && material.diffuse.b > material.diffuse.g * 1.2)'
-  const ADDED_COLOR   = 'vec3(1.0, 0.15, 0.15)'
-  const REMOVED_COLOR = 'vec3(0.15, 0.45, 1.0)'
-
-  const discardAdded     = !showAdded     ? 'if (isRed)             { discard; }' : ''
-  const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
-  const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
-
-  // Always use PBR lighting model — this is what makes flat-colored voxels
-  // look 3D. Without it Cesium falls back to UNLIT for voxel tilesets.
-  return new window.Cesium.CustomShader({
-    lightingModel: window.Cesium.LightingModel.PBR,
-    fragmentShaderText: `
-void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-  bool isRed  = ${IS_RED};
-  bool isBlue = ${IS_BLUE};
-  ${discardAdded}
-  ${discardRemoved}
-  ${discardUnchanged}
-}`,
-  })
-}
-
-/**
- * Apply a CustomShader to the active snapshot tileset.
- * Called after every show/hide and whenever visibility toggles change.
- */
 function _applySnapshotStyle(snapshotId) {
   const ts = snapshotId ? state.timeseriesTsMap[snapshotId] : null
   if (!ts) return
-
-  const shader = _buildCustomShader(_tlVis.added, _tlVis.removed, _tlVis.unchanged)
-  ts.customShader = shader ?? undefined
-
-  console.log(`[_applySnapshotStyle] snapshot=${snapshotId} shader=${shader ? 'custom' : 'none (all visible)'}`)
+  ts.customShader = _buildCustomShader(_tlVis.added, _tlVis.removed, _tlVis.unchanged) ?? undefined
+  console.log(`[_applySnapshotStyle] snapshot=${snapshotId}`)
   requestAnimationFrame(() => requestRender())
 }
 

@@ -2,7 +2,7 @@
  * NavBar.jsx
  *
  * Top navigation bar.
- * Left:   logo icon + "변화탐지 플랫폼" + subtitle
+ * Left:   logo icon + "변화탐지 플랫폼"
  * Center: tabs — 프로젝트 | 데이터 업로드 | 변화탐지
  * Right:  active site chip
  *
@@ -13,7 +13,38 @@
  *   activeSite — site object | null
  */
 
+import { useState, useEffect } from 'react'
+
 export default function NavBar({ tab, onTab, activeSite }) {
+  // Force re-render when localStorage changes (triggered by SetLocationModal)
+  const [, setLocalUpdate] = useState(0)
+
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (activeSite?.id && e.key === `center-from-date-${activeSite.id}`) {
+        setLocalUpdate(prev => prev + 1)
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [activeSite?.id])
+
+  const hasDates  = (activeSite?.dates?.length ?? 0) > 0
+  
+  // Check if coordinates are set in the site object OR stored in localStorage
+  const siteHasCoords = activeSite?.centerLat != null && activeSite?.centerLon != null
+  const localHasCoords = activeSite?.id && localStorage.getItem(`center-from-date-${activeSite.id}`)
+  const hasCoords = siteHasCoords || localHasCoords
+
+  const analysisDisabled = !activeSite || !hasDates || !hasCoords
+  const analysisTitle = !activeSite
+    ? undefined
+    : !hasDates
+      ? '관측 데이터가 없습니다'
+      : !hasCoords
+        ? '변화탐지를 사용하려면 먼저 데이터 업로드 탭에서 프로젝트 위치를 설정하세요'
+        : undefined
+
   return (
     <nav id="nav-bar">
 
@@ -53,7 +84,8 @@ export default function NavBar({ tab, onTab, activeSite }) {
         <button
           className={`nav-tab${tab === 'analysis' ? ' active' : ''}`}
           onClick={() => onTab('analysis')}
-          disabled={!activeSite || (activeSite.dates?.length ?? 0) === 0}
+          disabled={analysisDisabled}
+          title={analysisTitle}
         >
           변화탐지
         </button>

@@ -3,33 +3,34 @@
  *
  * Full-screen overlay shown when the "데이터 업로드" tab is active.
  * Lists all survey dates for the active site.
- * Each date has edit-label and delete actions, AND now shows voxel status
- * with a compute trigger (moved here from Panel's "Voxel Calculation" section).
+ * Each date row has edit/delete/voxel actions.
+ *
+ * Each row also has a "📍 위치로 지정" button. Clicking it reads the
+ * coordinates directly from that date's tileset.json (root bounding region)
+ * and asks the user to confirm before saving them as the project's
+ * centerLon/centerLat. There is no manual lat/lon entry — the coordinates
+ * always come from the uploaded data itself.
  *
  * Props
  * ─────
  *   site            — site object (required)
- *   onUploaded      — () => void   called after any successful upload (triggers site refresh)
+ *   onUploaded      — () => void   called after any successful upload
  *   onCreated       — () => void   called after date creation / deletion
+ *   onSiteUpdated   — () => void   called after project coords are saved
  *   blockedDateInfo — Map<dateId, reason> dates locked by a running diff
  *   voxelPollingIds — Set<dateId>  dates whose voxel job is being polled
  *   onCancelVoxel   — (dateId) => Promise<void>
- *   onComputeVoxel  — (dateId) => Promise<void>   NEW — triggers voxel computation
- *   computingId     — dateId | null               NEW — which date is being computed locally
- *
- * API migration notes
- * ───────────────────
- * All calls now go through api.js → coworker API (localhost:8080).
- *   create date       → uploadObservation(projectId, { name, observedAt, files })
- *   edit              → updateObservation(date.id, { name, observedAt })   — metadata only
- *   delete date       → deleteObservation(date.id)
+ *   onComputeVoxel  — (dateId) => Promise<void>
+ *   computingId     — dateId | null
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   uploadObservation,
   updateObservation,
   deleteObservation,
+  updateProject,
+  fetchTilesetCenter,
 } from '../api'
 
 /** Format a YYYY-MM-DD string into a pretty label like "Jun 1, 2026". */
@@ -41,13 +42,6 @@ function isoToLabel(iso) {
   return `${m} ${parseInt(day, 10)}, ${year}`
 }
 
-/**
- * Map an api.js uploadObservation onProgress({ phase, pct }) event to a
- * user-facing Korean status message.
- *   checking  — a single .zip is being validated/normalised (no "zipping")
- *   zipping   — a dropped folder is being bundled into a zip (0–100%)
- *   uploading — the request is being sent to the server
- */
 function progressLabel({ phase, pct }) {
   if (phase === 'checking')  return '형식 확인 중…'
   if (phase === 'zipping')   return `압축 중…  ${pct}%`
@@ -62,12 +56,6 @@ function DatasetTypeBadge({ type }) {
   return <span className="dup-badge dup-badge-pc">Point Cloud</span>
 }
 
-/**
- * Voxel status badge with full descriptive labels for the DataUpload context,
- * where there is more horizontal space than the Panel sidebar.
- *
- * Shows status text and, when computation can be triggered, a compute button.
- */
 function VoxelStatusBadge({ date, isBusy, canTrigger, onCompute }) {
   const status = date.voxelStatus ?? 'NONE'
 
@@ -86,11 +74,10 @@ function VoxelStatusBadge({ date, isBusy, canTrigger, onCompute }) {
   } else if (status === 'CANCELLED') {
     badge = <span className="vst-badge vst-failed">Voxel 취소됨</span>
   } else {
-    // NONE — only show badge if there's no dataset (nothing to compute)
     if (!date.datasetPath) {
       badge = <span className="vst-badge vst-none">Voxel 미생성</span>
     } else {
-      badge = null // canTrigger button speaks for itself
+      badge = null
     }
   }
 
@@ -111,16 +98,6 @@ function VoxelStatusBadge({ date, isBusy, canTrigger, onCompute }) {
   )
 }
 
-/**
- * Single text input that auto-formats digits into YYYY-MM-DD as you type.
- * Replaces the native <input type="date">, whose segment order/behavior
- * is locale-dependent and fiddly to edit.
- *
- *   value    — "YYYY-MM-DD" or "" (used only to seed the field on mount)
- *   onChange — (value) => void, called with "YYYY-MM-DD" once 8 digits
- *              have been typed, or "" while incomplete (so the existing
- *              /^\d{4}-\d{2}-\d{2}$/ validation still works)
- */
 function DateTextInput({ value, onChange, disabled, autoFocus }) {
   const [text, setText] = useState(value || '')
 
@@ -148,22 +125,116 @@ function DateTextInput({ value, onChange, disabled, autoFocus }) {
   )
 }
 
+// ── Set location modal — derives coords from the tileset itself ──────────
+// Instead of manual lat/lon entry, this fetches the date's tileset.json,
+// computes the center of its root bounding region, and asks the user to
+// confirm before saving it as the project's centerLon/centerLat.
+
+function SetLocationModal({ site, date, onSaved, onClose }) {
+  const [phase,  setPhase]  = useState('loading')   // 'loading' | 'confirm' | 'saving' | 'error'
+  const [coords, setCoords] = useState(null)         // { lon, lat }
+  const [error,  setError]  = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setPhase('loading')
+    setError('')
+    fetchTilesetCenter(date.originalTilesetUrl)
+      .then(c => { if (!cancelled) { setCoords(c); setPhase('confirm') } })
+      .catch(e => { if (!cancelled) { setError(e.message); setPhase('error') } })
+    return () => { cancelled = true }
+  }, [date.originalTilesetUrl])
+
+  async function handleConfirm() {
+    if (!coords) return
+    setPhase('saving')
+    setError('')
+    try {
+      await updateProject(site.id, {
+        name:         site.name,
+        description:  site.description ?? '',
+        centerLon:    coords.lon,
+        centerLat:    coords.lat,
+        cameraHeight: site.cameraHeight ?? 600,
+        status:       site.status ?? 'ACTIVE',
+      })
+      // Store which date provided these coordinates (frontend-only, persists in localStorage)
+      localStorage.setItem(`center-from-date-${site.id}`, date.id)
+      onSaved()
+    } catch (e) {
+      setError(e.message)
+      setPhase('confirm')
+    }
+  }
+
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget && phase !== 'saving') onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={handleBackdrop}>
+      <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">위치로 지정</span>
+          <button className="modal-close" onClick={onClose} disabled={phase === 'saving'}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          {phase === 'loading' && (
+            <div className="dup-setpos-loading">좌표 읽는 중…</div>
+          )}
+
+          {phase === 'error' && (
+            <div className="modal-error">{error}</div>
+          )}
+
+          {(phase === 'confirm' || phase === 'saving') && coords && (
+            <div className="dup-setpos-confirm">
+              <p className="dup-setpos-question">
+                이 좌표를 프로젝트 위치로 지정할까요?
+              </p>
+              <div className="dup-setpos-preview">
+                {coords.lon.toFixed(5)}, {coords.lat.toFixed(5)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="modal-btn-secondary" onClick={onClose} disabled={phase === 'saving'}>
+            취소
+          </button>
+          <button
+            className="modal-btn-primary"
+            onClick={handleConfirm}
+            disabled={phase !== 'confirm' && phase !== 'saving'}
+          >
+            {phase === 'saving' ? '저장 중…' : '지정'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Single-date row ───────────────────────────────────────────────────────
 
 function DateRow({
-  site, date, onUploaded, onDeleted, blockReason,
+  site, date, onUploaded, onDeleted, onSiteUpdated, blockReason,
   voxelRunning, onCancelVoxel,
-  // voxel computation — new
   voxelPollingIds, computingId, onComputeVoxel,
 }) {
-  // date.id   = stringified numeric observation id  (e.g. "3")
-  // date.name = raw observation name from API       (e.g. "260601")
   const [editing,         setEditing]         = useState(false)
   const [editObservedAt,  setEditObservedAt]  = useState(date.observedAt ?? '')
   const [editName,        setEditName]        = useState(date.name ?? '')
   const [editError,       setEditError]       = useState('')
   const [editSaving,      setEditSaving]      = useState(false)
   const [editProgress,    setEditProgress]    = useState('')
+
+  const [settingPos,  setSettingPos]  = useState(false)
+
+  // Read which date the coordinates came from (stored in localStorage)
+  const centerFromDateId = localStorage.getItem(`center-from-date-${site.id}`)
 
   function cancelEdit() {
     setEditing(false)
@@ -173,13 +244,11 @@ function DateRow({
     setEditProgress('')
   }
 
-  // Delete confirm state
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting,      setDeleting]      = useState(false)
 
   const hasData = !!date.datasetPath
 
-  // Voxel status helpers
   const isActivelyPolling = voxelPollingIds?.has(date.id) ?? false
   const isLocalComputing  = computingId === date.id
   const isBusy            = isActivelyPolling || isLocalComputing || voxelRunning
@@ -189,13 +258,10 @@ function DateRow({
     && !isBusy
     && !blockReason
 
-  // ── Edit: no file → PUT metadata only; file picked → delete + recreate ──
-
   async function handleSave() {
     if (blockReason) return setEditError(blockReason)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(editObservedAt)) return setEditError('날짜 형식은 YYYY-MM-DD여야 합니다.')
     if (!editName.trim())                              return setEditError('이름(설명)은 필수입니다.')
-    console.log('[DateRow.handleSave] date.id:', date.id, 'editObservedAt:', editObservedAt, 'editName:', editName)
     setEditSaving(true)
     setEditError('')
     try {
@@ -207,7 +273,6 @@ function DateRow({
       setEditProgress('완료!')
       setTimeout(() => { cancelEdit(); onUploaded() }, 800)
     } catch (e) {
-      console.error('[DateRow.handleSave] FAILED:', e.message, e)
       setEditError(e.message)
       setEditProgress('')
     } finally {
@@ -217,32 +282,24 @@ function DateRow({
 
   async function handleDelete() {
     if (blockReason) { alert(blockReason); setConfirmDelete(false); return }
-    console.log('[DateRow.handleDelete] deleting date.id:', date.id, 'date.name:', date.name)
     setDeleting(true)
     try {
-      // Deleting must work regardless of an in-progress voxelizer — cancel
-      // it first so we don't leave an orphaned job, but don't let a cancel
-      // failure block the deletion itself (the observation is going away
-      // either way, so best-effort cancel + swallow errors here).
       if (voxelRunning) {
-        console.log('[DateRow.handleDelete] voxel running — cancelling first, date.id:', date.id)
-        try {
-          await onCancelVoxel(date.id)
-        } catch (e) {
-          console.warn('[DateRow.handleDelete] voxel cancel before delete failed (continuing anyway):', e.message)
+        try { await onCancelVoxel(date.id) } catch (e) {
+          console.warn('[DateRow.handleDelete] voxel cancel failed (continuing):', e.message)
         }
       }
       await deleteObservation(date.id)
-      console.log('[DateRow.handleDelete] deleted successfully')
       onDeleted()
     } catch (e) {
-      console.error('[DateRow.handleDelete] FAILED:', e.message, e)
       alert(e.message)
     } finally {
       setDeleting(false)
       setConfirmDelete(false)
     }
   }
+
+  const hasCoords = site.centerLat != null && site.centerLon != null
 
   return (
     <div className={`dup-date-card${editing ? ' dup-date-card-open' : ''}`}>
@@ -258,7 +315,6 @@ function DateRow({
             <>
               <DatasetTypeBadge type={date.datasetType} />
 
-              {/* ── Voxel status (new) ── */}
               <VoxelStatusBadge
                 date={date}
                 isBusy={isBusy}
@@ -266,11 +322,21 @@ function DateRow({
                 onCompute={onComputeVoxel}
               />
 
+              {/* ── Select as location button — uses this date's tileset ── */}
+              <button
+                className={`dup-icon-btn dup-setpos-btn${centerFromDateId === date.id ? ' dup-setpos-btn-set' : ' dup-setpos-btn-unset'}`}
+                onClick={() => setSettingPos(true)}
+                disabled={!date.originalTilesetUrl || centerFromDateId === date.id}
+                title={!date.originalTilesetUrl
+                  ? '데이터 업로드 후 사용 가능'
+                  : centerFromDateId === date.id
+                  ? '이 날짜의 위치가 현재 설정되어 있습니다'
+                  : '위치로 지정'}
+              >
+                {centerFromDateId === date.id ? '✓ 위치 설정됨' : '📍 위치로 지정'}
+              </button>
+
               {blockReason ? (
-                // A running diff depends on this date — block edit/delete
-                // entirely instead of cancelling the diff out from under
-                // the user. (Voxel-running never reaches this branch since
-                // a diff can't be running on a date that isn't voxelized.)
                 <>
                   <button className="dup-icon-btn dup-icon-edit" disabled title={blockReason}>✎</button>
                   <button className="dup-icon-btn dup-icon-danger" disabled title={blockReason}>🗑</button>
@@ -307,6 +373,16 @@ function DateRow({
           )}
         </div>
       </div>
+
+      {/* ── Set location modal (floating, independent of row layout) ── */}
+      {settingPos && (
+        <SetLocationModal
+          site={site}
+          date={date}
+          onSaved={() => { setSettingPos(false); onSiteUpdated?.() }}
+          onClose={() => setSettingPos(false)}
+        />
+      )}
 
       {/* ── Edit panel (expands below header) ── */}
       {editing && (
@@ -371,8 +447,6 @@ function NewDateCard({ site, onCreated }) {
     if (!name.trim())                              return setError('이름(설명)은 필수입니다.')
     if (!files.length)                             return setError('파일을 선택하세요 — 데이터 파일이 필요합니다.')
 
-    console.log('[NewDateCard.handleSubmit] site.id:', site.id, 'observedAt:', observedAt, 'name:', name, 'files:', files.length, files.map(f => f.webkitRelativePath || f.relativePath || f.name))
-
     setLoading(true)
     setError('')
     try {
@@ -383,13 +457,11 @@ function NewDateCard({ site, onCreated }) {
         files,
         onProgress:  p => setProgress(progressLabel(p)),
       })
-      console.log('[NewDateCard.handleSubmit] upload succeeded')
       setProgress('완료!')
       setObservedAt(''); setName(''); setFiles([])
       if (inputRef.current) inputRef.current.value = ''
       setTimeout(() => { setProgress(''); setOpen(false); onCreated() }, 800)
     } catch (e) {
-      console.error('[NewDateCard.handleSubmit] FAILED:', e.message, e)
       setError(e.message)
     } finally {
       setLoading(false)
@@ -532,7 +604,15 @@ function NewDateCard({ site, onCreated }) {
           {progress && <div className="modal-progress">{progress}</div>}
 
           <div className="dup-actions">
-            <button className="modal-btn-secondary" onClick={() => { setOpen(false); setObservedAt(''); setName(''); setDatasetType('pointcloud'); setFiles([]); setError(''); setProgress('') }} disabled={loading}>
+            <button
+              className="modal-btn-secondary"
+              onClick={() => {
+                setOpen(false); setObservedAt(''); setName('')
+                setDatasetType('pointcloud'); setFiles([])
+                setError(''); setProgress('')
+              }}
+              disabled={loading}
+            >
               취소
             </button>
             <button className="modal-btn-primary" onClick={handleSubmit} disabled={loading}>
@@ -551,13 +631,17 @@ export default function DataUploadPage({
   site,
   onUploaded,
   onCreated,
+  onSiteUpdated,
   blockedDateInfo,
   voxelPollingIds,
   onCancelVoxel,
-  onComputeVoxel,   // NEW — (dateId) => Promise<void>
-  computingId,      // NEW — dateId | null (which date is being locally computed)
+  onComputeVoxel,
+  computingId,
 }) {
   if (!site) return null
+
+  const hasCoords = site.centerLat != null && site.centerLon != null
+  const hasDates  = (site.dates?.length ?? 0) > 0
 
   return (
     <div className="dup-overlay">
@@ -573,6 +657,32 @@ export default function DataUploadPage({
           </div>
         </div>
 
+        {/* ── Coordinates display ── */}
+        {hasCoords && (
+          <div className="dup-coords-info">
+            <span className="dup-coords-label">프로젝트 위치:</span>
+            <span className="dup-coords-value">{site.centerLon.toFixed(5)}, {site.centerLat.toFixed(5)}</span>
+          </div>
+        )}
+
+        {/* ── No-dates hint (shown before any date exists) ── */}
+        {!hasDates && (
+          <div className="dup-nodates-banner">
+            <span>➕</span>
+            <span>날짜를 추가해 데이터를 업로드하세요.</span>
+          </div>
+        )}
+
+        {/* ── No-coords banner (shown once at least one date exists) ── */}
+        {hasDates && !hasCoords && (
+          <div className="dup-nocoords-banner">
+            <span>⚠️</span>
+            <span>
+              위치가 설정되지 않았습니다. 날짜 행의 <strong>위치로 지정</strong> 버튼을 눌러 설정하세요.
+            </span>
+          </div>
+        )}
+
         <div className="dup-list">
           {site.dates.map(d => (
             <DateRow
@@ -581,6 +691,7 @@ export default function DataUploadPage({
               date={d}
               onUploaded={onUploaded}
               onDeleted={onCreated}
+              onSiteUpdated={onSiteUpdated}
               blockReason={blockedDateInfo?.get(d.id) ?? null}
               voxelRunning={voxelPollingIds?.has(d.id) ?? false}
               onCancelVoxel={onCancelVoxel}

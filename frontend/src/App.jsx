@@ -342,7 +342,9 @@ export default function App() {
     setNavTab(initialTab ?? 'analysis')
     setDiffHistory(loadDiffHistory(site.id))
     setActiveDiffId(null)
-    flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
+    if (site.centerLon != null && site.centerLat != null) {
+      flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
+    }
     // Use GET /api/jobs to discover all in-progress jobs at once, then
     // resume polling only for VOXEL_CREATE jobs that target this project's observations.
     // This is one request instead of N (one per observation with QUEUED/RUNNING status).
@@ -1042,9 +1044,11 @@ export default function App() {
             site={activeSite}
             onUploaded={handleDataChanged}
             onCreated={handleDataChanged}
+            onSiteUpdated={handleSiteEdited}
             blockedDateInfo={blockedDateInfo}
             voxelPollingIds={voxelPollingIds}
             onCancelVoxel={handleCancelVoxelForDate}
+            onComputeVoxel={handleComputeVoxel}
           />
         </div>
       )}

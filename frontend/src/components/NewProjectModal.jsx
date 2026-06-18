@@ -2,6 +2,8 @@
  * NewProjectModal.jsx
  *
  * Modal for creating a new project via the coworker's REST API.
+ * Lat/lon are optional — they can be set later from the DataUploadPage.
+ * Camera height is always 600 m (not exposed to the user).
  *
  * Props
  * -----
@@ -15,11 +17,10 @@ import { createProject } from '../api'
 
 export default function NewProjectModal({ open, onClose, onCreated }) {
   const [form, setForm] = useState({
-    name:          '',
-    description:   '',
-    centerLon:     '',
-    centerLat:     '',
-    cameraHeight:  '600',
+    name:        '',
+    description: '',
+    centerLon:   '',
+    centerLat:   '',
   })
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
@@ -31,13 +32,31 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
     setError('')
   }
 
-  async function handleSubmit() {
-    const { name, centerLon, centerLat, cameraHeight } = form
+  function validateCoord(raw, label, min, max) {
+    if (raw === '' || raw === null) return null   // optional
+    const n = parseFloat(raw)
+    if (isNaN(n))       throw new Error(`${label}: 숫자를 입력하세요.`)
+    if (n < min || n > max) throw new Error(`${label}: ${min}~${max} 범위여야 합니다.`)
+    return n
+  }
 
-    if (!name.trim())      return setError('Project name is required.')
-    if (!centerLon)        return setError('Longitude is required.')
-    if (!centerLat)        return setError('Latitude is required.')
-    if (!cameraHeight)     return setError('Camera height is required.')
+  async function handleSubmit() {
+    const { name, centerLon, centerLat } = form
+    if (!name.trim()) return setError('Project name is required.')
+
+    let lon = null
+    let lat = null
+    try {
+      lon = validateCoord(centerLon, 'Longitude', -180, 180)
+      lat = validateCoord(centerLat, 'Latitude',   -90,  90)
+    } catch (e) {
+      return setError(e.message)
+    }
+
+    // Both must be provided together, or neither
+    if ((lon == null) !== (lat == null)) {
+      return setError('경도와 위도를 함께 입력하거나 둘 다 비워두세요.')
+    }
 
     setLoading(true)
     setError('')
@@ -45,11 +64,11 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
       const site = await createProject({
         name:         name.trim(),
         description:  form.description.trim(),
-        centerLon:    parseFloat(centerLon),
-        centerLat:    parseFloat(centerLat),
-        cameraHeight: parseFloat(cameraHeight),
+        centerLon:    lon,
+        centerLat:    lat,
+        cameraHeight: 600,
       })
-      setForm({ name: '', description: '', centerLon: '', centerLat: '', cameraHeight: '600' })
+      setForm({ name: '', description: '', centerLon: '', centerLat: '' })
       onCreated(site)
     } catch (e) {
       setError(e.message)
@@ -80,6 +99,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               value={form.name}
               onChange={e => update('name', e.target.value)}
               placeholder="e.g. 둔포면 — Waste Site"
+              disabled={loading}
             />
           </div>
 
@@ -90,10 +110,13 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               value={form.description}
               onChange={e => update('description', e.target.value)}
               placeholder="Brief description"
+              disabled={loading}
             />
           </div>
 
-          <div className="modal-section-label" style={{ marginTop: 12 }}>Camera Position</div>
+          <div className="modal-section-label" style={{ marginTop: 12 }}>
+            Camera Position <span className="modal-hint">(optional — can be set later from the upload page)</span>
+          </div>
 
           <div className="modal-row">
             <div className="modal-field">
@@ -104,6 +127,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
                 value={form.centerLon}
                 onChange={e => update('centerLon', e.target.value)}
                 placeholder="127.0067"
+                disabled={loading}
               />
             </div>
             <div className="modal-field">
@@ -114,19 +138,9 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
                 value={form.centerLat}
                 onChange={e => update('centerLat', e.target.value)}
                 placeholder="36.9099"
+                disabled={loading}
               />
             </div>
-          </div>
-
-          <div className="modal-field">
-            <label>Camera Height (m)</label>
-            <input
-              type="number"
-              step="any"
-              value={form.cameraHeight}
-              onChange={e => update('cameraHeight', e.target.value)}
-              placeholder="600"
-            />
           </div>
 
           {error && <div className="modal-error">{error}</div>}

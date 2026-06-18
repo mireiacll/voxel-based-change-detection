@@ -163,6 +163,39 @@ export function formatDate(dateStr) {
 // Internal alias keeps _observationToDate's existing call site working.
 const _formatDate = formatDate
 
+/**
+ * Fetch a 3D Tiles tileset.json and compute the center longitude/latitude
+ * (in degrees) of its root bounding volume.
+ *
+ * Only supports the "region" bounding volume form:
+ *   region: [west, south, east, north, minHeight, maxHeight]  (radians)
+ * This is what the backend's tileset generator produces. "box" / "sphere"
+ * bounding volumes aren't handled — if encountered, this throws so the
+ * caller can show a clear error instead of silently producing a wrong
+ * coordinate.
+ *
+ * @param {string} tilesetUrl  absolute URL to tileset.json (e.g. date.originalTilesetUrl)
+ * @returns {Promise<{lon: number, lat: number}>}
+ */
+export async function fetchTilesetCenter(tilesetUrl) {
+  if (!tilesetUrl) throw new Error('tileset URL이 없습니다.')
+  console.log('[api.fetchTilesetCenter] fetching', tilesetUrl)
+  const res = await fetch(tilesetUrl)
+  if (!res.ok) throw new Error(`tileset.json을 가져오지 못했습니다 (HTTP ${res.status})`)
+  const json = await res.json()
+
+  const region = json?.root?.boundingVolume?.region
+  if (!Array.isArray(region) || region.length < 4) {
+    throw new Error('tileset.json에서 위치 정보(region)를 찾을 수 없습니다.')
+  }
+
+  const [west, south, east, north] = region
+  const lon = (west + east) / 2 * 180 / Math.PI
+  const lat = (south + north) / 2 * 180 / Math.PI
+  console.log('[api.fetchTilesetCenter] computed center — lon:', lon, 'lat:', lat)
+  return { lon, lat }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 //  PROJECTS / SITES
 // ─────────────────────────────────────────────────────────────────────────
@@ -189,11 +222,14 @@ export async function enrichProjectWithDates(site) {
 }
 
 export async function createProject({ name, description, centerLat, centerLon, cameraHeight }) {
+  // centerLat/centerLon are optional — pass through null (don't invent a
+  // default location). They can be set later from the Data Upload page via
+  // updateProject(). cameraHeight is not user-configurable; always 600.
   const p = await _post('/api/projects', {
     name,
     description:  description ?? '',
-    centerLat:    centerLat   ?? 36.9,
-    centerLon:    centerLon   ?? 127.0,
+    centerLat:    centerLat ?? null,
+    centerLon:    centerLon ?? null,
     cameraHeight: cameraHeight ?? 600,
     status:       'ACTIVE',
   })
@@ -564,7 +600,7 @@ export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs 
  *                deleted, avoiding a 404 network error in the console.
  * @returns {Promise<object>}  final ObservationVoxelStatusResponse
  */
-export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 2000, timeoutMs = 300_000, shouldStop } = {}) {
+export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 2000, timeoutMs = 1_800_000, shouldStop } = {}) {
   const deadline = Date.now() + timeoutMs
   while (true) {
     // Check before every fetch — catches cancellation that happened while we

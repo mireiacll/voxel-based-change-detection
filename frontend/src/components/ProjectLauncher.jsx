@@ -31,7 +31,15 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
   function handleCardClick(site) {
     if (selectedId === site.id) {
       // second click → open
-      const initialTab = (site.dates?.length ?? 0) === 0 ? 'upload' : undefined
+      // Check if coordinates are set (either in site object or localStorage)
+      const siteHasCoords = site.centerLat != null && site.centerLon != null
+      const localHasCoords = localStorage.getItem(`center-from-date-${site.id}`)
+      const hasCoords = siteHasCoords || localHasCoords
+      
+      // If no dates, go to upload tab. If dates but no coords, also go to upload tab.
+      const hasDates = (site.dates?.length ?? 0) > 0
+      const initialTab = !hasDates || !hasCoords ? 'upload' : undefined
+      
       onSelect({ site, initialTab })
     } else {
       // first click → select

@@ -3,14 +3,19 @@
  *
  * Full-screen overlay shown when the "데이터 업로드" tab is active.
  * Lists all survey dates for the active site.
- * Each date has edit-label and delete actions.
- * A "+ New Date" card lets you create a date and upload its dataset in one step.
+ * Each date has edit-label and delete actions, AND now shows voxel status
+ * with a compute trigger (moved here from Panel's "Voxel Calculation" section).
  *
  * Props
  * ─────
- *   site       — site object (required)
- *   onUploaded — () => void   called after any successful upload (triggers site refresh)
- *   onCreated  — () => void   called after date creation / deletion
+ *   site            — site object (required)
+ *   onUploaded      — () => void   called after any successful upload (triggers site refresh)
+ *   onCreated       — () => void   called after date creation / deletion
+ *   blockedDateInfo — Map<dateId, reason> dates locked by a running diff
+ *   voxelPollingIds — Set<dateId>  dates whose voxel job is being polled
+ *   onCancelVoxel   — (dateId) => Promise<void>
+ *   onComputeVoxel  — (dateId) => Promise<void>   NEW — triggers voxel computation
+ *   computingId     — dateId | null               NEW — which date is being computed locally
  *
  * API migration notes
  * ───────────────────
@@ -58,6 +63,55 @@ function DatasetTypeBadge({ type }) {
 }
 
 /**
+ * Voxel status badge with full descriptive labels for the DataUpload context,
+ * where there is more horizontal space than the Panel sidebar.
+ *
+ * Shows status text and, when computation can be triggered, a compute button.
+ */
+function VoxelStatusBadge({ date, isBusy, canTrigger, onCompute }) {
+  const status = date.voxelStatus ?? 'NONE'
+
+  let badge
+  if (isBusy) {
+    const label = status === 'QUEUED' ? 'Voxel 대기 중' : 'Voxel 생성 중'
+    badge = <span className="vst-badge vst-running">⏳ {label}</span>
+  } else if (status === 'SUCCEEDED') {
+    badge = <span className="vst-badge vst-done">✓ Voxel 완료</span>
+  } else if (status === 'RUNNING') {
+    badge = <span className="vst-badge vst-running">⏳ Voxel 생성 중</span>
+  } else if (status === 'QUEUED') {
+    badge = <span className="vst-badge vst-running">⏳ Voxel 대기 중</span>
+  } else if (status === 'FAILED') {
+    badge = <span className="vst-badge vst-failed">✗ Voxel 실패</span>
+  } else if (status === 'CANCELLED') {
+    badge = <span className="vst-badge vst-failed">Voxel 취소됨</span>
+  } else {
+    // NONE — only show badge if there's no dataset (nothing to compute)
+    if (!date.datasetPath) {
+      badge = <span className="vst-badge vst-none">Voxel 미생성</span>
+    } else {
+      badge = null // canTrigger button speaks for itself
+    }
+  }
+
+  return (
+    <>
+      {badge}
+      {isBusy && <span className="vst-spinner" />}
+      {canTrigger && (
+        <button
+          className="vst-btn"
+          onClick={e => { e.stopPropagation(); onCompute(date.id) }}
+          title="Voxel 계산 시작"
+        >
+          ⬡ Voxel 계산
+        </button>
+      )}
+    </>
+  )
+}
+
+/**
  * Single text input that auto-formats digits into YYYY-MM-DD as you type.
  * Replaces the native <input type="date">, whose segment order/behavior
  * is locale-dependent and fiddly to edit.
@@ -96,7 +150,12 @@ function DateTextInput({ value, onChange, disabled, autoFocus }) {
 
 // ── Single-date row ───────────────────────────────────────────────────────
 
-function DateRow({ site, date, onUploaded, onDeleted, blockReason, voxelRunning, onCancelVoxel }) {
+function DateRow({
+  site, date, onUploaded, onDeleted, blockReason,
+  voxelRunning, onCancelVoxel,
+  // voxel computation — new
+  voxelPollingIds, computingId, onComputeVoxel,
+}) {
   // date.id   = stringified numeric observation id  (e.g. "3")
   // date.name = raw observation name from API       (e.g. "260601")
   const [editing,         setEditing]         = useState(false)
@@ -119,6 +178,16 @@ function DateRow({ site, date, onUploaded, onDeleted, blockReason, voxelRunning,
   const [deleting,      setDeleting]      = useState(false)
 
   const hasData = !!date.datasetPath
+
+  // Voxel status helpers
+  const isActivelyPolling = voxelPollingIds?.has(date.id) ?? false
+  const isLocalComputing  = computingId === date.id
+  const isBusy            = isActivelyPolling || isLocalComputing || voxelRunning
+  const voxStatus         = date.voxelStatus ?? 'NONE'
+  const canTrigger        = hasData
+    && (voxStatus === 'NONE' || voxStatus === 'FAILED' || voxStatus === 'CANCELLED')
+    && !isBusy
+    && !blockReason
 
   // ── Edit: no file → PUT metadata only; file picked → delete + recreate ──
 
@@ -188,6 +257,14 @@ function DateRow({ site, date, onUploaded, onDeleted, blockReason, voxelRunning,
           {!editing && !confirmDelete && (
             <>
               <DatasetTypeBadge type={date.datasetType} />
+
+              {/* ── Voxel status (new) ── */}
+              <VoxelStatusBadge
+                date={date}
+                isBusy={isBusy}
+                canTrigger={canTrigger}
+                onCompute={onComputeVoxel}
+              />
 
               {blockReason ? (
                 // A running diff depends on this date — block edit/delete
@@ -293,6 +370,7 @@ function NewDateCard({ site, onCreated }) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(observedAt)) return setError('날짜 형식은 YYYY-MM-DD여야 합니다.')
     if (!name.trim())                              return setError('이름(설명)은 필수입니다.')
     if (!files.length)                             return setError('파일을 선택하세요 — 데이터 파일이 필요합니다.')
+
     console.log('[NewDateCard.handleSubmit] site.id:', site.id, 'observedAt:', observedAt, 'name:', name, 'files:', files.length, files.map(f => f.webkitRelativePath || f.relativePath || f.name))
 
     setLoading(true)
@@ -469,7 +547,16 @@ function NewDateCard({ site, onCreated }) {
 
 // ── Page root ─────────────────────────────────────────────────────────────
 
-export default function DataUploadPage({ site, onUploaded, onCreated, blockedDateInfo, voxelPollingIds, onCancelVoxel }) {
+export default function DataUploadPage({
+  site,
+  onUploaded,
+  onCreated,
+  blockedDateInfo,
+  voxelPollingIds,
+  onCancelVoxel,
+  onComputeVoxel,   // NEW — (dateId) => Promise<void>
+  computingId,      // NEW — dateId | null (which date is being locally computed)
+}) {
   if (!site) return null
 
   return (
@@ -497,6 +584,9 @@ export default function DataUploadPage({ site, onUploaded, onCreated, blockedDat
               blockReason={blockedDateInfo?.get(d.id) ?? null}
               voxelRunning={voxelPollingIds?.has(d.id) ?? false}
               onCancelVoxel={onCancelVoxel}
+              voxelPollingIds={voxelPollingIds}
+              computingId={computingId}
+              onComputeVoxel={onComputeVoxel}
             />
           ))}
           <NewDateCard site={site} onCreated={onCreated} />

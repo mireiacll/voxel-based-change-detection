@@ -3,10 +3,12 @@
  *
  * Order:
  *   1. Selected project
- *   2. Survey dates  (date toggle list with PC | VOX layer pill)
- *   3. Point size    (point cloud only)
- *   4. Voxel calculation  (compute on-demand for dates without a voxel)
+ *   2. Analysis mode
+ *   3. Survey dates  (date toggle list with PC | VOX layer pill)
+ *   4. Point size    (point cloud only)
  *   5. Camera
+ *
+ * Voxel status & compute are now in DataUploadPage, not here.
  *
  * Site shape (coworker API, normalised in api.js):
  *   site.name          — display name
@@ -46,7 +48,6 @@ function TypeTag({ type }) {
  * PC | VOX pill toggle shown below an active date row.
  *
  * hasVoxel     — pre-computed voxelPath exists → VOX loads instantly
- * canCompute   — no voxelPath but datasetPath exists → VOX triggers compute
  * computing    — a compute is in progress for this date
  */
 function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChange }) {
@@ -58,7 +59,7 @@ function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChan
     ? 'Voxel 계산 중…'
     : hasVoxel
       ? 'Pre-computed voxel 표시'
-      : 'Voxel 없음 — Voxel Calculation 패널에서 먼저 계산하세요'
+      : 'Voxel 없음 — 데이터 업로드 탭에서 먼저 계산하세요'
 
   return (
     <div className="date-layer-pill">
@@ -92,7 +93,6 @@ export default function Panel({
   pcSize, onPcSize, showPcSlider,
   voxelPollingIds,  // Set<dateId> — dates currently being voxelized
   onLayerMode,      // (dateId, 'pc' | 'vox') → void
-  onComputeVoxel,   // (dateId) → Promise<void>
   mode,             // 'compare-api' | 'timeline'
   onMode,           // (mode) => void
   diffHistory,      // entry[] from localStorage for this project
@@ -106,9 +106,7 @@ export default function Panel({
   const lastDate  = dates[dates.length - 1]?.label ?? '—'
   const dateRange = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
-  const [layerModes,  setLayerModes]  = useState({})
-  const [computingId, setComputingId] = useState(null)
-  const [computeMsg,  setComputeMsg]  = useState('')
+  const [layerModes, setLayerModes] = useState({})
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -117,24 +115,6 @@ export default function Panel({
     if (!d) return
     setLayerModes(prev => ({ ...prev, [dateId]: mode }))
     onLayerMode?.(dateId, mode)
-  }
-
-  async function handleComputeVoxel(dateId, autoSwitch = false) {
-    if (!dateId || computingId) return
-    setComputingId(dateId)
-    setComputeMsg('')
-    try {
-      await onComputeVoxel?.(dateId)
-      setComputeMsg('✓ Voxel 생성 완료')
-      if (autoSwitch) {
-        setLayerModes(prev => ({ ...prev, [dateId]: 'vox' }))
-        onLayerMode?.(dateId, 'vox')
-      }
-    } catch (e) {
-      setComputeMsg(`오류: ${e.message}`)
-    } finally {
-      setComputingId(null)
-    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -194,7 +174,7 @@ export default function Panel({
             const isOn        = visibleDateIds.has(d.id)
             const layerMode   = layerModes[d.id] ?? 'pc'
             const isPolling   = voxelPollingIds?.has(d.id) ?? false
-            const isComputing = computingId === d.id || isPolling
+            const isComputing = isPolling
             const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
             return (
               <div key={d.id} className="date-row-wrap">
@@ -241,67 +221,6 @@ export default function Panel({
           </div>
         </div>
       )}
-
-      {/* ── Voxel Status Table ── */}
-      <div className="p-section">
-        <div className="p-label">Voxel Calculation</div>
-        {dates.length === 0 ? (
-          <div className="no-dates">날짜 데이터 없음</div>
-        ) : (
-          <>
-            <div className="vox-status-table">
-              {dates.map(d => {
-                const isActivelyPolling = voxelPollingIds?.has(d.id) ?? false
-                const isLocalComputing  = computingId === d.id
-                const isBusy            = isActivelyPolling || isLocalComputing
-                const status            = d.voxelStatus ?? 'NONE'
-                const canTrigger        = !!d.datasetPath && (status === 'NONE' || status === 'FAILED' || status === 'CANCELLED') && !isBusy
-
-                let statusEl
-                if (isBusy) {
-                  const label = status === 'QUEUED' ? '대기 중' : '생성 중'
-                  statusEl = <span className="vst-badge vst-running">⏳ {label}</span>
-                } else if (status === 'SUCCEEDED') {
-                  statusEl = <span className="vst-badge vst-done">✓ 완료</span>
-                } else if (status === 'RUNNING' || status === 'QUEUED') {
-                  const label = status === 'QUEUED' ? '대기 중' : '생성 중'
-                  statusEl = <span className="vst-badge vst-running">⏳ {label}</span>
-                } else if (status === 'FAILED') {
-                  statusEl = <span className="vst-badge vst-failed">✗ 실패</span>
-                } else if (status === 'CANCELLED') {
-                  statusEl = <span className="vst-badge vst-failed">취소됨</span>
-                } else {
-                  statusEl = <span className="vst-badge vst-none">미생성</span>
-                }
-
-                return (
-                  <div key={d.id} className="vst-row">
-                    <div className="vst-date">
-                      <span className="vst-label">{formatDate(d.observedAt) || d.label}</span>
-                    </div>
-                    <div className="vst-right">
-                      {statusEl}
-                      {canTrigger && (
-                        <button
-                          className="vst-btn"
-                          onClick={() => handleComputeVoxel(d.id)}
-                          title="Voxel 계산 시작"
-                        >
-                          ⬡ 계산
-                        </button>
-                      )}
-                      {isBusy && (
-                        <span className="vst-spinner" />
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            {computeMsg && <div className="vox-compute-msg">{computeMsg}</div>}
-          </>
-        )}
-      </div>
 
       {/* ── Diff History ── */}
       <div className="p-section">

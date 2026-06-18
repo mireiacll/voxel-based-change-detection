@@ -108,8 +108,6 @@ function _normaliseProject(p) {
  * which knows nothing about those paths and returns an HTML page.
  * Prefix any relative URL with EXT_API (localhost:8080) so Cesium always
  * gets a fully-qualified URL pointing at the correct backend.
- *
- * Exported so TimelineDiffs.js can reuse it instead of duplicating.
  */
 export function toAbsoluteUrl(url) {
   if (!url) return null
@@ -123,8 +121,6 @@ const _toAbsoluteUrl = toAbsoluteUrl
  * Rewrite a voxel tileset URL so it points to the visualization sub-folder.
  * Backend returns: …/voxel/tileset.json
  * Cesium needs:   …/voxel/visualization/tileset.json
- *
- * Exported so TimelineDiffs.js can reuse it instead of duplicating.
  */
 export function injectVisualizationFolder(url) {
   if (!url) return url
@@ -133,6 +129,9 @@ export function injectVisualizationFolder(url) {
 // Internal alias — keeps all existing _injectVisualizationFolder(...) call sites working.
 const _injectVisualizationFolder = injectVisualizationFolder
 
+/**
+ * Convert an observation object to a date object.
+ */
 function _observationToDate(obs) {
   return {
     id:          String(obs.id),
@@ -153,8 +152,6 @@ function _observationToDate(obs) {
 
 /**
  * Format a YYYY-MM-DD string → "Mon D, YYYY" (e.g. "Jun 1, 2026").
- * Exported so Panel.jsx, DataUploadPage.jsx, and TimelineDiffs.js can reuse
- * it instead of each defining their own isoToLabel / _formatDate copy.
  */
 export function formatDate(dateStr) {
   if (!dateStr) return dateStr
@@ -204,14 +201,15 @@ export async function createProject({ name, description, centerLat, centerLon, c
 }
 
 export async function updateProject(id, patch) {
-  const current = await _get(`/api/projects/${id}`)
+  // ProjectRequest only requires 'name'. EditSiteModal always supplies all
+  // fields from its own local state, so no GET round-trip is needed.
   const p = await _put(`/api/projects/${id}`, {
-    name:         patch.name         ?? current.name,
-    description:  patch.description  ?? current.description  ?? '',
-    centerLat:    patch.centerLat    ?? current.centerLat,
-    centerLon:    patch.centerLon    ?? current.centerLon,
-    cameraHeight: patch.cameraHeight ?? current.cameraHeight ?? 600,
-    status:       current.status     ?? 'ACTIVE',
+    name:         patch.name         ?? '',
+    description:  patch.description  ?? '',
+    centerLat:    patch.centerLat    ?? null,
+    centerLon:    patch.centerLon    ?? null,
+    cameraHeight: patch.cameraHeight ?? 600,
+    status:       patch.status       ?? 'ACTIVE',
   })
   return _normaliseProject(p)
 }
@@ -249,25 +247,13 @@ export async function fetchVoxelTilesetUrl(observationId) {
   return _injectVisualizationFolder(_toAbsoluteUrl(tilesetUrl))
 }
 export async function updateObservation(observationId, patch) {
-  console.log('[api.updateObservation] fetching current for', observationId)
-  const current = await _get(`/api/observations/${observationId}`)
-  const payload = {
-    name:       patch.name       ?? current.name,
-    observedAt: patch.observedAt ?? current.observedAt,
-  }
-  console.log('[api.updateObservation] PUT', observationId, payload)
-  const res = await fetch(`${EXT_API}/api/observations/${observationId}`, {
-    method:  'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+  // ObservationUpdateRequest requires name + observedAt — both always supplied
+  // by the caller (DataUploadPage DateRow), so no GET pre-fetch is needed.
+  console.log('[api.updateObservation] PUT', observationId, patch)
+  const obs = await _put(`/api/observations/${observationId}`, {
+    name:       patch.name,
+    observedAt: patch.observedAt,
   })
-  console.log('[api.updateObservation] ←', res.status)
-  if (!res.ok) {
-    const b = await res.json().catch(() => ({}))
-    console.error('[api.updateObservation] ERROR', res.status, b)
-    throw new Error(b.message ?? b.detail ?? `HTTP ${res.status}`)
-  }
-  const obs = await res.json()
   console.log('[api.updateObservation] updated', obs.id, obs.name, obs.observedAt)
   return _observationToDate(obs)
 }
@@ -520,24 +506,103 @@ export async function voxelizeObservation(observationId, options = {}) {
 }
 
 /**
+ * Cancel an in-progress voxelization job for an observation.
+ * Returns ObservationVoxelStatusResponse: { observationId, voxelStatus, voxelJobId, … }
+ *
+ * Used when the user wants to edit/delete an observation's date while its
+ * voxelizer is still running — cancelling frees up the observation instead
+ * of forcing the user to wait.
+ *
+ * @param {string|number} observationId
+ */
+export async function cancelVoxelize(observationId) {
+  console.log('[api.cancelVoxelize] observationId:', observationId)
+  const status = await _post(`/api/observations/${observationId}/voxelize/cancel`, {})
+  console.log('[api.cancelVoxelize] result — voxelStatus:', status.voxelStatus)
+  return status
+}
+
+// Terminal statuses shared by job polling and voxel-status polling.
+const TERMINAL_JOB_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
+
+/**
  * Poll GET /api/jobs/{jobId} until the job reaches a terminal state.
+ * Use this for diff jobs. For voxel jobs prefer pollVoxelStatus.
  *
  * @param {number|string} jobId
- * @param {(job: object) => void} [onProgress]  — called on each poll with the job object
+ * @param {(job: object) => void} [onProgress]  — called on each poll
  * @param {{ intervalMs?, timeoutMs? }} [opts]
  * @returns {Promise<object>}  final job object
  */
 export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs = 300_000 } = {}) {
-  const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
   const deadline = Date.now() + timeoutMs
   while (true) {
     const job = await _get(`/api/jobs/${jobId}`)
     console.log(`[pollJob] jobId=${jobId} status=${job.status} progress=${job.progress}`)
     onProgress?.(job)
-    if (TERMINAL.has(job.status)) return job
+    if (TERMINAL_JOB_STATUSES.has(job.status)) return job
     if (Date.now() > deadline) throw new Error(`Job ${jobId} timed out after ${timeoutMs / 1000}s`)
     await new Promise(r => setTimeout(r, intervalMs))
   }
+}
+
+/**
+ * Poll GET /api/observations/{observationId}/voxel-status until terminal.
+ *
+ * Lighter than pollJob for voxel tracking:
+ *   · Targets the observation directly — no need to track voxelJobId.
+ *   · Returns voxelTilesetUrl in the terminal response.
+ *   · Progress via jobProgress/jobMessage mirrors JobResponse fields.
+ *
+ * @param {string|number} observationId
+ * @param {(s: object) => void} [onProgress]
+ * @param {{ intervalMs?, timeoutMs?, shouldStop? }} [opts]
+ *   shouldStop — optional () => boolean called before each fetch and after each
+ *                sleep. When it returns true the loop exits immediately with a
+ *                synthetic CANCELLED result so no further network request is made.
+ *                Use this to stop polling when the observation is about to be
+ *                deleted, avoiding a 404 network error in the console.
+ * @returns {Promise<object>}  final ObservationVoxelStatusResponse
+ */
+export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 2000, timeoutMs = 300_000, shouldStop } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    // Check before every fetch — catches cancellation that happened while we
+    // were sleeping or before the very first tick fires.
+    if (shouldStop?.()) {
+      console.log(`[pollVoxelStatus] obsId=${observationId} — shouldStop=true, exiting loop cleanly`)
+      return { voxelStatus: 'CANCELLED' }
+    }
+    const s = await _get(`/api/observations/${observationId}/voxel-status`)
+    console.log(`[pollVoxelStatus] obsId=${observationId} voxelStatus=${s.voxelStatus} progress=${s.jobProgress}`)
+    onProgress?.(s)
+    if (TERMINAL_JOB_STATUSES.has(s.voxelStatus)) return s
+    if (Date.now() > deadline) throw new Error(`Voxel job for observation ${observationId} timed out`)
+    await new Promise(r => setTimeout(r, intervalMs))
+    // Check again after the sleep — this is the most common race window:
+    // delete fires during the 2 s wait, shouldStop is set, we bail before
+    // the next GET hits the now-deleted observation.
+    if (shouldStop?.()) {
+      console.log(`[pollVoxelStatus] obsId=${observationId} — shouldStop=true after sleep, exiting loop cleanly`)
+      return { voxelStatus: 'CANCELLED' }
+    }
+  }
+}
+
+/**
+ * Fetch all currently active (non-terminal) jobs from GET /api/jobs.
+ * Returns JobResponse[]: { id, jobType, targetType, targetId, status, progress, message }
+ *
+ *   jobType:    'VOXEL_CREATE' | 'DIFF_CREATE'
+ *   targetType: 'OBSERVATION'  | 'DIFF' | 'DIFF_ITEM'
+ *   targetId:   id of the observation or diff being processed
+ *
+ * Use on project open to discover in-progress voxel or diff jobs and resume
+ * polling them without re-fetching every observation individually.
+ */
+export async function fetchActiveJobs() {
+  const jobs = await _get('/api/jobs')
+  return jobs.filter(j => !TERMINAL_JOB_STATUSES.has(j.status))
 }
 
 /**
@@ -551,15 +616,18 @@ export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs 
  */
 export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
   console.log('[api.voxelizeAndPoll] start observationId:', observationId)
-  const date = await voxelizeObservation(observationId, options)
-  const jobId = date.voxelJobId
-  if (!jobId) throw new Error('voxelizeObservation returned no jobId')
-  console.log('[api.voxelizeAndPoll] polling jobId:', jobId)
-  const job = await pollJob(jobId, j => onProgress?.({ status: j.status, progress: j.progress ?? 0, message: j.message ?? '' }))
-  if (job.status !== 'SUCCEEDED') {
-    throw new Error(`Voxelization ${job.status.toLowerCase()}: ${job.message ?? 'no details'}`)
+  await voxelizeObservation(observationId, options)
+  // pollVoxelStatus is lighter than pollJob: targets the observation directly,
+  // no voxelJobId needed, returns voxelTilesetUrl in the terminal response.
+  console.log('[api.voxelizeAndPoll] polling voxel-status for obsId:', observationId)
+  const status = await pollVoxelStatus(
+    observationId,
+    s => onProgress?.({ status: s.voxelStatus, progress: s.jobProgress ?? 0, message: s.jobMessage ?? '' })
+  )
+  if (status.voxelStatus !== 'SUCCEEDED') {
+    throw new Error(`Voxelization ${status.voxelStatus.toLowerCase()}: ${status.jobMessage ?? 'no details'}`)
   }
-  // Re-fetch the observation so we get the updated voxelPath / voxelStatus
+  // Re-fetch observation for the full date-shaped object (voxelPath, etc.)
   return fetchObservation(observationId)
 }
 

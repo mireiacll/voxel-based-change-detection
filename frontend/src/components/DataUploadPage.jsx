@@ -16,18 +16,25 @@
  * ───────────────────
  * All calls now go through api.js → coworker API (localhost:8080).
  *   create date       → uploadObservation(projectId, { name, observedAt, files })
- *   edit (no file)    → updateObservation(date.id,   { name, observedAt })   — metadata only
- *   edit (with file)  → deleteObservation(date.id) then uploadObservation()  — delete + recreate
+ *   edit              → updateObservation(date.id, { name, observedAt })   — metadata only
  *   delete date       → deleteObservation(date.id)
  */
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import {
   uploadObservation,
   updateObservation,
   deleteObservation,
-  formatDate,
 } from '../api'
+
+/** Format a YYYY-MM-DD string into a pretty label like "Jun 1, 2026". */
+function isoToLabel(iso) {
+  if (!iso) return iso
+  const [year, month, day] = iso.split('-')
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const m = MONTHS[parseInt(month, 10) - 1] ?? month
+  return `${m} ${parseInt(day, 10)}, ${year}`
+}
 
 /**
  * Map an api.js uploadObservation onProgress({ phase, pct }) event to a
@@ -87,69 +94,24 @@ function DateTextInput({ value, onChange, disabled, autoFocus }) {
   )
 }
 
-// ── Folder drag-and-drop helpers (shared by DateRow and NewDateCard) ─────────
-
-function readAllEntries(reader) {
-  return new Promise((resolve, reject) => {
-    const all = []
-    function readBatch() {
-      reader.readEntries(entries => {
-        if (!entries.length) { resolve(all); return }
-        all.push(...entries); readBatch()
-      }, reject)
-    }
-    readBatch()
-  })
-}
-
-async function readEntry(entry, path = '') {
-  if (entry.isFile) return new Promise((resolve, reject) => {
-    entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
-  })
-  if (entry.isDirectory) {
-    const entries = await readAllEntries(entry.createReader())
-    const results = []
-    for (const child of entries)
-      results.push(...await readEntry(child, path + entry.name + '/'))
-    return results
-  }
-  return []
-}
-
-async function getDroppedFiles(items) {
-  const fs = []
-  for (const item of items) {
-    const entry = item.webkitGetAsEntry?.()
-    if (entry) fs.push(...await readEntry(entry))
-  }
-  return fs
-}
-
 // ── Single-date row ───────────────────────────────────────────────────────
 
-function DateRow({ site, date, onUploaded, onDeleted }) {
+function DateRow({ site, date, onUploaded, onDeleted, blockReason, voxelRunning, onCancelVoxel }) {
   // date.id   = stringified numeric observation id  (e.g. "3")
   // date.name = raw observation name from API       (e.g. "260601")
   const [editing,         setEditing]         = useState(false)
   const [editObservedAt,  setEditObservedAt]  = useState(date.observedAt ?? '')
   const [editName,        setEditName]        = useState(date.name ?? '')
-  const [editFiles,       setEditFiles]       = useState([])
-  const [editDrag,        setEditDrag]        = useState(false)
   const [editError,       setEditError]       = useState('')
   const [editSaving,      setEditSaving]      = useState(false)
   const [editProgress,    setEditProgress]    = useState('')
-  const [editDatasetType, setEditDatasetType] = useState(date.datasetType || 'pointcloud')
-  const editInputRef = useRef(null)
 
   function cancelEdit() {
     setEditing(false)
     setEditObservedAt(date.observedAt ?? '')
     setEditName(date.name ?? '')
-    setEditFiles([])
     setEditError('')
     setEditProgress('')
-    setEditDatasetType(date.datasetType || 'pointcloud')
-    if (editInputRef.current) editInputRef.current.value = ''
   }
 
   // Delete confirm state
@@ -161,35 +123,20 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
   // ── Edit: no file → PUT metadata only; file picked → delete + recreate ──
 
   async function handleSave() {
+    if (blockReason) return setEditError(blockReason)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(editObservedAt)) return setEditError('날짜 형식은 YYYY-MM-DD여야 합니다.')
     if (!editName.trim())                              return setEditError('이름(설명)은 필수입니다.')
-    console.log('[DateRow.handleSave] date.id:', date.id, 'editObservedAt:', editObservedAt, 'editName:', editName, 'hasFiles:', editFiles.length)
+    console.log('[DateRow.handleSave] date.id:', date.id, 'editObservedAt:', editObservedAt, 'editName:', editName)
     setEditSaving(true)
     setEditError('')
     try {
-      if (editFiles.length) {
-        console.log('[DateRow.handleSave] delete+recreate path — files:', editFiles.length, editFiles.map(f => f.webkitRelativePath || f.relativePath || f.name))
-        setEditProgress('기존 날짜 삭제 중…')
-        await deleteObservation(date.id)
-        await uploadObservation(site.id, {
-          name:        editName.trim(),
-          observedAt:  editObservedAt,
-          datasetType: editDatasetType,
-          files:       editFiles,
-          onProgress:  p => setEditProgress(progressLabel(p)),
-        })
-        setEditProgress('완료!')
-        setTimeout(() => { cancelEdit(); onDeleted() }, 800)
-      } else {
-        console.log('[DateRow.handleSave] metadata-only path — name:', editName, 'observedAt:', editObservedAt)
-        setEditProgress('저장 중…')
-        await updateObservation(date.id, {
-          name:       editName.trim(),
-          observedAt: editObservedAt,
-        })
-        setEditProgress('완료!')
-        setTimeout(() => { cancelEdit(); onUploaded() }, 800)
-      }
+      setEditProgress('저장 중…')
+      await updateObservation(date.id, {
+        name:       editName.trim(),
+        observedAt: editObservedAt,
+      })
+      setEditProgress('완료!')
+      setTimeout(() => { cancelEdit(); onUploaded() }, 800)
     } catch (e) {
       console.error('[DateRow.handleSave] FAILED:', e.message, e)
       setEditError(e.message)
@@ -200,9 +147,22 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
   }
 
   async function handleDelete() {
+    if (blockReason) { alert(blockReason); setConfirmDelete(false); return }
     console.log('[DateRow.handleDelete] deleting date.id:', date.id, 'date.name:', date.name)
     setDeleting(true)
     try {
+      // Deleting must work regardless of an in-progress voxelizer — cancel
+      // it first so we don't leave an orphaned job, but don't let a cancel
+      // failure block the deletion itself (the observation is going away
+      // either way, so best-effort cancel + swallow errors here).
+      if (voxelRunning) {
+        console.log('[DateRow.handleDelete] voxel running — cancelling first, date.id:', date.id)
+        try {
+          await onCancelVoxel(date.id)
+        } catch (e) {
+          console.warn('[DateRow.handleDelete] voxel cancel before delete failed (continuing anyway):', e.message)
+        }
+      }
       await deleteObservation(date.id)
       console.log('[DateRow.handleDelete] deleted successfully')
       onDeleted()
@@ -215,52 +175,55 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
     }
   }
 
-  async function handleEditDrop(e) {
-    e.preventDefault(); setEditDrag(false)
-    const dropped = await getDroppedFiles([...e.dataTransfer.items])
-    if (!dropped.length) return
-    setEditFiles(dropped); setEditError('')
-  }
-
-  const editFolderName =
-    editFiles[0]?.webkitRelativePath?.split('/')[0] ||
-    editFiles[0]?.relativePath?.split('/')[0] ||
-    editFiles[0]?.name
-
   return (
     <div className={`dup-date-card${editing ? ' dup-date-card-open' : ''}`}>
       {/* ── Header row ── */}
       <div className="dup-date-header">
         <div className="dup-date-info">
-          <span className="dup-date-label">{formatDate(date.observedAt) || date.label}</span>
+          <span className="dup-date-label">{isoToLabel(date.observedAt) || date.label}</span>
           <span className="dup-date-name" title={date.name}>{date.name}</span>
         </div>
 
         <div className="dup-date-actions" onClick={e => e.stopPropagation()}>
           {!editing && !confirmDelete && (
             <>
-              <DatasetTypeBadge type={editing ? editDatasetType : date.datasetType} />
-              <button
-                className="dup-icon-btn dup-icon-edit"
-                onClick={() => setEditing(true)}
-                title="수정"
-              >
-                ✎
-              </button>
-              <button
-                className="dup-icon-btn dup-icon-danger"
-                onClick={() => setConfirmDelete(true)}
-                title="날짜 삭제"
-              >
-                🗑
-              </button>
+              <DatasetTypeBadge type={date.datasetType} />
+
+              {blockReason ? (
+                // A running diff depends on this date — block edit/delete
+                // entirely instead of cancelling the diff out from under
+                // the user. (Voxel-running never reaches this branch since
+                // a diff can't be running on a date that isn't voxelized.)
+                <>
+                  <button className="dup-icon-btn dup-icon-edit" disabled title={blockReason}>✎</button>
+                  <button className="dup-icon-btn dup-icon-danger" disabled title={blockReason}>🗑</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="dup-icon-btn dup-icon-edit"
+                    onClick={() => setEditing(true)}
+                    disabled={voxelRunning}
+                    title={voxelRunning ? 'Voxel 생성이 끝난 후 수정할 수 있습니다.' : '수정'}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="dup-icon-btn dup-icon-danger"
+                    onClick={() => setConfirmDelete(true)}
+                    title={voxelRunning ? 'Voxel 작업 중지 + 날짜 삭제' : '날짜 삭제'}
+                  >
+                    {voxelRunning ? '⛔🗑' : '🗑'}
+                  </button>
+                </>
+              )}
             </>
           )}
           {confirmDelete && (
             <div className="dup-confirm-delete">
-              <span>삭제하시겠습니까?</span>
+              <span>{voxelRunning ? 'Voxel 작업을 중지하고 삭제하시겠습니까?' : '삭제하시겠습니까?'}</span>
               <button className="dup-icon-btn dup-icon-danger" onClick={handleDelete} disabled={deleting}>
-                {deleting ? '…' : '삭제'}
+                {deleting ? '…' : (voxelRunning ? '중지 후 삭제' : '삭제')}
               </button>
               <button className="dup-icon-btn" onClick={() => setConfirmDelete(false)} disabled={deleting}>취소</button>
             </div>
@@ -293,61 +256,6 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
             </div>
           </div>
 
-          <div className="modal-field">
-            <label>데이터 유형</label>
-            <div className="dup-type-toggle">
-              <button
-                className={`dup-type-btn${editDatasetType === 'pointcloud' ? ' active' : ''}`}
-                onClick={() => setEditDatasetType('pointcloud')}
-                disabled={editSaving}
-              >
-                ☁ Point Cloud
-              </button>
-              <button
-                className={`dup-type-btn${editDatasetType === 'mesh' ? ' active' : ''}`}
-                onClick={() => setEditDatasetType('mesh')}
-                disabled={editSaving}
-              >
-                ◈ 3D Mesh
-              </button>
-            </div>
-          </div>
-
-          <div className="modal-field">
-            <label>
-              새 파일 <span className="modal-hint">(선택 사항 — 파일 교체 시 기존 날짜 삭제 후 재생성)</span>
-            </label>
-            <div
-              className={`upload-dropzone${editDrag ? ' dragging' : ''}${editFiles.length ? ' has-files' : ''}`}
-              onClick={() => editInputRef.current?.click()}
-              onDrop={handleEditDrop}
-              onDragOver={e => { e.preventDefault(); setEditDrag(true) }}
-              onDragLeave={() => setEditDrag(false)}
-            >
-              <input
-                ref={editInputRef}
-                type="file"
-                multiple
-                webkitdirectory=""
-                onChange={e => { setEditFiles([...e.target.files]); setEditError('') }}
-                disabled={editSaving}
-              />
-              {editFiles.length === 0 ? (
-                <div>
-                  파일 없이 저장하면 코드/레이블만 변경됩니다
-                  <br />
-                  <span className="modal-hint">새 파일을 드래그하면 기존 데이터가 교체됩니다</span>
-                </div>
-              ) : (
-                <div className="upload-selected upload-selected-vertical">
-                  <div className="upload-icon">📁</div>
-                  <strong className="upload-folder-name">{editFolderName}</strong>
-                  <span className="upload-count">{editFiles.length}개 파일</span>
-                </div>
-              )}
-            </div>
-          </div>
-
           {editError    && <div className="modal-error">{editError}</div>}
           {editProgress && <div className="modal-progress">{editProgress}</div>}
 
@@ -356,7 +264,7 @@ function DateRow({ site, date, onUploaded, onDeleted }) {
               취소
             </button>
             <button className="modal-btn-primary" onClick={handleSave} disabled={editSaving}>
-              {editSaving ? '처리 중…' : editFiles.length ? '교체 저장' : '저장'}
+              {editSaving ? '저장 중…' : '저장'}
             </button>
           </div>
         </div>
@@ -415,6 +323,43 @@ function NewDateCard({ site, onCreated }) {
     const droppedFiles = await getDroppedFiles([...e.dataTransfer.items])
     if (!droppedFiles.length) return
     setFiles(droppedFiles); setError('')
+  }
+
+  function readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const all = []
+      function readBatch() {
+        reader.readEntries(entries => {
+          if (!entries.length) { resolve(all); return }
+          all.push(...entries)
+          readBatch()
+        }, reject)
+      }
+      readBatch()
+    })
+  }
+
+  async function readEntry(entry, path = '') {
+    if (entry.isFile) return new Promise((resolve, reject) => {
+      entry.file(file => { file.relativePath = path + file.name; resolve([file]) }, reject)
+    })
+    if (entry.isDirectory) {
+      const entries = await readAllEntries(entry.createReader())
+      const results = []
+      for (const child of entries)
+        results.push(...await readEntry(child, path + entry.name + '/'))
+      return results
+    }
+    return []
+  }
+
+  async function getDroppedFiles(items) {
+    const fs = []
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.()
+      if (entry) fs.push(...await readEntry(entry))
+    }
+    return fs
   }
 
   const folderName =
@@ -524,7 +469,7 @@ function NewDateCard({ site, onCreated }) {
 
 // ── Page root ─────────────────────────────────────────────────────────────
 
-export default function DataUploadPage({ site, onUploaded, onCreated }) {
+export default function DataUploadPage({ site, onUploaded, onCreated, blockedDateInfo, voxelPollingIds, onCancelVoxel }) {
   if (!site) return null
 
   return (
@@ -543,7 +488,16 @@ export default function DataUploadPage({ site, onUploaded, onCreated }) {
 
         <div className="dup-list">
           {site.dates.map(d => (
-            <DateRow key={d.id} site={site} date={d} onUploaded={onUploaded} onDeleted={onCreated} />
+            <DateRow
+              key={d.id}
+              site={site}
+              date={d}
+              onUploaded={onUploaded}
+              onDeleted={onCreated}
+              blockReason={blockedDateInfo?.get(d.id) ?? null}
+              voxelRunning={voxelPollingIds?.has(d.id) ?? false}
+              onCancelVoxel={onCancelVoxel}
+            />
           ))}
           <NewDateCard site={site} onCreated={onCreated} />
         </div>

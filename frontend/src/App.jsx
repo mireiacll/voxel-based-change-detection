@@ -2,7 +2,7 @@
  * App.jsx
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { CONFIG } from './config'
 import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiumInit'
 import {
@@ -26,9 +26,12 @@ import {
   fetchVoxelTilesetUrl,
   fetchObservation,
   pollJob,
+  pollVoxelStatus,
+  fetchActiveJobs,
   createAbDiffAndPoll,
   cancelDiff,
   createTimeSeriesDiffAndPoll,
+  cancelVoxelize,
 } from './api'
 import {
   loadDiffHistory,
@@ -68,10 +71,14 @@ export default function App() {
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
   const [voxelPollingIds, setVoxelPollingIds] = useState(new Set())
 
-  const activeDateRef  = useRef(null)
-  const activeSiteRef  = useRef(null)
-  const visibleIdsRef  = useRef(new Set())
-  const modeRef        = useRef('compare-api')
+  const activeDateRef     = useRef(null)
+  const activeSiteRef     = useRef(null)
+  const visibleIdsRef     = useRef(new Set())
+  const modeRef           = useRef('compare-api')
+  // Observation ids that are in the process of being deleted. pollVoxelStatus
+  // checks this via shouldStop() before each fetch so it exits cleanly without
+  // firing a GET that would 404 on the now-deleted observation.
+  const deletingObsIdsRef = useRef(new Set())
 
   useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
@@ -123,6 +130,36 @@ export default function App() {
   const viewerReady    = useRef(false)
   const tlSnapshotsRef = useRef(null)
   useEffect(() => { tlSnapshotsRef.current = tlSnapshots }, [tlSnapshots])
+
+  /**
+   * Dates that must NOT be edited/deleted right now because a diff job is
+   * actively using them. Editing or deleting an observation mid-diff would
+   * leave the running diff referencing a date that's changing or gone.
+   *
+   * Unlike voxelization (which is safely cancellable), a running diff is
+   * NOT auto-cancelled here — instead the edit/delete UI for the relevant
+   * date(s) is disabled until the diff finishes or the user cancels it
+   * themselves (via the existing "취소" button in the diff panel).
+   *
+   *   - A/B diff running  → only date A and date B are blocked.
+   *   - Time-series running → ALL dates in the active site are blocked,
+   *     since a time-series diff spans every consecutive pair.
+   *
+   * Returns a Map<dateId, reason-string-for-tooltip>.
+   */
+  const blockedDateInfo = useMemo(() => {
+    const map = new Map()
+    if (apiRunning) {
+      if (apiDateIdA) map.set(apiDateIdA, 'A/B 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
+      if (apiDateIdB) map.set(apiDateIdB, 'A/B 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
+    }
+    if (tlRecomputeRunning && activeSite) {
+      activeSite.dates.forEach(d => {
+        map.set(d.id, '시계열 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
+      })
+    }
+    return map
+  }, [apiRunning, apiDateIdA, apiDateIdB, tlRecomputeRunning, activeSite])
 
   // ── Helpers ───────────────────────────────────────────────────────────
   const addToast = useCallback((msg, type = 'ok') => {
@@ -306,15 +343,19 @@ export default function App() {
     setDiffHistory(loadDiffHistory(site.id))
     setActiveDiffId(null)
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
-    console.log('[handleOpenProject] checking dates for auto-resume:',
-      site.dates.map(d => `${d.id} status=${d.voxelStatus} jobId=${d.voxelJobId}`))
-    site.dates.forEach(d => {
-      if (d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') {
-        console.log('[handleOpenProject] auto-resuming dateId:', d.id,
-          'voxelStatus:', d.voxelStatus, 'voxelJobId:', d.voxelJobId)
-        resumeVoxelPoll(d.id, d.voxelJobId)
-      }
-    })
+    // Use GET /api/jobs to discover all in-progress jobs at once, then
+    // resume polling only for VOXEL_CREATE jobs that target this project's observations.
+    // This is one request instead of N (one per observation with QUEUED/RUNNING status).
+    fetchActiveJobs().then(activeJobs => {
+      console.log('[handleOpenProject] active jobs:', activeJobs.map(j => `${j.id} ${j.jobType} targetId=${j.targetId} status=${j.status}`))
+      const obsIds = new Set(site.dates.map(d => String(d.id)))
+      activeJobs
+        .filter(j => j.jobType === 'VOXEL_CREATE' && obsIds.has(String(j.targetId)))
+        .forEach(j => {
+          console.log('[handleOpenProject] resuming voxel poll for obsId:', j.targetId)
+          resumeVoxelPoll(String(j.targetId), j.id)
+        })
+    }).catch(e => console.warn('[handleOpenProject] fetchActiveJobs failed:', e.message))
   }
 
   async function handleProjectCreated(newSite) {
@@ -346,6 +387,22 @@ export default function App() {
             loadDate(updatedSite, d, modeRef.current, {})
           }
         }
+
+        // The backend auto-starts voxelization as soon as a dataset is
+        // uploaded — but until now nothing in this live session noticed,
+        // because resumeVoxelPoll was only ever kicked off from
+        // handleOpenProject (on initial project open / page refresh).
+        // Without this, a freshly uploaded date's voxel progress/status
+        // would silently update on the server but never appear in the UI
+        // until the user manually refreshed the browser.
+        // Pick up any date that's QUEUED/RUNNING and not already being
+        // tracked in voxelPollingIds, and start polling it now.
+        updatedSite.dates
+          .filter(d => (d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') && !voxelPollingIds.has(d.id))
+          .forEach(d => {
+            console.log('[handleDataChanged] detected new/unpolled voxel job — resuming poll for dateId:', d.id, 'voxelStatus:', d.voxelStatus)
+            resumeVoxelPoll(d.id, d.voxelJobId)
+          })
       }
     }
     addToast('데이터가 업데이트되었습니다', 'ok')
@@ -601,6 +658,19 @@ export default function App() {
     setTlRecomputeDiffId(null)
   }, [tlRecomputeDiffId])
 
+  // ── Shared helper — patch one date inside sites + activeSite after voxel completes ─
+  function _patchVoxelDate(siteId, dateId, updatedDate) {
+    setSites(prev => {
+      const next = prev.map(s => {
+        if (s.id !== siteId) return s
+        return { ...s, dates: s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d) }
+      })
+      const newSite = next.find(s => s.id === siteId)
+      if (newSite) { setActiveSite(newSite); window.currentSite = newSite }
+      return next
+    })
+  }
+
   async function resumeVoxelPoll(dateId, jobId) {
     const site = activeSiteRef.current
     const dateLabel = site?.dates.find(d => d.id === dateId)?.label ?? dateId
@@ -608,79 +678,71 @@ export default function App() {
       'siteId:', activeSiteRef.current?.id)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
-      let resolvedJobId = jobId
-      if (!resolvedJobId) {
+      // Check if already done before starting the poll loop.
+      // pollVoxelStatus works without a jobId — we only need the observationId.
+      if (!jobId) {
         const fresh = await fetchObservation(dateId)
         if (fresh.voxelStatus === 'SUCCEEDED') {
           console.log('[resumeVoxelPoll] already SUCCEEDED — patching state directly')
-          const sid = activeSiteRef.current?.id
-          setSites(prev => {
-            const next = prev.map(s => {
-              if (s.id !== sid) return s
-              const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...fresh } : d)
-              return { ...s, dates: newDates }
-            })
-            const ns = next.find(s => s.id === sid)
-            if (ns) { setActiveSite(ns); window.currentSite = ns }
-            setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
-            return next
-          })
+          _patchVoxelDate(activeSiteRef.current?.id, dateId, fresh)
           addToast(`✓ Voxel 완료: ${dateLabel}`, 'ok')
+          setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
           return
         }
-        resolvedJobId = fresh.voxelJobId
-        if (!resolvedJobId) {
-          console.warn('[resumeVoxelPoll] still no jobId after re-fetch, status:',
-            fresh.voxelStatus, '— cannot poll')
+        if (fresh.voxelStatus !== 'QUEUED' && fresh.voxelStatus !== 'RUNNING') {
+          console.warn('[resumeVoxelPoll] unexpected voxelStatus:', fresh.voxelStatus, '— skipping poll')
           setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
           return
         }
       }
 
-      const job = await pollJob(
-        resolvedJobId,
-        ({ status, progress, message }) => {
-          const pct = progress ? ` (${progress}%)` : ''
-          const msg = message ? ` — ${message}` : ''
-          setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
+      // Use pollVoxelStatus — lighter endpoint, no jobId needed after resolution.
+      // shouldStop lets the loop exit cleanly before the next GET when the
+      // observation is being deleted (handleCancelVoxelForDate marks the id).
+      const voxResult = await pollVoxelStatus(
+        dateId,
+        s => {
+          const pct = s.jobProgress ? ` (${s.jobProgress}%)` : ''
+          const msg = s.jobMessage ? ` — ${s.jobMessage}` : ''
+          setStatusMsg(`Voxel 생성 중: ${dateLabel} [${s.voxelStatus}${pct}]${msg}`)
           setStatusDone(false)
-        }
+        },
+        { shouldStop: () => deletingObsIdsRef.current.has(dateId) }
       )
-      console.log('[resumeVoxelPoll] pollJob DONE — status:', job.status)
-      if (job.status !== 'SUCCEEDED') throw new Error(`Voxel ${job.status.toLowerCase()}`)
+      console.log('[resumeVoxelPoll] pollVoxelStatus DONE — status:', voxResult.voxelStatus)
+
+      if (voxResult.voxelStatus === 'CANCELLED') {
+        // Expected outcome when the user (or the date-edit/delete flow)
+        // cancelled the job themselves — not a failure, so no error toast.
+        console.log('[resumeVoxelPoll] cancelled by user — no error toast')
+        setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+        setStatusMsg(`Voxel 취소됨: ${dateLabel}`)
+        setStatusDone(true)
+        return
+      }
+      if (voxResult.voxelStatus !== 'SUCCEEDED') throw new Error(`Voxel ${voxResult.voxelStatus.toLowerCase()}`)
 
       const updatedDate = await fetchObservation(dateId)
-      console.log('[resumeVoxelPoll] updatedDate — voxelStatus:', updatedDate?.voxelStatus,
-        'voxelPath:', updatedDate?.voxelPath)
-
-      const pollSiteId = activeSiteRef.current?.id
-      setSites(prev => {
-        console.log('[resumeVoxelPoll] setSites — pollSiteId:', pollSiteId,
-          'prev ids:', prev.map(s => s.id))
-        const next = prev.map(s => {
-          if (s.id !== pollSiteId) return s
-          const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
-          return { ...s, dates: newDates }
-        })
-        const newSite = next.find(s => s.id === pollSiteId)
-        if (newSite) {
-          console.log('[resumeVoxelPoll] setActiveSite — statuses:',
-            newSite.dates.map(d => `${d.id}:${d.voxelStatus}`))
-          setActiveSite(newSite)
-          window.currentSite = newSite
-        } else {
-          console.warn('[resumeVoxelPoll] WARNING: pollSiteId', pollSiteId, 'not in sites!')
-        }
-        setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
-        return next
-      })
+      console.log('[resumeVoxelPoll] updatedDate — voxelStatus:', updatedDate?.voxelStatus)
+      _patchVoxelDate(activeSiteRef.current?.id, dateId, updatedDate)
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       setStatusMsg(`Voxel 완료: ${dateLabel}`)
       setStatusDone(true)
       addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
     } catch (e) {
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+      if (/not found/i.test(e.message)) {
+        // The observation was deleted while this poll loop was still
+        // in-flight (delete cancels the voxelizer but the next poll tick
+        // can race ahead and hit a 404 before the loop notices). The date
+        // is gone either way — not a real failure, so no error toast.
+        console.log('[resumeVoxelPoll] observation deleted mid-poll — no error toast')
+        setStatusMsg(`Voxel 취소됨: ${dateLabel}`)
+        setStatusDone(true)
+        return
+      }
       console.error('[resumeVoxelPoll] FAILED:', e.message, e)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
-      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
     }
   }
 
@@ -702,37 +764,91 @@ export default function App() {
           setStatusDone(false)
         }
       )
-      console.log('[handleComputeVoxel] SUCCEEDED — voxelStatus:', updatedDate?.voxelStatus,
-        'voxelPath:', updatedDate?.voxelPath)
-      setSites(prev => {
-        console.log('[handleComputeVoxel] setSites — siteId:', siteId, 'prev ids:', prev.map(s => s.id))
-        const next = prev.map(s => {
-          if (s.id !== siteId) return s
-          const newDates = s.dates.map(d => d.id === dateId ? { ...d, ...updatedDate } : d)
-          return { ...s, dates: newDates }
-        })
-        const newSite = next.find(s => s.id === siteId)
-        if (newSite) {
-          console.log('[handleComputeVoxel] setActiveSite — statuses:',
-            newSite.dates.map(d => `${d.id}:${d.voxelStatus}`))
-          setActiveSite(newSite)
-          window.currentSite = newSite
-        } else {
-          console.warn('[handleComputeVoxel] WARNING: siteId', siteId, 'not in sites!')
-        }
-        setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
-        return next
-      })
+      console.log('[handleComputeVoxel] SUCCEEDED — voxelStatus:', updatedDate?.voxelStatus)
+      _patchVoxelDate(siteId, dateId, updatedDate)
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       setStatusMsg(`Voxel 완료: ${dateLabel}`, true)
       setStatusDone(true)
       addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
     } catch (e) {
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+      if (/^Voxelization cancelled/i.test(e.message)) {
+        // Expected outcome when the user (or the date-edit/delete flow)
+        // cancelled the job themselves — not a failure, so no error toast.
+        console.log('[handleComputeVoxel] cancelled by user — no error toast')
+        setStatusMsg(`Voxel 취소됨: ${dateLabel}`, true)
+        setStatusDone(true)
+        return
+      }
+      if (/not found/i.test(e.message)) {
+        // The observation was deleted while this poll loop was still
+        // in-flight (delete cancels the voxelizer but the next poll tick
+        // can race ahead and hit a 404 before the loop notices). The date
+        // is gone either way — this isn't a real failure, so no error toast.
+        console.log('[handleComputeVoxel] observation deleted mid-poll — no error toast')
+        setStatusMsg(`Voxel 취소됨: ${dateLabel}`, true)
+        setStatusDone(true)
+        return
+      }
       console.error('[handleComputeVoxel] FAILED:', e.message, e)
       setStatusMsg(`Voxel 실패: ${e.message}`, true)
       setStatusDone(true)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
-      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       throw e
+    }
+  }
+
+  /**
+   * Cancel an in-progress voxelizer job for a date.
+   * Unlike a running diff, voxelization is safe to auto-cancel: nothing else
+   * depends on it yet, so the edit/delete UI calls this directly instead of
+   * just blocking the buttons.
+   */
+  async function handleCancelVoxelForDate(dateId) {
+    console.log('[handleCancelVoxelForDate] dateId:', dateId)
+    // Mark the id before doing anything async. The pollVoxelStatus loop running
+    // in resumeVoxelPoll checks this ref via shouldStop() before each fetch and
+    // after each sleep, so it exits cleanly without firing a GET on a deleted
+    // observation.
+    //
+    // IMPORTANT: do NOT clear this in a finally block here. The only caller of
+    // this function is DateRow.handleDelete, which calls onCancelVoxel(id) and
+    // then immediately calls deleteObservation(id) right after — so this id is
+    // always headed for deletion. Meanwhile there may be a resumeVoxelPoll loop
+    // for this exact id sleeping in pollVoxelStatus's 2s setTimeout *right now*
+    // (e.g. the poll that was auto-started when the backend kicked off
+    // voxelization on upload, before the user clicked delete). That loop only
+    // checks shouldStop() twice per 2s cycle — once before the fetch, once
+    // after the sleep. If we clear the ref here as soon as cancelVoxelize +
+    // fetchObservation resolve (typically well under a second), the flag can
+    // close before that other loop ever wakes up to see it, and it proceeds to
+    // GET an observation that's about to be (or already) deleted, causing a
+    // 404. Previously this is exactly what happened — verified via the 404
+    // stack trace pointing at the resumeVoxelPoll call kicked off by
+    // handleDataChanged on upload, not the delete flow itself.
+    //
+    // Leaving the id in the ref permanently is safe: ids are server-assigned
+    // and never reused, deleteObservation makes the id gone for good, and any
+    // future resumeVoxelPoll call for a *different* id is unaffected. We still
+    // clear it in the few early-return/failure paths below where the
+    // observation was NOT actually cancelled and might still be alive (so a
+    // legitimate future poll for this id shouldn't be permanently blocked).
+    deletingObsIdsRef.current.add(dateId)
+    try {
+      const status = await cancelVoxelize(dateId)
+      console.log('[handleCancelVoxelForDate] cancelled — voxelStatus:', status.voxelStatus)
+      setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
+      const updatedDate = await fetchObservation(dateId)
+      if (activeSite) _patchVoxelDate(activeSite.id, dateId, updatedDate)
+      addToast('Voxel 작업이 취소되었습니다', 'ok')
+      // NOTE: deliberately not clearing deletingObsIdsRef here — see comment above.
+    } catch (e) {
+      console.error('[handleCancelVoxelForDate] FAILED:', e.message, e)
+      addToast(`Voxel 취소 실패: ${e.message}`, 'warn')
+      // The cancel itself failed, so the observation is presumably still
+      // alive and still voxelizing — don't leave it permanently blocked from
+      // being polled again.
+      deletingObsIdsRef.current.delete(dateId)
     }
   }
 
@@ -926,6 +1042,9 @@ export default function App() {
             site={activeSite}
             onUploaded={handleDataChanged}
             onCreated={handleDataChanged}
+            blockedDateInfo={blockedDateInfo}
+            voxelPollingIds={voxelPollingIds}
+            onCancelVoxel={handleCancelVoxelForDate}
           />
         </div>
       )}

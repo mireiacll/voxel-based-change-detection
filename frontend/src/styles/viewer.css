@@ -1416,3 +1416,25 @@ kbd {
   background: var(--accent-soft, rgba(77, 159, 255, 0.12));
   border-color: var(--accent, #4d9fff);
 }
+
+/* ── ProjectLauncher selected states ────────────────────────────
+   Add these rules to viewer.css alongside the existing .lcard and
+   .llist-row rules.
+   ─────────────────────────────────────────────────────────────── */
+
+.lcard-selected {
+  border-color: var(--accent) !important;
+  background: #0d1528 !important;
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 24px rgba(79,142,247,.15);
+}
+.lcard-selected .lcard-arrow {
+  color: var(--accent);
+  transform: none;
+}
+
+.llist-selected {
+  background: #0d1528 !important;
+  border-color: var(--accent) !important;
+}
+.llist-selected .llist-arrow { color: var(--accent); }
+.llist-dot-selected { background: var(--accent) !important; }

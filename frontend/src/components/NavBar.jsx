@@ -53,7 +53,7 @@ export default function NavBar({ tab, onTab, activeSite }) {
         <button
           className={`nav-tab${tab === 'analysis' ? ' active' : ''}`}
           onClick={() => onTab('analysis')}
-          disabled={!activeSite}
+          disabled={!activeSite || (activeSite.dates?.length ?? 0) === 0}
         >
           변화탐지
         </button>

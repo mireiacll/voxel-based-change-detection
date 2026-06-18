@@ -4,11 +4,19 @@
  * Props
  * -----
  *   sites         — array from fetchProjects() + enrichProjectWithDates()
- *   onSelect      — (site) => void
+ *   onSelect      — ({ site, initialTab }) => void
+ *                     initialTab is 'upload' when the site has no observations,
+ *                     undefined otherwise (caller uses its own default)
  *   onNewProject  — () => void
  *   onSiteEdited  — () => void
  *   onSiteDeleted — (siteId) => void
  *   loading       — bool
+ *
+ * Interaction model
+ * -----------------
+ *   First click  → selects the card (highlighted, stays on launcher)
+ *   Second click → opens the project
+ *   Clicking a different card → selects that one instead
  */
 
 import { useState } from 'react'
@@ -17,6 +25,19 @@ import { updateProject, deleteProject } from '../api'
 export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteEdited, onSiteDeleted, loading }) {
   const recent  = sites.slice(0, 3)
   const theRest = sites.slice(3)
+
+  const [selectedId, setSelectedId] = useState(null)
+
+  function handleCardClick(site) {
+    if (selectedId === site.id) {
+      // second click → open
+      const initialTab = (site.dates?.length ?? 0) === 0 ? 'upload' : undefined
+      onSelect({ site, initialTab })
+    } else {
+      // first click → select
+      setSelectedId(site.id)
+    }
+  }
 
   return (
     <div className="launcher-overlay">
@@ -33,7 +54,11 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
           </div>
           <div>
             <h1 className="launcher-title">3D Change Detection</h1>
-            <p className="launcher-sub">Select a project to open</p>
+            <p className="launcher-sub">
+              {selectedId
+                ? 'Click again to open — or select a different project'
+                : 'Select a project to open'}
+            </p>
           </div>
         </div>
 
@@ -45,7 +70,8 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
                 <SiteCard
                   key={site.id}
                   site={site}
-                  onSelect={onSelect}
+                  selected={selectedId === site.id}
+                  onClick={handleCardClick}
                   onEdited={onSiteEdited}
                   onDeleted={onSiteDeleted}
                 />
@@ -64,7 +90,8 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
                 <SiteListRow
                   key={site.id}
                   site={site}
-                  onSelect={onSelect}
+                  selected={selectedId === site.id}
+                  onClick={handleCardClick}
                   onEdited={onSiteEdited}
                   onDeleted={onSiteDeleted}
                 />
@@ -200,7 +227,7 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
 }
 
 // ── Site card (hero) ───────────────────────────────────────────────────────
-function SiteCard({ site, onSelect, onEdited, onDeleted }) {
+function SiteCard({ site, selected, onClick, onEdited, onDeleted }) {
   const [menuOpen,   setMenuOpen]   = useState(false)
   const [showEdit,   setShowEdit]   = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -211,12 +238,12 @@ function SiteCard({ site, onSelect, onEdited, onDeleted }) {
   return (
     <>
       <div
-        className="lcard"
-        onClick={() => !menuOpen && onSelect(site)}
+        className={`lcard${selected ? ' lcard-selected' : ''}`}
+        onClick={() => !menuOpen && onClick(site)}
         role="button"
         tabIndex={0}
         onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') onSelect(site)
+          if (e.key === 'Enter' || e.key === ' ') onClick(site)
         }}
       >
         <div className="lcard-bg" aria-hidden />
@@ -254,7 +281,10 @@ function SiteCard({ site, onSelect, onEdited, onDeleted }) {
             )}
           </div>
         </div>
-        <div className="lcard-arrow">→</div>
+
+        <div className="lcard-arrow">
+          {selected ? '↵' : '→'}
+        </div>
       </div>
 
       {showEdit && (
@@ -291,7 +321,7 @@ function NewProjectCard({ onNewProject }) {
 }
 
 // ── Compact list row ───────────────────────────────────────────────────────
-function SiteListRow({ site, onSelect, onEdited, onDeleted }) {
+function SiteListRow({ site, selected, onClick, onEdited, onDeleted }) {
   const [menuOpen,   setMenuOpen]   = useState(false)
   const [showEdit,   setShowEdit]   = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -301,11 +331,14 @@ function SiteListRow({ site, onSelect, onEdited, onDeleted }) {
   return (
     <>
       <div className="llist-row-wrap">
-        <button className="llist-row" onClick={() => onSelect(site)}>
-          <div className="llist-dot" />
+        <button
+          className={`llist-row${selected ? ' llist-selected' : ''}`}
+          onClick={() => onClick(site)}
+        >
+          <div className={`llist-dot${selected ? ' llist-dot-selected' : ''}`} />
           <div className="llist-name">{site.name}</div>
           <div className="llist-meta">{dateCount} survey{dateCount !== 1 ? 's' : ''}</div>
-          <div className="llist-arrow">→</div>
+          <div className="llist-arrow">{selected ? '↵' : '→'}</div>
         </button>
 
         <div className="llist-menu-wrap">

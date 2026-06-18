@@ -287,7 +287,7 @@ export default function App() {
         const ids     = visibleIdsRef.current
         if (current) {
           handleToggleDateById(site, current, ids)
-        } else if (site.dates.length > 0) {
+        } else if (site.dates?.length > 0) {
           handleToggleDateById(site, site.dates[0], ids)
         }
         return
@@ -321,8 +321,8 @@ export default function App() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
-  function handleOpenProject(site) {
-    console.log('[handleOpenProject] site:', site.id, site.name, '— dates:', site.dates.length)
+  function handleOpenProject({ site, initialTab } = {}) {
+    console.log('[handleOpenProject] site:', site.id, site.name, '— dates:', site.dates?.length)
     clearAllLayers()
     clearPolygon()
     setMode('compare-api')
@@ -331,15 +331,15 @@ export default function App() {
     setDrawBanner(false)
     setVisibleDateIds(new Set())
     setActiveDate(null)
-    setApiDateIdA(site.dates[0]?.id ?? '')
-    setApiDateIdB(site.dates[1]?.id ?? site.dates[0]?.id ?? '')
+    setApiDateIdA(site.dates?.[0]?.id ?? '')
+    setApiDateIdB(site.dates?.[1]?.id ?? site.dates?.[0]?.id ?? '')
     setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
     setCompareApiVis({ ...DEFAULT_VIS })
     setTlVis({ ...DEFAULT_VIS })
     setActiveSite(site)
     window.currentSite = site
-    setNavTab('analysis')
+    setNavTab(initialTab ?? 'analysis')
     setDiffHistory(loadDiffHistory(site.id))
     setActiveDiffId(null)
     flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
@@ -348,7 +348,7 @@ export default function App() {
     // This is one request instead of N (one per observation with QUEUED/RUNNING status).
     fetchActiveJobs().then(activeJobs => {
       console.log('[handleOpenProject] active jobs:', activeJobs.map(j => `${j.id} ${j.jobType} targetId=${j.targetId} status=${j.status}`))
-      const obsIds = new Set(site.dates.map(d => String(d.id)))
+      const obsIds = new Set((site.dates ?? []).map(d => String(d.id)))
       activeJobs
         .filter(j => j.jobType === 'VOXEL_CREATE' && obsIds.has(String(j.targetId)))
         .forEach(j => {
@@ -364,7 +364,7 @@ export default function App() {
     setSites(updated)
     addToast(`프로젝트 "${newSite.name}" 생성됨`, 'ok')
     const full = updated.find(s => s.id === newSite.id)
-    if (full) handleOpenProject(full)
+    if (full) handleOpenProject({ site: full, initialTab: 'upload' })
   }
 
   async function handleDataChanged() {

@@ -274,7 +274,7 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
 // ── Single-date row ───────────────────────────────────────────────────────
 
 function DateRow({
-  site, date, onUploaded, onDeleted, onSiteUpdated, blockReason,
+  site, date, onUploaded, onDeleted, blockReason,
   voxelRunning, onCancelVoxel,
   voxelPollingIds, computingId, onComputeVoxel,
   activePreview, onPreview,
@@ -286,10 +286,8 @@ function DateRow({
   const [editSaving,      setEditSaving]      = useState(false)
   const [editProgress,    setEditProgress]    = useState('')
 
-  const [settingPos,  setSettingPos]  = useState(false)
-
-  // Read which date the coordinates came from (stored in localStorage)
-  const centerFromDateId = localStorage.getItem(`center-from-date-${site.id}`)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting,      setDeleting]      = useState(false)
 
   function cancelEdit() {
     setEditing(false)
@@ -298,9 +296,6 @@ function DateRow({
     setEditError('')
     setEditProgress('')
   }
-
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting,      setDeleting]      = useState(false)
 
   const hasData = !!date.datasetPath
 
@@ -381,20 +376,6 @@ function DateRow({
                 onCompute={onComputeVoxel}
               />
 
-              {/* ── Select as location button — uses this date's tileset ── */}
-              <button
-                className={`dup-icon-btn dup-setpos-btn${centerFromDateId === date.id ? ' dup-setpos-btn-set' : ' dup-setpos-btn-unset'}`}
-                onClick={() => setSettingPos(true)}
-                disabled={!date.originalTilesetUrl || centerFromDateId === date.id}
-                title={!date.originalTilesetUrl
-                  ? '데이터 업로드 후 사용 가능'
-                  : centerFromDateId === date.id
-                  ? '이 날짜의 위치가 현재 설정되어 있습니다'
-                  : '위치로 지정'}
-              >
-                {centerFromDateId === date.id ? '✓ 위치 설정됨' : '📍 위치로 지정'}
-              </button>
-
               {blockReason ? (
                 <>
                   <button className="dup-icon-btn dup-icon-edit" disabled title={blockReason}>✎</button>
@@ -432,16 +413,6 @@ function DateRow({
           )}
         </div>
       </div>
-
-      {/* ── Set location modal (floating, independent of row layout) ── */}
-      {settingPos && (
-        <SetLocationModal
-          site={site}
-          date={date}
-          onSaved={() => { setSettingPos(false); onSiteUpdated?.() }}
-          onClose={() => setSettingPos(false)}
-        />
-      )}
 
       {/* ── Edit panel (expands below header) ── */}
       {editing && (
@@ -694,11 +665,17 @@ function NewDateCard({ site, onCreated }) {
 // Cesium.Viewer needs a real sized element — we init lazily on first preview
 // click so the div has had at least one paint cycle to get its dimensions.
 
-function MiniCesiumPreview({ preview, date }) {
+function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
   const containerRef  = useRef(null)
   const miniViewerRef = useRef(null)
   const tilesetRef    = useRef(null)
   const initDoneRef   = useRef(false)
+  const [coords, setCoords] = useState(null) // { lon, lat } of the currently previewed tileset's center
+  const [settingPos, setSettingPos] = useState(false)
+
+  // Read which date the project's current coordinates came from (stored in localStorage)
+  const centerFromDateId = site ? localStorage.getItem(`center-from-date-${site.id}`) : null
+  const posAlreadySet    = !!date && centerFromDateId === date.id
 
   // Destroy on unmount
   useEffect(() => {
@@ -753,10 +730,14 @@ function MiniCesiumPreview({ preview, date }) {
 
   // Load tileset whenever preview changes
   useEffect(() => {
-    if (!preview || !date) return
+    if (!preview || !date) { setCoords(null); return }
 
     const Cesium = window.Cesium
     if (!Cesium) return
+
+    // Clear the previous tileset's coords immediately so stale numbers
+    // don't linger on screen while the new one loads.
+    setCoords(null)
 
     // Use rAF so the container's display:block has taken effect and has real dimensions
     const raf = requestAnimationFrame(() => {
@@ -846,6 +827,7 @@ function MiniCesiumPreview({ preview, date }) {
           // PC/mesh footprint on the ground.
           const cameraSourceUrl = (isVox && date.originalTilesetUrl) ? date.originalTilesetUrl : url
           const { lon, lat } = await fetchTilesetCenter(cameraSourceUrl)
+          if (!cancelled) setCoords({ lon, lat })
 
           // Debug: print where the camera is actually flying, alongside the
           // tileset's own bounding-sphere geodetic position for comparison.
@@ -920,7 +902,36 @@ function MiniCesiumPreview({ preview, date }) {
               : date?.datasetType === 'mesh' ? '3D Mesh'
               : 'Point Cloud'}
           </span>
+          {coords && (
+            <span className="dup-preview-coords" title="타일셋 중심 좌표 (경도, 위도)">
+              📍 {coords.lon.toFixed(5)}, {coords.lat.toFixed(5)}
+            </span>
+          )}
+          {date && (
+            <button
+              className={`dup-preview-setpos-btn${posAlreadySet ? ' dup-preview-setpos-btn-set' : ''}`}
+              onClick={() => setSettingPos(true)}
+              disabled={!date.originalTilesetUrl || posAlreadySet}
+              title={!date.originalTilesetUrl
+                ? '데이터 업로드 후 사용 가능'
+                : posAlreadySet
+                ? '이 날짜의 위치가 현재 설정되어 있습니다'
+                : '이 좌표를 프로젝트 위치로 지정'}
+            >
+              {posAlreadySet ? '✓ 위치 설정됨' : '위치로 지정'}
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Set location modal — confirms saving this date's tileset center as the project's coords */}
+      {settingPos && site && date && (
+        <SetLocationModal
+          site={site}
+          date={date}
+          onSaved={() => { setSettingPos(false); onSiteUpdated?.() }}
+          onClose={() => setSettingPos(false)}
+        />
       )}
 
       {/* Cesium container — always in DOM, sized only when preview is active */}
@@ -999,7 +1010,7 @@ export default function DataUploadPage({
           <div className="dup-nocoords-banner">
             <span>⚠️</span>
             <span>
-              위치가 설정되지 않았습니다. 날짜 행의 <strong>위치로 지정</strong> 버튼을 눌러 설정하세요.
+              위치가 설정되지 않았습니다. PC 또는 VOX로 미리보기를 연 다음 <strong>위치로 지정</strong> 버튼을 눌러 설정하세요.
             </span>
           </div>
         )}
@@ -1016,7 +1027,6 @@ export default function DataUploadPage({
                   date={d}
                   onUploaded={onUploaded}
                   onDeleted={onCreated}
-                  onSiteUpdated={onSiteUpdated}
                   blockReason={blockedDateInfo?.get(d.id) ?? null}
                   voxelRunning={voxelPollingIds?.has(d.id) ?? false}
                   onCancelVoxel={onCancelVoxel}
@@ -1034,7 +1044,7 @@ export default function DataUploadPage({
           <div className="dup-preview-col">
             <div className="dup-preview-pane">
               <div className="dup-preview-pane-label">미리보기</div>
-              <MiniCesiumPreview preview={activePreview} date={previewDate} />
+              <MiniCesiumPreview preview={activePreview} date={previewDate} site={site} onSiteUpdated={onSiteUpdated} />
             </div>
           </div>
 

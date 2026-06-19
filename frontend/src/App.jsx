@@ -1072,7 +1072,6 @@ export default function App() {
           <Panel
             activeSite={activeSite}
             visibleDateIds={visibleDateIds} onToggleDate={handleToggleDate}
-            onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
             pcSize={pcSize}                 onPcSize={setPcSize}
             showPcSlider={showPcSlider}
             voxelPollingIds={voxelPollingIds}
@@ -1112,6 +1111,7 @@ export default function App() {
           <MapOverlayControls
             basemap={basemap}           onBasemap={setBasemapState}
             showTerrain={showTerrain}   onShowTerrain={setShowTerrain}
+            onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
           />
 
           <BottomBar

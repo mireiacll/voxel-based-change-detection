@@ -6,9 +6,10 @@
  *   2. Analysis mode
  *   3. Survey dates  (date toggle list with PC | VOX layer pill)
  *   4. Point size    (point cloud only)
- *   5. Camera
  *
  * Voxel status & compute are now in DataUploadPage, not here.
+ * Camera controls now live in MapOverlayControls (top-right floating
+ * cluster), not here.
  *
  * Site shape (coworker API, normalised in api.js):
  *   site.name          — display name
@@ -89,7 +90,6 @@ const ANALYSIS_MODES = [
 export default function Panel({
   activeSite,
   visibleDateIds, onToggleDate,
-  onCameraSite, onCameraTop,
   pcSize, onPcSize, showPcSlider,
   voxelPollingIds,  // Set<dateId> — dates currently being voxelized
   onLayerMode,      // (dateId, 'pc' | 'vox') → void
@@ -248,15 +248,6 @@ export default function Panel({
           onLoad={onLoadDiff}
           onDelete={onDeleteDiff}
         />
-      </div>
-
-      {/* ── Camera ── */}
-      <div className="p-section">
-        <div className="p-label">Camera</div>
-        <div className="btn-row">
-          <button className="pbtn" onClick={onCameraSite}>↗ 현장</button>
-          <button className="pbtn" onClick={onCameraTop}>↓ 수직</button>
-        </div>
       </div>
 
     </aside>

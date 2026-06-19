@@ -889,6 +889,16 @@ select {
 .moc-pc-size input[type=range] { width: 80px; }
 .moc-pc-val { font-size: 10px; color: var(--muted); width: 20px; font-family: var(--mono); }
 
+/* ── Camera widget ───────────────────────────────────────────── */
+.moc-camera {
+  display: flex; flex-direction: row;
+  background: rgba(12,14,22,.88);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
 /* ── Zoom widget ─────────────────────────────────────────────── */
 .moc-zoom {
   display: flex; flex-direction: row;

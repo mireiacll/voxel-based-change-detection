@@ -227,15 +227,18 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
 
   return (
     <div className="modal-backdrop" onClick={handleBackdrop}>
-      <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
+      <div className="modal-box modal-box-sm dup-setpos-box" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">위치로 지정</span>
+          <span className="modal-title">📍 위치로 지정</span>
           <button className="modal-close" onClick={onClose} disabled={phase === 'saving'}>✕</button>
         </div>
 
         <div className="modal-body">
           {phase === 'loading' && (
-            <div className="dup-setpos-loading">좌표 읽는 중…</div>
+            <div className="dup-setpos-loading">
+              <span className="dup-setpos-spinner" />
+              좌표 읽는 중…
+            </div>
           )}
 
           {phase === 'error' && (
@@ -247,9 +250,17 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
               <p className="dup-setpos-question">
                 이 좌표를 프로젝트 위치로 지정할까요?
               </p>
-              <div className="dup-setpos-preview">
-                {coords.lon.toFixed(5)}, {coords.lat.toFixed(5)}
+              <div className="dup-setpos-coordgrid">
+                <div className="dup-setpos-coordrow">
+                  <span className="dup-setpos-coordlabel">경도 (Lon)</span>
+                  <span className="dup-setpos-coordval">{coords.lon.toFixed(5)}</span>
+                </div>
+                <div className="dup-setpos-coordrow">
+                  <span className="dup-setpos-coordlabel">위도 (Lat)</span>
+                  <span className="dup-setpos-coordval">{coords.lat.toFixed(5)}</span>
+                </div>
               </div>
+              {error && <div className="modal-error">{error}</div>}
             </div>
           )}
         </div>
@@ -264,6 +275,111 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
             disabled={phase !== 'confirm' && phase !== 'saving'}
           >
             {phase === 'saving' ? '저장 중…' : '지정'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Manual location modal — type in lon/lat directly ─────────────────────
+// Alternative to SetLocationModal for when the desired coordinates don't
+// come from any uploaded tileset. Saving here clears the
+// `center-from-date-${site.id}` flag, since the coordinates no longer
+// originate from a specific date's data — this re-enables the "위치로 지정"
+// button on every date row/preview (none of them is "already set" anymore).
+
+function ManualLocationModal({ site, onSaved, onClose }) {
+  const [lon,     setLon]     = useState(site.centerLon != null ? String(parseFloat(site.centerLon.toFixed(5))) : '')
+  const [lat,     setLat]     = useState(site.centerLat != null ? String(parseFloat(site.centerLat.toFixed(5))) : '')
+  const [error,   setError]   = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  function parseCoord(value, min, max) {
+    const n = parseFloat(value)
+    if (Number.isNaN(n)) return null
+    if (n < min || n > max) return null
+    return n
+  }
+
+  async function handleSave() {
+    const lonNum = parseCoord(lon, -180, 180)
+    const latNum = parseCoord(lat, -90, 90)
+    if (lonNum === null) return setError('경도는 -180 ~ 180 사이의 숫자여야 합니다.')
+    if (latNum === null) return setError('위도는 -90 ~ 90 사이의 숫자여야 합니다.')
+
+    setSaving(true)
+    setError('')
+    try {
+      await updateProject(site.id, {
+        name:         site.name,
+        description:  site.description ?? '',
+        centerLon:    lonNum,
+        centerLat:    latNum,
+        cameraHeight: site.cameraHeight ?? 600,
+        status:       site.status ?? 'ACTIVE',
+      })
+      // These coordinates didn't come from any date's tileset — clear the
+      // flag so every date's "위치로 지정" button becomes available again.
+      localStorage.removeItem(`center-from-date-${site.id}`)
+      onSaved()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget && !saving) onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={handleBackdrop}>
+      <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">✎ 좌표 직접 입력</span>
+          <button className="modal-close" onClick={onClose} disabled={saving}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="dup-manual-coords-row">
+            <div className="modal-field">
+              <label>경도 (Lon)</label>
+              <input
+                type="number"
+                step="any"
+                value={lon}
+                onChange={e => { setLon(e.target.value); setError('') }}
+                placeholder="예) 127.12345"
+                disabled={saving}
+                autoFocus
+              />
+            </div>
+            <div className="modal-field">
+              <label>위도 (Lat)</label>
+              <input
+                type="number"
+                step="any"
+                value={lat}
+                onChange={e => { setLat(e.target.value); setError('') }}
+                placeholder="예) 36.78901"
+                disabled={saving}
+              />
+            </div>
+          </div>
+          <div className="modal-hint">
+            데이터셋의 위치와 무관하게 프로젝트 위치를 직접 지정합니다.
+          </div>
+          {error && <div className="modal-error">{error}</div>}
+        </div>
+
+        <div className="modal-footer">
+          <button className="modal-btn-secondary" onClick={onClose} disabled={saving}>
+            취소
+          </button>
+          <button className="modal-btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '저장 중…' : '저장'}
           </button>
         </div>
       </div>
@@ -963,6 +1079,7 @@ export default function DataUploadPage({
   const hasDates  = (site.dates?.length ?? 0) > 0
 
   const [activePreview, setActivePreview] = useState(null)  // { dateId, layer } | null
+  const [manualPos, setManualPos] = useState(false)
 
   function handlePreview(date, layer) {
     // Clicking the already-active button toggles it off
@@ -996,6 +1113,9 @@ export default function DataUploadPage({
           <div className="dup-coords-info">
             <span className="dup-coords-label">프로젝트 위치:</span>
             <span className="dup-coords-value">{site.centerLon.toFixed(5)}, {site.centerLat.toFixed(5)}</span>
+            <button className="dup-manual-coords-btn" onClick={() => setManualPos(true)}>
+              ✎ 좌표 직접 입력
+            </button>
           </div>
         )}
 
@@ -1010,7 +1130,11 @@ export default function DataUploadPage({
           <div className="dup-nocoords-banner">
             <span>⚠️</span>
             <span>
-              위치가 설정되지 않았습니다. PC 또는 VOX로 미리보기를 연 다음 <strong>위치로 지정</strong> 버튼을 눌러 설정하세요.
+              위치가 설정되지 않았습니다. PC 또는 VOX로 미리보기를 연 다음 <strong>위치로 지정</strong> 버튼을 눌러 설정하거나,{' '}
+              <button className="dup-manual-coords-btn dup-manual-coords-btn-inline" onClick={() => setManualPos(true)}>
+                ✎ 좌표 직접 입력
+              </button>
+              {' '}으로 설정하세요.
             </span>
           </div>
         )}
@@ -1049,6 +1173,14 @@ export default function DataUploadPage({
           </div>
 
         </div>
+
+        {manualPos && (
+          <ManualLocationModal
+            site={site}
+            onSaved={() => { setManualPos(false); onSiteUpdated?.() }}
+            onClose={() => setManualPos(false)}
+          />
+        )}
       </div>
     </div>
   )

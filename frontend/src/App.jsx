@@ -415,7 +415,13 @@ export default function App() {
     setSites(updated)
     if (activeSite) {
       const updatedSite = updated.find(s => s.id === activeSite.id)
-      if (updatedSite) { setActiveSite(updatedSite); window.currentSite = updatedSite }
+      if (updatedSite) {
+        setActiveSite(updatedSite)
+        window.currentSite = updatedSite
+        if (updatedSite.centerLon != null && updatedSite.centerLat != null) {
+          flyTo(updatedSite.centerLon, updatedSite.centerLat - 0.006, updatedSite.cameraHeight)
+        }
+      }
     }
     addToast('프로젝트 정보가 업데이트되었습니다', 'ok')
   }

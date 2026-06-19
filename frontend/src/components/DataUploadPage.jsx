@@ -24,7 +24,7 @@
  *   computingId     — dateId | null
  */
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   uploadObservation,
   updateObservation,
@@ -54,6 +54,60 @@ function DatasetTypeBadge({ type }) {
   if (type === 'mesh')
     return <span className="dup-badge dup-badge-mesh">3D Mesh</span>
   return <span className="dup-badge dup-badge-pc">Point Cloud</span>
+}
+
+/**
+ * Clickable PC/VOX preview trigger pills shown in each date row.
+ * PC/Mesh is always clickable if data exists.
+ * VOX is clickable only when voxelStatus === 'SUCCEEDED'.
+ * While voxel is computing → disabled with spinner label.
+ * On other non-ready statuses → disabled, greyed out.
+ */
+function PreviewTrigger({ date, activePreview, onPreview }) {
+  const hasData  = !!date.datasetPath
+  const hasVoxel = !!date.voxelTilesetUrl && date.voxelStatus === 'SUCCEEDED'
+  const voxBusy  = date.voxelStatus === 'QUEUED' || date.voxelStatus === 'RUNNING'
+
+  const pcActive  = activePreview?.dateId === date.id && activePreview?.layer === 'pc'
+  const voxActive = activePreview?.dateId === date.id && activePreview?.layer === 'vox'
+
+  return (
+    <div className="dup-preview-trigger">
+      {hasData ? (
+        <button
+          className={`dup-ptrig-btn dup-ptrig-pc${pcActive ? ' dup-ptrig-active' : ''}`}
+          onClick={e => { e.stopPropagation(); onPreview(date, 'pc') }}
+          title={`${date.datasetType === 'mesh' ? '3D Mesh' : 'Point Cloud'} 미리보기`}
+        >
+          {date.datasetType === 'mesh' ? '◈ Mesh' : '☁ PC'}
+        </button>
+      ) : (
+        <span className="dup-badge dup-badge-none">미업로드</span>
+      )}
+
+      {voxBusy ? (
+        <button className="dup-ptrig-btn dup-ptrig-vox dup-ptrig-vox-busy" disabled title="Voxel 생성 중…">
+          ⏳ VOX
+        </button>
+      ) : hasVoxel ? (
+        <button
+          className={`dup-ptrig-btn dup-ptrig-vox${voxActive ? ' dup-ptrig-active' : ''}`}
+          onClick={e => { e.stopPropagation(); onPreview(date, 'vox') }}
+          title="Voxel 미리보기"
+        >
+          ⬡ VOX
+        </button>
+      ) : date.datasetPath && date.voxelStatus && date.voxelStatus !== 'NONE' ? (
+        <button
+          className="dup-ptrig-btn dup-ptrig-vox dup-ptrig-vox-na"
+          disabled
+          title={`Voxel 상태: ${date.voxelStatus} — 아직 사용 불가`}
+        >
+          ⬡ VOX
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 function VoxelStatusBadge({ date, isBusy, canTrigger, onCompute }) {
@@ -223,6 +277,7 @@ function DateRow({
   site, date, onUploaded, onDeleted, onSiteUpdated, blockReason,
   voxelRunning, onCancelVoxel,
   voxelPollingIds, computingId, onComputeVoxel,
+  activePreview, onPreview,
 }) {
   const [editing,         setEditing]         = useState(false)
   const [editObservedAt,  setEditObservedAt]  = useState(date.observedAt ?? '')
@@ -313,7 +368,11 @@ function DateRow({
         <div className="dup-date-actions" onClick={e => e.stopPropagation()}>
           {!editing && !confirmDelete && (
             <>
-              <DatasetTypeBadge type={date.datasetType} />
+              <PreviewTrigger
+                date={date}
+                activePreview={activePreview}
+                onPreview={onPreview}
+              />
 
               <VoxelStatusBadge
                 date={date}
@@ -625,6 +684,255 @@ function NewDateCard({ site, onCreated }) {
   )
 }
 
+// ── Mini Cesium preview pane ──────────────────────────────────────────────
+//
+// Creates its own Cesium.Viewer in a div inside the preview pane.
+// Uses window.Cesium (set by cesiumInit.js) and window.customTerrain.
+// Completely independent from the main window.viewer.
+//
+// IMPORTANT: The container div is ALWAYS in the DOM (even in empty state).
+// Cesium.Viewer needs a real sized element — we init lazily on first preview
+// click so the div has had at least one paint cycle to get its dimensions.
+
+function MiniCesiumPreview({ preview, date }) {
+  const containerRef  = useRef(null)
+  const miniViewerRef = useRef(null)
+  const tilesetRef    = useRef(null)
+  const initDoneRef   = useRef(false)
+
+  // Destroy on unmount
+  useEffect(() => {
+    return () => {
+      if (tilesetRef.current) {
+        try { miniViewerRef.current?.scene.primitives.remove(tilesetRef.current) } catch (_) {}
+        tilesetRef.current = null
+      }
+      if (miniViewerRef.current && !miniViewerRef.current.isDestroyed()) {
+        try { miniViewerRef.current.destroy() } catch (_) {}
+        miniViewerRef.current = null
+      }
+    }
+  }, [])
+
+  function ensureViewer() {
+    if (initDoneRef.current) return miniViewerRef.current
+    const Cesium = window.Cesium
+    const el     = containerRef.current
+    if (!Cesium || !el) return null
+
+    initDoneRef.current = true
+    try {
+      const v = new Cesium.Viewer(el, {
+        terrainProvider:         window.customTerrain ?? new Cesium.EllipsoidTerrainProvider(),
+        animation:               false,
+        baseLayerPicker:         false,
+        fullscreenButton:        false,
+        geocoder:                false,
+        homeButton:              false,
+        infoBox:                 false,
+        navigationHelpButton:    false,
+        sceneModePicker:         false,
+        selectionIndicator:      false,
+        timeline:                false,
+        requestRenderMode:       true,
+        maximumRenderTimeChange: Infinity,
+        msaaSamples:             4,
+      })
+      v.scene.globe.enableLighting          = true
+      v.scene.globe.depthTestAgainstTerrain = true
+      v.scene.globe.showGroundAtmosphere    = true
+      v.scene.backgroundColor = Cesium.Color.fromCssColorString('#07070d')
+      v.scene.highDynamicRange = false
+      miniViewerRef.current = v
+      return v
+    } catch (e) {
+      console.warn('[MiniCesiumPreview] init failed:', e)
+      return null
+    }
+  }
+
+  // Load tileset whenever preview changes
+  useEffect(() => {
+    if (!preview || !date) return
+
+    const Cesium = window.Cesium
+    if (!Cesium) return
+
+    // Use rAF so the container's display:block has taken effect and has real dimensions
+    const raf = requestAnimationFrame(() => {
+      // Init viewer lazily — container is guaranteed visible now
+      const v = ensureViewer()
+      if (!v || v.isDestroyed()) return
+
+      // Force Cesium to re-measure the canvas after display change
+      try { v.resize() } catch (_) {}
+
+      // Clear previous tileset
+      if (tilesetRef.current) {
+        try { v.scene.primitives.remove(tilesetRef.current) } catch (_) {}
+        tilesetRef.current = null
+      }
+
+      const isVox  = preview.layer === 'vox'
+      const url    = isVox ? date.voxelTilesetUrl : date.originalTilesetUrl
+      // Voxel tilesets are mesh-format 3D Tiles and need the same modelMatrix
+      // ground-plane correction as regular mesh datasets (mirrors _loadTileset in layers.js).
+      const needsModelMatrix = isVox || date.datasetType === 'mesh'
+      if (!url) return
+
+      let cancelled = false
+      ;(async () => {
+        try {
+          const ts = await Cesium.Cesium3DTileset.fromUrl(url, {
+            maximumScreenSpaceError: needsModelMatrix ? 8 : 2,
+          })
+          if (cancelled || v.isDestroyed()) { try { ts.destroy() } catch (_) {}; return }
+
+          v.scene.primitives.add(ts)
+          ts.show = true
+
+          // Point cloud shading for PC datasets
+          if (!needsModelMatrix) {
+            ts.pointCloudShading.attenuation        = true
+            ts.pointCloudShading.maximumAttenuation = 1.0
+          }
+
+          // Mirror the same modelMatrix correction used in _loadTileset (layers.js):
+          // translates the tileset so its bounding-sphere center sits at the correct
+          // geodetic position on the ellipsoid.
+          if (needsModelMatrix) {
+            const c  = ts.boundingSphere.center
+            const ca = Cesium.Cartographic.fromCartesian(c)
+            const o  = Cesium.Cartesian3.fromRadians(ca.longitude, ca.latitude, ca.height)
+            ts.modelMatrix = Cesium.Matrix4.fromTranslation(
+              Cesium.Cartesian3.subtract(o, c, new Cesium.Cartesian3())
+            )
+
+            // PBR lighting pass for mesh/voxel tiles in the preview window.
+            // Adds a simple Lambertian-ish term on top of Cesium's PBR pipeline
+            // so meshes/voxels don't look flat under the preview's lighting.
+            ts.customShader = new Cesium.CustomShader({
+              lightingModel: Cesium.LightingModel.PBR,
+              fragmentShaderText: `
+                void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+                  vec3 normalWC = fsInput.attributes.normalWC;
+                  vec3 lightDirWC = normalize(vec3(0.35, 0.55, 0.75));
+                  float ndotl = clamp(dot(normalWC, lightDirWC), 0.0, 1.0);
+                  float wrapped = ndotl * 0.5 + 0.5; // soft wraparound so shadow side isn't pitch black
+                  material.diffuse *= mix(0.55, 1.15, wrapped);
+                  material.specular = vec3(0.04);
+                  material.roughness = clamp(material.roughness, 0.35, 1.0);
+                }
+              `,
+            })
+          }
+
+          tilesetRef.current = ts
+
+          // Read camera position from the tileset that has a TRUSTWORTHY region.
+          // Originally this always read date.originalTilesetUrl (the PC tileset), even
+          // when previewing a mesh — that part of the original bug is fixed by reading
+          // from `url` (whatever was actually loaded into `ts`) for PC and mesh previews.
+          //
+          // Voxel tileset.json files are the exception: their root region has been
+          // observed to be a placeholder/degenerate value (e.g. lon 126 / lat 36 —
+          // suspiciously round numbers nowhere near the actual site, producing a
+          // bounding-sphere height in the hundreds-of-km range). That's a backend
+          // generation issue, not something to fix from camera code. So for voxel
+          // previews specifically, borrow the camera center from the same
+          // observation's original PC/mesh tileset instead of trusting the voxel's
+          // own (unreliable) region — this matches the voxel's own modelMatrix
+          // correction above, which already aligns the voxel geometry with the
+          // PC/mesh footprint on the ground.
+          const cameraSourceUrl = (isVox && date.originalTilesetUrl) ? date.originalTilesetUrl : url
+          const { lon, lat } = await fetchTilesetCenter(cameraSourceUrl)
+
+          // Debug: print where the camera is actually flying, alongside the
+          // tileset's own bounding-sphere geodetic position for comparison.
+          const bsCarto = Cesium.Cartographic.fromCartesian(ts.boundingSphere.center)
+          console.log('[MiniCesiumPreview] camera flyTo destination —', {
+            url,
+            cameraSourceUrl,
+            datasetType: date.datasetType,
+            layer: preview.layer,
+            tilesetCenter_lon: lon,
+            tilesetCenter_lat: lat,
+            cameraDestination_lon: lon,
+            cameraDestination_lat: lat - 0.006,
+            cameraDestination_height: 600,
+            boundingSphere_lon: Cesium.Math.toDegrees(bsCarto.longitude),
+            boundingSphere_lat: Cesium.Math.toDegrees(bsCarto.latitude),
+            boundingSphere_height: bsCarto.height,
+          })
+
+          v.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.006, 600),
+            orientation: { heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0 },
+            duration: 1.2,
+          })
+
+          ts.allTilesLoaded.addEventListener(() => {
+            if (!v.isDestroyed()) v.scene.requestRender()
+          })
+          v.scene.requestRender()
+        } catch (e) {
+          if (!cancelled) console.warn('[MiniCesiumPreview] load failed:', url, e)
+        }
+      })()
+
+      // Store cancel fn on ref so the cleanup below can reach it
+      tilesetRef._cancelLoad = () => { cancelled = true }
+    })
+
+    return () => {
+      cancelAnimationFrame(raf)
+      if (tilesetRef._cancelLoad) { tilesetRef._cancelLoad(); tilesetRef._cancelLoad = null }
+    }
+  }, [preview?.dateId, preview?.layer])
+
+  // Always render the container div so Cesium has a real DOM node to attach to.
+  // Show/hide via CSS only — never unmount.
+  return (
+    <>
+      {/* Empty state — shown when no preview is active */}
+      {!preview && (
+        <div className="dup-preview-empty">
+          <div className="dup-preview-empty-icon">◈</div>
+          <div className="dup-preview-empty-text">
+            날짜의 <strong>PC</strong> 또는 <strong>VOX</strong> 버튼을<br/>
+            눌러 여기서 미리보기
+          </div>
+        </div>
+      )}
+
+      {/* Meta row — shown only when a preview is selected */}
+      {preview && (
+        <div className="dup-preview-viewer-meta">
+          <span className="dup-preview-date">
+            {date ? (isoToLabel(date.observedAt) || date.label) : '—'}
+          </span>
+          <span className={`dup-preview-type-badge ${
+            preview.layer === 'vox' ? 'ptb-vox'
+            : date?.datasetType === 'mesh' ? 'ptb-mesh'
+            : 'ptb-pc'
+          }`}>
+            {preview.layer === 'vox' ? 'Voxel'
+              : date?.datasetType === 'mesh' ? '3D Mesh'
+              : 'Point Cloud'}
+          </span>
+        </div>
+      )}
+
+      {/* Cesium container — always in DOM, sized only when preview is active */}
+      <div
+        ref={containerRef}
+        className="dup-mini-cesium"
+        style={{ display: preview ? 'block' : 'none' }}
+      />
+    </>
+  )
+}
+
 // ── Page root ─────────────────────────────────────────────────────────────
 
 export default function DataUploadPage({
@@ -643,13 +951,28 @@ export default function DataUploadPage({
   const hasCoords = site.centerLat != null && site.centerLon != null
   const hasDates  = (site.dates?.length ?? 0) > 0
 
+  const [activePreview, setActivePreview] = useState(null)  // { dateId, layer } | null
+
+  function handlePreview(date, layer) {
+    // Clicking the already-active button toggles it off
+    if (activePreview?.dateId === date.id && activePreview?.layer === layer) {
+      setActivePreview(null)
+      return
+    }
+    setActivePreview({ dateId: date.id, layer })
+  }
+
+  const previewDate = activePreview
+    ? site.dates.find(d => d.id === activePreview.dateId)
+    : null
+
   return (
     <div className="dup-overlay">
-      <div className="dup-inner">
+      <div className="dup-inner dup-inner-wide">
 
         <div className="dup-header">
           <div>
-            <div className="dup-title">데이터 업로드</div>
+            <div className="dup-title">관측 데이터</div>
             <div className="dup-subtitle">{site.name ?? site.id}</div>
           </div>
           <div className="dup-hint">
@@ -665,7 +988,6 @@ export default function DataUploadPage({
           </div>
         )}
 
-        {/* ── No-dates hint (shown before any date exists) ── */}
         {!hasDates && (
           <div className="dup-nodates-banner">
             <span>➕</span>
@@ -673,7 +995,6 @@ export default function DataUploadPage({
           </div>
         )}
 
-        {/* ── No-coords banner (shown once at least one date exists) ── */}
         {hasDates && !hasCoords && (
           <div className="dup-nocoords-banner">
             <span>⚠️</span>
@@ -683,26 +1004,41 @@ export default function DataUploadPage({
           </div>
         )}
 
-        <div className="dup-list">
-          {site.dates.map(d => (
-            <DateRow
-              key={d.id}
-              site={site}
-              date={d}
-              onUploaded={onUploaded}
-              onDeleted={onCreated}
-              onSiteUpdated={onSiteUpdated}
-              blockReason={blockedDateInfo?.get(d.id) ?? null}
-              voxelRunning={voxelPollingIds?.has(d.id) ?? false}
-              onCancelVoxel={onCancelVoxel}
-              voxelPollingIds={voxelPollingIds}
-              computingId={computingId}
-              onComputeVoxel={onComputeVoxel}
-            />
-          ))}
-          <NewDateCard site={site} onCreated={onCreated} />
-        </div>
+        {/* ── Two-column body: list left, mini-viewer right ── */}
+        <div className="dup-body-cols">
 
+          <div className="dup-list-col">
+            <div className="dup-list">
+              {site.dates.map(d => (
+                <DateRow
+                  key={d.id}
+                  site={site}
+                  date={d}
+                  onUploaded={onUploaded}
+                  onDeleted={onCreated}
+                  onSiteUpdated={onSiteUpdated}
+                  blockReason={blockedDateInfo?.get(d.id) ?? null}
+                  voxelRunning={voxelPollingIds?.has(d.id) ?? false}
+                  onCancelVoxel={onCancelVoxel}
+                  voxelPollingIds={voxelPollingIds}
+                  computingId={computingId}
+                  onComputeVoxel={onComputeVoxel}
+                  activePreview={activePreview}
+                  onPreview={handlePreview}
+                />
+              ))}
+              <NewDateCard site={site} onCreated={onCreated} />
+            </div>
+          </div>
+
+          <div className="dup-preview-col">
+            <div className="dup-preview-pane">
+              <div className="dup-preview-pane-label">미리보기</div>
+              <MiniCesiumPreview preview={activePreview} date={previewDate} />
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   )

@@ -78,7 +78,7 @@ export default function NavBar({ tab, onTab, activeSite }) {
           onClick={() => onTab('upload')}
           disabled={!activeSite}
         >
-          데이터 업로드
+          관측 데이터
         </button>
 
         <button

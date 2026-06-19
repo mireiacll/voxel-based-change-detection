@@ -165,7 +165,7 @@ const _formatDate = formatDate
 
 /**
  * Fetch a 3D Tiles tileset.json and compute the center longitude/latitude
- * (in degrees) of its root bounding volume.
+ * (in degrees) of its content.
  *
  * Only supports the "region" bounding volume form:
  *   region: [west, south, east, north, minHeight, maxHeight]  (radians)
@@ -173,6 +173,18 @@ const _formatDate = formatDate
  * bounding volumes aren't handled — if encountered, this throws so the
  * caller can show a clear error instead of silently producing a wrong
  * coordinate.
+ *
+ * IMPORTANT: this does NOT just average the root node's region. On these
+ * tilesets the root region is padded/inflated relative to where the actual
+ * leaf content sits (observed ~0.001–0.0015° drift east/north on a real
+ * mesh tileset — root region center landed at 127.00852/36.91107 while the
+ * actual leaf-tile content centroid is 127.00691/36.91032, matching the
+ * sibling point-cloud's center much more closely). So instead this walks
+ * the tile tree, collects every LEAF tile's region (tiles with a `content`
+ * but no `children`, i.e. the tiles that actually point at real geometry),
+ * and computes the center of the tight bounding box around all of them.
+ * Falls back to the root region if no leaves are found (e.g. a single-tile
+ * tileset where root IS the only/leaf tile).
  *
  * @param {string} tilesetUrl  absolute URL to tileset.json (e.g. date.originalTilesetUrl)
  * @returns {Promise<{lon: number, lat: number}>}
@@ -184,17 +196,56 @@ export async function fetchTilesetCenter(tilesetUrl) {
   if (!res.ok) throw new Error(`tileset.json을 가져오지 못했습니다 (HTTP ${res.status})`)
   const json = await res.json()
 
-  const region = json?.root?.boundingVolume?.region
-  if (!Array.isArray(region) || region.length < 4) {
+  const rootRegion = json?.root?.boundingVolume?.region
+  if (!Array.isArray(rootRegion) || rootRegion.length < 4) {
     throw new Error('tileset.json에서 위치 정보(region)를 찾을 수 없습니다.')
   }
 
-  const [west, south, east, north] = region
+  // Walk the tree collecting every leaf's region (a tile with `content` and
+  // no `children` is an actual data-bearing leaf — these are tight boxes
+  // around real geometry, unlike intermediate/root nodes which can be
+  // padded for LOD purposes).
+  let leafWest = Infinity, leafSouth = Infinity
+  let leafEast = -Infinity, leafNorth = -Infinity
+  let leafCount = 0
+
+  function walk(node) {
+    if (!node) return
+    const children = node.children
+    const hasChildren = Array.isArray(children) && children.length > 0
+    if (!hasChildren && node.content) {
+      const r = node.boundingVolume?.region
+      if (Array.isArray(r) && r.length >= 4) {
+        const [w, s, e, n] = r
+        if (w < leafWest)  leafWest  = w
+        if (s < leafSouth) leafSouth = s
+        if (e > leafEast)  leafEast  = e
+        if (n > leafNorth) leafNorth = n
+        leafCount++
+      }
+    }
+    if (hasChildren) {
+      for (const c of children) walk(c)
+    }
+  }
+  walk(json.root)
+
+  let west, south, east, north, source
+  if (leafCount > 0) {
+    west = leafWest; south = leafSouth; east = leafEast; north = leafNorth
+    source = `leaf-bbox (${leafCount} leaves)`
+  } else {
+    // Fallback: no leaves found (shouldn't normally happen) — use root region.
+    ;[west, south, east, north] = rootRegion
+    source = 'root-region (fallback, no leaves found)'
+  }
+
   const lon = (west + east) / 2 * 180 / Math.PI
   const lat = (south + north) / 2 * 180 / Math.PI
-  console.log('[api.fetchTilesetCenter] computed center — lon:', lon, 'lat:', lat)
+  console.log('[api.fetchTilesetCenter] computed center — lon:', lon, 'lat:', lat, '| source:', source)
   return { lon, lat }
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────
 //  PROJECTS / SITES

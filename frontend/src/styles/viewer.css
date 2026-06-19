@@ -1116,6 +1116,97 @@ select {
 /* ── DataUploadPage ─────────────────────────────────────────── */
 .dup-overlay { min-height: 100%; padding: 32px 0; display: flex; justify-content: center; }
 .dup-inner { width: 100%; max-width: 680px; padding: 0 24px; }
+.dup-inner-wide { max-width: 1100px; }
+
+/* ── Two-column body: list + preview ── */
+.dup-body-cols {
+  display: flex; gap: 24px; align-items: flex-start;
+}
+.dup-list-col { flex: 0 0 520px; min-width: 0; }
+.dup-preview-col { flex: 1; min-width: 200px; position: sticky; top: 16px; }
+
+/* ── Preview pane wrapper ── */
+.dup-preview-pane {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surf2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dup-preview-pane-label {
+  font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  color: var(--muted); text-transform: uppercase;
+  padding: 9px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* ── Empty state ── */
+.dup-preview-empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px; padding: 40px 20px; text-align: center;
+  min-height: 260px;
+}
+.dup-preview-empty-icon  { font-size: 28px; color: var(--border2); line-height: 1; }
+.dup-preview-empty-text  { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.dup-preview-empty-text strong { color: var(--text); }
+
+/* ── Viewer + meta ── */
+.dup-preview-viewer-wrap { display: flex; flex-direction: column; }
+.dup-preview-viewer-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.dup-preview-date { font-size: 12px; font-weight: 500; color: var(--text); }
+
+/* Type badge in preview meta */
+.dup-preview-type-badge {
+  font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 600; letter-spacing: .04em;
+}
+.ptb-pc   { background: rgba(140,100,220,.15); color: #a07aee; }
+.ptb-mesh { background: rgba(212,144,80,.15);  color: #d49050; }
+.ptb-vox  { background: rgba(56,200,160,.15);  color: #38c8a0; }
+
+/* The actual mini Cesium div */
+.dup-mini-cesium {
+  width: 100%; height: 340px;
+  background: var(--bg);
+  /* Hide Cesium default chrome inside the mini viewer */
+}
+.dup-mini-cesium .cesium-viewer-toolbar,
+.dup-mini-cesium .cesium-viewer-animationContainer,
+.dup-mini-cesium .cesium-viewer-timelineContainer,
+.dup-mini-cesium .cesium-viewer-bottom,
+.dup-mini-cesium .cesium-credit-logoContainer,
+.dup-mini-cesium .cesium-widget-credits { display: none !important; }
+
+/* ── Preview trigger pills in date rows ── */
+.dup-preview-trigger {
+  display: flex; gap: 4px; align-items: center; flex-shrink: 0;
+}
+.dup-ptrig-btn {
+  font-size: 10.5px; font-weight: 600;
+  padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border);
+  background: rgba(255,255,255,.04); color: var(--muted);
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+  font-family: var(--mono);
+}
+.dup-ptrig-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,.09); color: var(--text);
+  border-color: var(--border2);
+}
+.dup-ptrig-btn:disabled { opacity: .4; cursor: default; }
+.dup-ptrig-pc.dup-ptrig-active {
+  border-color: rgba(140,100,220,.5); background: rgba(140,100,220,.15); color: #a07aee;
+}
+.dup-ptrig-vox.dup-ptrig-active {
+  border-color: rgba(56,200,160,.5); background: rgba(56,200,160,.12); color: #38c8a0;
+}
+.dup-ptrig-vox-busy { color: #888 !important; border-color: var(--border) !important; }
+.dup-ptrig-vox-na   { opacity: .4 !important; }
 .dup-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
 .dup-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
 .dup-subtitle { font-size: 12px; color: var(--muted); }

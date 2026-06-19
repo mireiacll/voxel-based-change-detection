@@ -79,7 +79,7 @@ function PreviewTrigger({ date, activePreview, onPreview }) {
           onClick={e => { e.stopPropagation(); onPreview(date, 'pc') }}
           title={`${date.datasetType === 'mesh' ? '3D Mesh' : 'Point Cloud'} 미리보기`}
         >
-          {date.datasetType === 'mesh' ? '◈ Mesh' : '☁ PC'}
+          {date.datasetType === 'mesh' ? '◈ Mesh' : '☁ Point Cloud'}
         </button>
       ) : (
         <span className="dup-badge dup-badge-none">미업로드</span>
@@ -87,7 +87,7 @@ function PreviewTrigger({ date, activePreview, onPreview }) {
 
       {voxBusy ? (
         <button className="dup-ptrig-btn dup-ptrig-vox dup-ptrig-vox-busy" disabled title="Voxel 생성 중…">
-          ⏳ VOX
+          ⏳ Voxel
         </button>
       ) : hasVoxel ? (
         <button
@@ -95,7 +95,7 @@ function PreviewTrigger({ date, activePreview, onPreview }) {
           onClick={e => { e.stopPropagation(); onPreview(date, 'vox') }}
           title="Voxel 미리보기"
         >
-          ⬡ VOX
+          ⬡ Voxel
         </button>
       ) : date.datasetPath && date.voxelStatus && date.voxelStatus !== 'NONE' ? (
         <button
@@ -103,7 +103,7 @@ function PreviewTrigger({ date, activePreview, onPreview }) {
           disabled
           title={`Voxel 상태: ${date.voxelStatus} — 아직 사용 불가`}
         >
-          ⬡ VOX
+          ⬡ Voxel
         </button>
       ) : null}
     </div>
@@ -290,8 +290,8 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
 // button on every date row/preview (none of them is "already set" anymore).
 
 function ManualLocationModal({ site, onSaved, onClose }) {
-  const [lon,     setLon]     = useState(site.centerLon != null ? String(parseFloat(site.centerLon.toFixed(5))) : '')
-  const [lat,     setLat]     = useState(site.centerLat != null ? String(parseFloat(site.centerLat.toFixed(5))) : '')
+  const [lon,     setLon]     = useState(site.centerLon != null ? String(site.centerLon) : '')
+  const [lat,     setLat]     = useState(site.centerLat != null ? String(site.centerLat) : '')
   const [error,   setError]   = useState('')
   const [saving,  setSaving]  = useState(false)
 
@@ -997,7 +997,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
         <div className="dup-preview-empty">
           <div className="dup-preview-empty-icon">◈</div>
           <div className="dup-preview-empty-text">
-            날짜의 <strong>PC</strong> 또는 <strong>VOX</strong> 버튼을<br/>
+            날짜의 <strong>Point Cloud</strong> 또는 <strong>Voxel</strong> 버튼을<br/>
             눌러 여기서 미리보기
           </div>
         </div>

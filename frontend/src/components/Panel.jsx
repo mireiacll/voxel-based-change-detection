@@ -107,6 +107,7 @@ export default function Panel({
   const dateRange = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
   const [layerModes, setLayerModes] = useState({})
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -132,7 +133,18 @@ export default function Panel({
           </div>
           <div className="site-info-row">
             <span className="site-info-k">관측 데이터</span>
-            <span className="site-info-v">{dates.length}건</span>
+            <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {dates.length}건
+              {dates.length > 0 && (
+                <button
+                  className="dates-drawer-trigger"
+                  onClick={() => setDrawerOpen(o => !o)}
+                  title="Survey Dates 열기"
+                >
+                  목록
+                </button>
+              )}
+            </span>
           </div>
           {dates.length > 0 && (
             <div className="site-info-row">
@@ -163,49 +175,54 @@ export default function Panel({
         </select>
       </div>
 
-      {/* ── Survey Dates ── */}
-      <div className="p-section">
-        <div className="p-label">Survey Dates</div>
-        <div id="date-list" className="rp-date-list">
-          {dates.length === 0 && (
-            <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
-          )}
-          {dates.map(d => {
-            const isOn        = visibleDateIds.has(d.id)
-            const layerMode   = layerModes[d.id] ?? 'pc'
-            const isPolling   = voxelPollingIds?.has(d.id) ?? false
-            const isComputing = isPolling
-            const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
-            return (
-              <div key={d.id} className="date-row-wrap">
-                <button
-                  className={`date-btn${isOn ? ' active' : ''}`}
-                  onClick={() => onToggleDate(d)}
-                >
-                  <span className="date-label">{formatDate(d.observedAt) || d.label}</span>
-                  <span className="date-meta">
-                    <span className="date-name" title={d.name}>{trunc(d.name)}</span>
-                    {isOn && layerMode === 'vox'
-                      ? <span className="ltag ltag-teal">VOX</span>
-                      : <TypeTag type={d.datasetType} />
-                    }
-                  </span>
-                </button>
-                {isOn && (
-                  <LayerModePill
-                    dateId={d.id}
-                    datasetType={d.datasetType}
-                    hasVoxel={hasVoxel}
-                    computing={isComputing}
-                    value={layerMode}
-                    onChange={handleLayerMode}
-                  />
-                )}
-              </div>
-            )
-          })}
+      {/* ── Survey Dates floating drawer ── */}
+      {drawerOpen && (
+        <div className="dates-drawer">
+          <div className="dates-drawer-header">
+            <span className="dates-drawer-title">Survey Dates</span>
+            <button className="dates-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
+          </div>
+          <div className="dates-drawer-body">
+            {dates.length === 0 && (
+              <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
+            )}
+            {dates.map(d => {
+              const isOn        = visibleDateIds.has(d.id)
+              const layerMode   = layerModes[d.id] ?? 'pc'
+              const isPolling   = voxelPollingIds?.has(d.id) ?? false
+              const isComputing = isPolling
+              const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
+              return (
+                <div key={d.id} className="date-row-wrap">
+                  <button
+                    className={`date-btn${isOn ? ' active' : ''}`}
+                    onClick={() => onToggleDate(d)}
+                  >
+                    <span className="date-label">{formatDate(d.observedAt) || d.label}</span>
+                    <span className="date-meta">
+                      <span className="date-name" title={d.name}>{trunc(d.name)}</span>
+                      {isOn && layerMode === 'vox'
+                        ? <span className="ltag ltag-teal">VOX</span>
+                        : <TypeTag type={d.datasetType} />
+                      }
+                    </span>
+                  </button>
+                  {isOn && (
+                    <LayerModePill
+                      dateId={d.id}
+                      datasetType={d.datasetType}
+                      hasVoxel={hasVoxel}
+                      computing={isComputing}
+                      value={layerMode}
+                      onChange={handleLayerMode}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Point size (point cloud only) ── */}
       {showPcSlider && (

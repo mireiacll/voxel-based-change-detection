@@ -22,7 +22,7 @@
 import { useState } from 'react'
 import { updateProject, deleteProject } from '../api'
 
-export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteEdited, onSiteDeleted, loading }) {
+export default function ProjectLauncher({ sites, onSelect, onPreload, onNewProject, onSiteEdited, onSiteDeleted, loading }) {
   const recent  = sites.slice(0, 3)
   const theRest = sites.slice(3)
 
@@ -42,8 +42,11 @@ export default function ProjectLauncher({ sites, onSelect, onNewProject, onSiteE
       
       onSelect({ site, initialTab })
     } else {
-      // first click → select
+      // first click → select, and start loading this project's data in the
+      // background so it's already current if the user navigates away from
+      // the launcher (e.g. via the top nav bar) without a second click.
       setSelectedId(site.id)
+      onPreload?.(site)
     }
   }
 

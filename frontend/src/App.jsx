@@ -75,6 +75,9 @@ export default function App() {
   // checks this via shouldStop() before each fetch so it exits cleanly without
   // firing a GET that would 404 on the now-deleted observation.
   const deletingObsIdsRef = useRef(new Set())
+  // Tracks which site's id the camera has already flown to, so we don't
+  // re-fly redundantly and so handleNavTab knows whether it still needs to.
+  const flownSiteIdRef = useRef(null)
 
   useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
@@ -317,8 +320,13 @@ export default function App() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
-  function handleOpenProject({ site, initialTab } = {}) {
-    console.log('[handleOpenProject] site:', site.id, site.name, '— dates:', site.dates?.length)
+  // Loads a site's data into state (activeSite, diff history, voxel poll
+  // resumption, etc.) WITHOUT touching navTab or the camera. Safe to call
+  // while still sitting on the launcher screen (first click on a card) —
+  // it just preloads so that whichever tab the user lands on next already
+  // has the right project's data.
+  function loadSiteData(site) {
+    console.log('[loadSiteData] site:', site.id, site.name, '— dates:', site.dates?.length)
     clearAllLayers()
     clearPolygon()
     setMode('compare-api')
@@ -335,27 +343,45 @@ export default function App() {
     setTlVis({ ...DEFAULT_VIS })
     setActiveSite(site)
     window.currentSite = site
-    setNavTab(initialTab ?? 'analysis')
+    flownSiteIdRef.current = null
     setActiveDiffId(null)
     fetchProjectDiffs(site.id)
       .then(entries => setDiffHistory(entries))
-      .catch(e => console.warn('[handleOpenProject] fetchProjectDiffs failed:', e.message))
-    if (site.centerLon != null && site.centerLat != null) {
-      flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
-    }
+      .catch(e => console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message))
     // Use GET /api/jobs to discover all in-progress jobs at once, then
     // resume polling only for VOXEL_CREATE jobs that target this project's observations.
     // This is one request instead of N (one per observation with QUEUED/RUNNING status).
     fetchActiveJobs().then(activeJobs => {
-      console.log('[handleOpenProject] active jobs:', activeJobs.map(j => `${j.id} ${j.jobType} targetId=${j.targetId} status=${j.status}`))
+      console.log('[loadSiteData] active jobs:', activeJobs.map(j => `${j.id} ${j.jobType} targetId=${j.targetId} status=${j.status}`))
       const obsIds = new Set((site.dates ?? []).map(d => String(d.id)))
       activeJobs
         .filter(j => j.jobType === 'VOXEL_CREATE' && obsIds.has(String(j.targetId)))
         .forEach(j => {
-          console.log('[handleOpenProject] resuming voxel poll for obsId:', j.targetId)
+          console.log('[loadSiteData] resuming voxel poll for obsId:', j.targetId)
           resumeVoxelPoll(String(j.targetId), j.id)
         })
-    }).catch(e => console.warn('[handleOpenProject] fetchActiveJobs failed:', e.message))
+    }).catch(e => console.warn('[loadSiteData] fetchActiveJobs failed:', e.message))
+  }
+
+  // First click on a launcher card — preload the site's data in the
+  // background while staying on the launcher. Re-clicking an already-active
+  // site is a cheap no-op (avoids redundant fetches/layer churn).
+  function handlePreloadProject(site) {
+    if (activeSiteRef.current?.id === site.id) return
+    loadSiteData(site)
+  }
+
+  // Second click on a launcher card (or "New project" flow) — actually
+  // navigate into the project. Loads the data if it isn't already the
+  // active site (covers callers other than the launcher), then switches
+  // tab and flies the camera.
+  function handleOpenProject({ site, initialTab } = {}) {
+    if (activeSiteRef.current?.id !== site.id) loadSiteData(site)
+    setNavTab(initialTab ?? 'analysis')
+    if (site.centerLon != null && site.centerLat != null) {
+      flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
+    }
+    flownSiteIdRef.current = site.id
   }
 
   async function handleProjectCreated(newSite) {
@@ -937,6 +963,16 @@ export default function App() {
 
   function handleNavTab(tab) {
     if ((tab === 'upload' || tab === 'analysis') && !activeSite) return
+    // If we're entering a project view tab and the camera hasn't yet flown
+    // to this site (e.g. user clicked once on the launcher card to preload,
+    // then jumped here via the nav bar instead of double-clicking the card),
+    // fly there now.
+    if ((tab === 'upload' || tab === 'analysis') && activeSite && flownSiteIdRef.current !== activeSite.id) {
+      if (activeSite.centerLon != null && activeSite.centerLat != null) {
+        flyTo(activeSite.centerLon, activeSite.centerLat - 0.006, activeSite.cameraHeight)
+      }
+      flownSiteIdRef.current = activeSite.id
+    }
     setNavTab(tab)
   }
 
@@ -1029,6 +1065,7 @@ export default function App() {
             sites={sites}
             loading={!launcherReady}
             onSelect={handleOpenProject}
+            onPreload={handlePreloadProject}
             onNewProject={() => setShowNewProject(true)}
             onSiteEdited={handleSiteEdited}
             onSiteDeleted={handleSiteDeleted}

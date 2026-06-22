@@ -19,37 +19,6 @@
  *   tilesetUrl      — string | null
  */
 
-// ── Storage helpers ───────────────────────────────────────────────────────
-
-const LS_KEY = id => `diffHistory:${id}`
-
-export function loadDiffHistory(projectId) {
-  try {
-    const raw = localStorage.getItem(LS_KEY(projectId))
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-export function saveDiffHistory(projectId, entries) {
-  try {
-    localStorage.setItem(LS_KEY(projectId), JSON.stringify(entries.slice(0, 50)))
-  } catch {}
-}
-
-export function addDiffHistoryEntry(projectId, entry) {
-  const existing = loadDiffHistory(projectId)
-  const next = [entry, ...existing.filter(e => String(e.id) !== String(entry.id))]
-  saveDiffHistory(projectId, next)
-  return next
-}
-
-export function removeDiffHistoryEntry(projectId, diffId) {
-  const existing = loadDiffHistory(projectId)
-  const next = existing.filter(e => String(e.id) !== String(diffId))
-  saveDiffHistory(projectId, next)
-  return next
-}
-
 // ── Formatting ────────────────────────────────────────────────────────────
 
 function fmtShortDate(label) {
@@ -79,7 +48,22 @@ function fmtTime(iso) {
 
 // ── Component ─────────────────────────────────────────────────────────────
 
+import { useState } from 'react'
+
 export default function DiffHistory({ entries = [], activeId, onLoad, onDelete }) {
+  const [deletingIds, setDeletingIds] = useState(new Set())
+
+  async function handleDelete(ev, id) {
+    ev.stopPropagation()
+    if (deletingIds.has(id)) return
+    setDeletingIds(prev => new Set([...prev, id]))
+    try {
+      await onDelete?.(id)
+    } finally {
+      setDeletingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+    }
+  }
+
   if (entries.length === 0) {
     return <div className="no-dates" style={{ fontSize: 11 }}>아직 계산 결과 없음</div>
   }
@@ -87,15 +71,17 @@ export default function DiffHistory({ entries = [], activeId, onLoad, onDelete }
   return (
     <div className="dh-list">
       {entries.map(e => {
-        const isAB     = e.type === 'AB'
-        const isActive = activeId != null && String(e.id) === String(activeId)
+        const isAB      = e.type === 'AB'
+        const isActive  = activeId != null && String(e.id) === String(activeId)
+        const isDeleting = deletingIds.has(e.id)
 
         return (
           <div
             key={e.id}
-            className={`dh-entry${isActive ? ' dh-active' : ''}`}
-            onClick={() => onLoad?.(e)}
-            title="클릭하여 결과 불러오기"
+            className={`dh-entry${isActive ? ' dh-active' : ''}${isDeleting ? ' dh-deleting' : ''}`}
+            onClick={() => !isDeleting && onLoad?.(e)}
+            title={isDeleting ? '삭제 중…' : '클릭하여 결과 불러오기'}
+            style={isDeleting ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
           >
             {/* Type badge */}
             <span className={`dh-type-badge ${isAB ? 'dh-ab' : 'dh-ts'}`}>
@@ -125,9 +111,12 @@ export default function DiffHistory({ entries = [], activeId, onLoad, onDelete }
             {/* Delete */}
             <button
               className="dh-icon-btn dh-del"
-              title="기록 삭제"
-              onClick={ev => { ev.stopPropagation(); onDelete?.(e.id) }}
-            >✕</button>
+              title={isDeleting ? '삭제 중…' : '기록 삭제'}
+              disabled={isDeleting}
+              onClick={ev => handleDelete(ev, e.id)}
+            >
+              {isDeleting ? '…' : '✕'}
+            </button>
           </div>
         )
       })}

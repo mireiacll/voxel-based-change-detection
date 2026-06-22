@@ -790,6 +790,88 @@ export async function cancelDiff(diffId) {
 }
 
 /**
+ * Delete a diff by id.
+ */
+export async function deleteDiff(diffId) {
+  console.log('[api.deleteDiff] diffId:', diffId)
+  await _delete(`/api/diffs/${diffId}`)
+}
+
+/**
+ * Fetch all SUCCEEDED diffs for a project, enriched with date labels from items.
+ * Returns entries shaped for DiffHistory:
+ *   { id, type ('AB'|'TIME_SERIES'), name, createdAt, status,
+ *     diffId, diffItemId, labelA, labelB, observationCount,
+ *     addedVolume, removedVolume, tilesetUrl, areaWkt }
+ *
+ * Fetches GET /api/projects/{projectId}/diffs?status=SUCCEEDED, then for each
+ * diff fetches GET /api/diffs/{diffId} to get items with date labels.
+ */
+export async function fetchProjectDiffs(projectId) {
+  console.log('[api.fetchProjectDiffs] projectId:', projectId)
+  const list = await _get(`/api/projects/${projectId}/diffs?status=SUCCEEDED`)
+  console.log('[api.fetchProjectDiffs] got', list.length, 'succeeded diffs')
+
+  const entries = await Promise.all(
+    list.map(async diff => {
+      try {
+        const detail = await _get(`/api/diffs/${diff.id}`)
+        const items  = detail.items ?? []
+        const isAB   = diff.type === 'A_B'
+
+        // Sort items by sourceObservedAt to get first→last range
+        const sorted = [...items].sort((a, b) =>
+          (a.sourceObservedAt ?? '').localeCompare(b.sourceObservedAt ?? '')
+        )
+        const firstItem = sorted[0]
+        const lastItem  = sorted[sorted.length - 1]
+
+        const labelA = firstItem
+          ? (_formatDate(firstItem.sourceObservedAt) ?? firstItem.sourceObservedAt ?? '?')
+          : '?'
+        const labelB = (isAB ? firstItem : lastItem)
+          ? (_formatDate((isAB ? firstItem : lastItem)?.targetObservedAt)
+              ?? (isAB ? firstItem : lastItem)?.targetObservedAt ?? '?')
+          : '?'
+
+        // For AB: volume + tileset from first (only) item
+        const abItem = isAB ? firstItem : null
+        const tilesetUrl = abItem?.resultTilesetUrl
+          ? _injectVisualizationFolder(_toAbsoluteUrl(abItem.resultTilesetUrl))
+          : null
+
+        return {
+          id:               diff.id,
+          diffId:           diff.id,
+          type:             isAB ? 'AB' : 'TIME_SERIES',
+          name:             diff.name ?? `diff-${diff.id}`,
+          createdAt:        diff.createdAt,
+          status:           'SUCCEEDED',
+          labelA,
+          labelB,
+          areaWkt:          detail.areaWkt ?? null,
+          // AB-only
+          diffItemId:       abItem?.id ?? null,
+          addedVolume:      abItem?.addedVolume   ?? 0,
+          removedVolume:    abItem?.removedVolume ?? 0,
+          tilesetUrl,
+          // TS-only
+          observationCount: isAB ? null : (items.length + 1),
+        }
+      } catch (e) {
+        console.warn('[api.fetchProjectDiffs] failed to enrich diff', diff.id, e.message)
+        return null
+      }
+    })
+  )
+
+  // Filter out any that failed, sort newest first
+  return entries
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+}
+
+/**
  * Create an A/B diff and poll until the job completes.
  * Calls onStatus(msg: string) with progress updates.
  * Resolves with the first DiffItemResponse enriched with:

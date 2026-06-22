@@ -30,15 +30,11 @@ import {
   fetchActiveJobs,
   createAbDiffAndPoll,
   cancelDiff,
+  deleteDiff,
+  fetchProjectDiffs,
   createTimeSeriesDiffAndPoll,
   cancelVoxelize,
 } from './api'
-import {
-  loadDiffHistory,
-  addDiffHistoryEntry,
-  removeDiffHistoryEntry,
-} from './components/DiffHistory'
-
 import NavBar             from './components/NavBar'
 import Panel              from './components/Panel'
 import RightPanel         from './components/RightPanel'
@@ -340,8 +336,10 @@ export default function App() {
     setActiveSite(site)
     window.currentSite = site
     setNavTab(initialTab ?? 'analysis')
-    setDiffHistory(loadDiffHistory(site.id))
     setActiveDiffId(null)
+    fetchProjectDiffs(site.id)
+      .then(entries => setDiffHistory(entries))
+      .catch(e => console.warn('[handleOpenProject] fetchProjectDiffs failed:', e.message))
     if (site.centerLon != null && site.centerLat != null) {
       flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
     }
@@ -546,27 +544,19 @@ export default function App() {
 
       setApiSummary(result.report)
 
-      const histEntry = {
-        id:            apiDiffIdRef.current ?? result.diffId ?? result.id ?? Date.now(),
-        type:          'AB',
-        name:          result.name ?? `AB-${apiDateIdA}-${apiDateIdB}`,
-        createdAt:     new Date().toISOString(),
-        status:        'SUCCEEDED',
-        labelA:        dA?.label ?? dA?.observedAt ?? apiDateIdA,
-        labelB:        dB?.label ?? dB?.observedAt ?? apiDateIdB,
-        areaWkt:       areaWkt ?? null,
-        addedVolume:   result.report?.addedVolume   ?? 0,
-        removedVolume: result.report?.removedVolume ?? 0,
-        diffItemId:    result.report?.diffItemId    ?? result.id,
-        tilesetUrl:    result.tilesetUrl ?? null,
-      }
-      const nextHistory = addDiffHistoryEntry(activeSite.id, histEntry)
-      setDiffHistory(nextHistory)
-      setActiveDiffId(histEntry.id)
-
       if (result.tilesetUrl) {
         setApiDiffTilesetUrl(result.tilesetUrl)
         await loadDiffApiTileset(result.tilesetUrl)
+      }
+
+      // Re-fetch diff history from API so the list is always server-authoritative
+      const diffId = apiDiffIdRef.current ?? result.id
+      setActiveDiffId(diffId)
+      try {
+        const entries = await fetchProjectDiffs(activeSite.id)
+        setDiffHistory(entries)
+      } catch (e) {
+        console.warn('[handleApiRun] fetchProjectDiffs refresh failed:', e.message)
       }
     } catch (e) {
       console.error('[handleApiRun] FAILED:', e.message, e)
@@ -627,25 +617,14 @@ export default function App() {
       })
       invalidateDiffCache(activeSite.id)
 
-      const succeededDates = activeSite.dates
-        .filter(d => d.voxelStatus === 'SUCCEEDED')
-        .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
-      const tsEntry = {
-        id:        diff?.id ?? `ts-${activeSite.id}-${Date.now()}`,
-        diffId:    diff?.id ?? null,
-        type:      'TIME_SERIES',
-        name:      `TimeSeries-${activeSite.id}`,
-        createdAt: new Date().toISOString(),
-        status:    'SUCCEEDED',
-        labelA:    succeededDates[0]?.label ?? succeededDates[0]?.observedAt ?? '?',
-        labelB:    succeededDates[succeededDates.length - 1]?.label
-                ?? succeededDates[succeededDates.length - 1]?.observedAt ?? '?',
-        areaWkt:   null,
-        observationCount: succeededDates.length,
+      const diffId = diff?.id ?? null
+      setActiveDiffId(diffId)
+      try {
+        const entries = await fetchProjectDiffs(activeSite.id)
+        setDiffHistory(entries)
+      } catch (e) {
+        console.warn('[handleTlRecompute] fetchProjectDiffs refresh failed:', e.message)
       }
-      const nextHist = addDiffHistoryEntry(activeSite.id, tsEntry)
-      setDiffHistory(nextHist)
-      setActiveDiffId(tsEntry.id)
 
       setTlSnapshots(null)
     } catch (e) {
@@ -927,11 +906,24 @@ export default function App() {
     }
   }
 
-  function handleDeleteDiff(diffId) {
+  async function handleDeleteDiff(diffId) {
     if (!activeSite) return
-    const next = removeDiffHistoryEntry(activeSite.id, diffId)
-    setDiffHistory(next)
-    if (activeDiffId === diffId) setActiveDiffId(null)
+    try {
+      await deleteDiff(diffId)
+    } catch (e) {
+      console.warn('[handleDeleteDiff] API delete failed:', e.message)
+      addToast(`Diff 삭제 실패: ${e.message}`, 'warn')
+      return
+    }
+    if (String(activeDiffId) === String(diffId)) setActiveDiffId(null)
+    try {
+      const entries = await fetchProjectDiffs(activeSite.id)
+      setDiffHistory(entries)
+    } catch (e) {
+      console.warn('[handleDeleteDiff] fetchProjectDiffs refresh failed:', e.message)
+      // Optimistic local removal as fallback
+      setDiffHistory(prev => prev.filter(e => String(e.id) !== String(diffId)))
+    }
   }
 
   function handleCameraSite() {

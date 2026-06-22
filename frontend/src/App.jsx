@@ -48,7 +48,7 @@ import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
 
 const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
-const DEFAULT_DRAW_BTN  = '✏ 영역 그리기'
+const DEFAULT_DRAW_BTN  = '✏ Draw Area'
 
 // ── Per-tab visibility defaults ───────────────────────────────────────────
 const DEFAULT_VIS = { added: true, removed: true, unchanged: true }
@@ -481,7 +481,11 @@ export default function App() {
     setApiError(null)
     setApiDiffTilesetUrl(null)
     clearDiffApiTileset()
+    clearAllSnapshotTilesets()
+    setTlSnapshots(null)
+    setTlActiveIndex(0)
     setActiveDiffId(null)
+    handleModeChange('compare-api')
   }
 
   // When user clicks "← 목록으로"
@@ -847,6 +851,12 @@ export default function App() {
   const showAnalysis = navTab === 'analysis'
   const showPcSlider = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
 
+  // Mirror RightPanel's own visibility logic so DrawBanner + MapOverlayControls
+  // can correctly offset themselves left when the right panel is actually visible.
+  const showRightPanel =
+    (mode === 'compare-api' && (apiSummary != null || apiRunning)) ||
+    (mode === 'timeline'    && tlSnapshots != null)
+
   // ── Timeline staleness / readiness checks ─────────────────────────────
   const tlMissingVoxels = (activeSite?.dates ?? [])
     .filter(d => d.voxelStatus !== 'SUCCEEDED')
@@ -940,7 +950,7 @@ export default function App() {
 
       {showAnalysis && activeSite && (
         <>
-          <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} />
+          <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} showRightPanel={showRightPanel} />
 
           <Panel
             activeSite={activeSite}
@@ -990,6 +1000,8 @@ export default function App() {
             basemap={basemap}           onBasemap={setBasemapState}
             showTerrain={showTerrain}   onShowTerrain={setShowTerrain}
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
+            drawBanner={drawBanner}
+            showRightPanel={showRightPanel}
           />
 
           <BottomBar

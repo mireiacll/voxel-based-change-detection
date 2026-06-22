@@ -172,6 +172,8 @@ export default function MapOverlayControls({
   basemap, onBasemap,
   showTerrain, onShowTerrain,
   onCameraSite, onCameraTop,
+  drawBanner,
+  showRightPanel,
 }) {
   const [open, setOpen] = useState(false)
   const panelRef = useRef(null)
@@ -204,7 +206,13 @@ export default function MapOverlayControls({
   useEffect(() => () => clearInterval(zoomInterval.current), [])
 
   return (
-    <div id="map-overlay-controls">
+    <div
+      id="map-overlay-controls"
+      style={{
+        right: showRightPanel ? 'calc(var(--rpw) + 12px)' : '12px',
+        ...(drawBanner ? { top: 'calc(var(--nav-h) + 34px + 6px)' } : {}),
+      }}
+    >
 
       {/* ── Camera widget ── */}
       <div className="moc-camera">

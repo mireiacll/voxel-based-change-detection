@@ -183,6 +183,44 @@ export default function Panel({
 
     return (
       <>
+        {/* Project info card — same as home view */}
+        <div className="p-section">
+          <div className="p-label">선택된 프로젝트</div>
+          <div className="site-info-card">
+            <div className="site-info-row">
+              <span className="site-info-k">프로젝트명</span>
+              <span className="site-info-v">{activeSite.name}</span>
+            </div>
+            <div className="site-info-row">
+              <span className="site-info-k">관측 데이터</span>
+              <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {dates.length}건
+                {dates.length > 0 && (
+                  <button
+                    className="dates-drawer-trigger"
+                    onClick={() => setDrawerOpen(o => !o)}
+                    title="Survey Dates 열기"
+                  >
+                    목록
+                  </button>
+                )}
+              </span>
+            </div>
+            {dates.length > 0 && (
+              <div className="site-info-row">
+                <span className="site-info-k">기간</span>
+                <span className="site-info-v site-info-mono">{dateRange}</span>
+              </div>
+            )}
+            <div className="site-info-row">
+              <span className="site-info-k">상태</span>
+              <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
+                {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Back + title */}
         <div className="p-section" style={{ paddingBottom: 0 }}>
           <button className="back-btn" onClick={onBackToHome}>
@@ -260,12 +298,14 @@ export default function Panel({
           </div>
         )}
 
-        {/* Draw area */}
-        <div className="p-section">
-          <div className="p-label">분석 영역</div>
-          <button id="btn-draw-area" onClick={onDrawArea} disabled={running}>{drawBtnLabel}</button>
-          <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
-        </div>
+        {/* Draw area — A vs B only */}
+        {isAbMode && (
+          <div className="p-section">
+            <div className="p-label">분석 영역</div>
+            <button id="btn-draw-area" onClick={onDrawArea} disabled={running}>{drawBtnLabel}</button>
+            <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
+          </div>
+        )}
 
         {/* Run / Cancel / Clear */}
         <div className="p-section">
@@ -283,11 +323,11 @@ export default function Panel({
                 style={{ borderColor: '#d49050', color: '#d49050' }}
                 onClick={isAbMode ? onApiCancel : onTlCancelRecompute}
               >
-                ⏹ 취소
+                ⏹ 중단
               </button>
-            ) : (
-              <button id="btn-clear-diff" onClick={onApiClear}>✖ 초기화</button>
-            )}
+            ) : (isAbMode ? apiStatus : tlRecomputeStatus) ? (
+              <button id="btn-clear-diff" onClick={onApiClear}>✖ 결과 지우기</button>
+            ) : null}
           </div>
           {(apiStatus || tlRecomputeStatus) && (
             <div id="diff-status" data-state={running ? 'computing' : 'done'} style={{ marginTop: 6 }}>

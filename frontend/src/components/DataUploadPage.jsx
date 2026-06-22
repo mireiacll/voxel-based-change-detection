@@ -1032,7 +1032,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
             tilesetCenter_lon: lon,
             tilesetCenter_lat: lat,
             cameraDestination_lon: lon,
-            cameraDestination_lat: lat - 0.009,
+            cameraDestination_lat: lat - 0.006,
             cameraDestination_height: 600,
             boundingSphere_lon: Cesium.Math.toDegrees(bsCarto.longitude),
             boundingSphere_lat: Cesium.Math.toDegrees(bsCarto.latitude),
@@ -1040,7 +1040,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
           })
 
           v.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.009, 600),
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.006, 600),
             orientation: { heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0 },
             duration: 1.2,
           })

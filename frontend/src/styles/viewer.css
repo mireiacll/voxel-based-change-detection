@@ -51,15 +51,20 @@ html, body {
 #root { width: 100%; height: 100%; }
 
 /* ── Cesium container ─────────────────────────────────────── */
+/* Always full-bleed between the nav bar and bottom bar. The left/right
+   panels and the timeline bar are floating overlays on TOP of this
+   canvas (see their own rules below) rather than layout columns that
+   push/shrink it. This avoids any resize-driven FOV/zoom artifacts when
+   panels mount or unmount — the canvas itself never changes size from
+   that, only from an actual browser window resize. */
 #cesiumContainer {
   position: fixed;
   top: var(--nav-h);
-  left: var(--pw);
-  right: var(--rpw);
+  left: 0;
+  right: 0;
   bottom: var(--bbh);
 }
 #cesiumContainer.cesium-hidden { visibility: hidden; pointer-events: none; }
-#cesiumContainer.tl-mode       { bottom: 136px; }
 
 /* Hide Cesium default chrome */
 .cesium-viewer-toolbar,
@@ -151,16 +156,21 @@ html, body {
 .nav-no-site { font-size: 11px; color: var(--muted); font-style: italic; }
 
 /* ── Map sub-header ─────────────────────────────────────────── */
+/* Note: not currently mounted anywhere in App.jsx (superseded by the
+   mode dropdown in the left panel) — kept here for safety in case
+   something still references it. Full-width to match the floating-panel
+   layout below; it would render BEHIND the left/right panels where they
+   overlap, same as the canvas does. */
 #map-sub-header {
   position: fixed;
   top: var(--nav-h);
-  left: var(--pw);
-  right: var(--rpw);
+  left: 0;
+  right: 0;
   height: var(--mshh);
   background: var(--surf);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 14px; z-index: 110;
+  padding: 0 14px; z-index: 90;
 }
 .msh-tabs { display: flex; gap: 0; height: 100%; }
 .msh-tab {
@@ -185,6 +195,9 @@ html, body {
 .msh-tag-b { background: rgba(77,159,255,.15); color: #4d9fff; border: 1px solid rgba(77,159,255,.3); }
 
 /* ── Left panel ─────────────────────────────────────────────── */
+/* Floats ABOVE the full-bleed map canvas rather than pushing/resizing
+   it — this keeps the map's zoom/framing perfectly stable whenever this
+   panel mounts or unmounts. */
 #panel {
   position: fixed;
   top: var(--nav-h);
@@ -192,12 +205,14 @@ html, body {
   width: var(--pw);
   background: var(--surf);
   border-right: 1px solid var(--border);
-  overflow-y: auto; z-index: 100;
+  box-shadow: 4px 0 16px rgba(0,0,0,.35);
+  overflow-y: auto; z-index: 150;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
 }
 
 /* ── Right panel ────────────────────────────────────────────── */
+/* Floats ABOVE the full-bleed map canvas — see #panel note above. */
 #right-panel {
   position: fixed;
   top: var(--nav-h);
@@ -205,7 +220,8 @@ html, body {
   width: var(--rpw);
   background: var(--surf);
   border-left: 1px solid var(--border);
-  overflow-y: auto; z-index: 100;
+  box-shadow: -4px 0 16px rgba(0,0,0,.35);
+  overflow-y: auto; z-index: 150;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
 }
@@ -511,8 +527,8 @@ select {
 #draw-banner {
   position: fixed;
   top: var(--nav-h);
-  left: var(--pw); right: var(--rpw);
-  z-index: 150;
+  left: 0; right: 0;
+  z-index: 140;
   display: flex; align-items: center; gap: 12px;
   padding: 0 16px; height: 34px;
   background: rgba(14,10,0,.93);
@@ -635,11 +651,11 @@ select {
 /* ── Timeline bar ───────────────────────────────────────────── */
 #timeline-bar {
   position: fixed;
-  bottom: var(--bbh); left: var(--pw); right: var(--rpw);
+  bottom: var(--bbh); left: 0; right: 0;
   height: 72px;
   background: var(--surf); border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 12px;
-  padding: 0 16px; z-index: 200;
+  padding: 0 16px; z-index: 130;
 }
 
 .tl-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -757,6 +773,9 @@ select {
 #toasts {
   position: fixed;
   bottom: calc(var(--bbh) + 8px);
+  /* Always reserve the right panel's width, even when it's not currently
+     shown — keeps toasts from jumping position as the panel floats in
+     and out, and avoids ever sitting underneath it. */
   right: calc(var(--rpw) + 14px);
   display: flex; flex-direction: column; gap: 6px; z-index: 300;
 }
@@ -778,6 +797,7 @@ select {
 #map-overlay-controls {
   position: fixed;
   top: calc(var(--nav-h) + 10px);
+  /* Always reserve the right panel's width — see #toasts note above. */
   right: calc(var(--rpw) + 12px);
   z-index: 120;
   display: flex; flex-direction: row;
@@ -1749,4 +1769,77 @@ kbd {
   overflow-y: auto;
   padding: 8px 8px;
   flex: 1;
+}
+/* ── Analysis panel: new-computation flow ───────────────────────────── */
+
+.new-diff-btn {
+  width: 100%;
+  padding: 10px 0;
+  background: linear-gradient(135deg, rgba(92,143,255,.15), rgba(92,143,255,.08));
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.new-diff-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(92,143,255,.25), rgba(92,143,255,.15));
+}
+.new-diff-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.12s;
+}
+.back-btn:hover { color: var(--text); }
+
+.diff-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.diff-name-input::placeholder { color: var(--muted); }
+.diff-name-input:focus { border-color: var(--accent); }
+.diff-name-input:disabled { opacity: 0.5; }
+
+/* Point size in the dates drawer */
+.drawer-pc-size {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.drawer-pc-label { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.drawer-pc-size input[type=range] { flex: 1; }
+.drawer-pc-val {
+  font-size: 10px;
+  color: var(--muted);
+  width: 20px;
+  font-family: var(--mono);
+  text-align: right;
 }

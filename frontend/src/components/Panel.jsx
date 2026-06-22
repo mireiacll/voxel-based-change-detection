@@ -1,36 +1,17 @@
 /**
- * Panel.jsx — LEFT sidebar
+ * Panel.jsx — LEFT sidebar (analysis tab)
  *
- * Order:
- *   1. Selected project
- *   2. Analysis mode
- *   3. Survey dates  (date toggle list with PC | VOX layer pill)
- *   4. Point size    (point cloud only)
+ * Two views:
+ *   'home'      — project info + "새 변화탐지" button + diff history
+ *   'computing' — name input + mode selector + date/area/run controls
  *
- * Voxel status & compute are now in DataUploadPage, not here.
- * Camera controls now live in MapOverlayControls (top-right floating
- * cluster), not here.
- *
- * Site shape (coworker API, normalised in api.js):
- *   site.name          — display name
- *   site.centerLat/Lon — camera position
- *   site.cameraHeight
- *   site.dates[]       — array of date objects from _observationToDate()
- *
- * Date shape (from _observationToDate in api.js):
- *   date.id            — stringified observation id
- *   date.label         — formatted observedAt date
- *   date.datasetPath   — originalTilesPath (null if none)
- *   date.datasetType   — 'pointcloud' | null
- *   date.voxelPath     — pre-computed voxel tileset path or null
- *   date.voxelStatus   — 'NONE' | 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+ * Point size slider lives in the floating dates drawer.
  */
 
 import { useState } from 'react'
 import { formatDate } from '../api'
 import DiffHistory from './DiffHistory'
 
-/** Truncate a string to max chars, adding ellipsis if needed */
 function trunc(str, max = 16) {
   if (!str) return ''
   return str.length > max ? str.slice(0, max) + '…' : str
@@ -45,14 +26,7 @@ function TypeTag({ type }) {
   )
 }
 
-/**
- * PC | VOX pill toggle shown below an active date row.
- *
- * hasVoxel     — pre-computed voxelPath exists → VOX loads instantly
- * computing    — a compute is in progress for this date
- */
 function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChange }) {
-  // VOX is only clickable when the voxel is fully ready (SUCCEEDED)
   const voxClickable = hasVoxel && !computing
   const voxLabel     = computing ? '⏳' : 'VOX'
   const pcLabel      = datasetType === 'mesh' ? 'MESH' : 'PC'
@@ -91,165 +65,313 @@ export default function Panel({
   activeSite,
   visibleDateIds, onToggleDate,
   pcSize, onPcSize, showPcSlider,
-  voxelPollingIds,  // Set<dateId> — dates currently being voxelized
-  onLayerMode,      // (dateId, 'pc' | 'vox') → void
-  mode,             // 'compare-api' | 'timeline'
-  onMode,           // (mode) => void
-  diffHistory,      // entry[] from localStorage for this project
-  activeDiffId,     // id of the diff history entry currently loaded/displayed
-  onLoadDiff,       // (entry) → void — restore a past result
-  onDeleteDiff,     // (diffId) → void — remove a history entry
+  voxelPollingIds,
+  onLayerMode,
+  mode, onMode,
+  diffHistory,
+  activeDiffId,
+  onLoadDiff,
+  onDeleteDiff,
+  // new computation view props
+  analysisView,         // 'home' | 'computing'
+  onNewComputation,     // () => void — go to computing view
+  onBackToHome,         // () => void — go back to home view
+  diffName, onDiffName, // name input
+  // compare-api props (now in left panel)
+  apiDateIdA, onApiDateIdA,
+  apiDateIdB, onApiDateIdB,
+  apiRunning, onApiRun, onApiClear, onApiCancel,
+  apiStatus, apiError,
+  // draw area
+  drawInfo, drawBtnLabel, onDrawArea,
+  // timeline recompute
+  tlRecomputeRunning, onTlRecompute, onTlCancelRecompute, tlRecomputeStatus,
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
   const firstDate      = dates[0]?.label ?? '—'
-  const lastDate  = dates[dates.length - 1]?.label ?? '—'
-  const dateRange = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
+  const lastDate       = dates[dates.length - 1]?.label ?? '—'
+  const dateRange      = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
   const [layerModes, setLayerModes] = useState({})
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
-
-  async function handleLayerMode(dateId, mode) {
+  async function handleLayerMode(dateId, lmode) {
     const d = dates.find(x => x.id === dateId)
     if (!d) return
-    setLayerModes(prev => ({ ...prev, [dateId]: mode }))
-    onLayerMode?.(dateId, mode)
+    setLayerModes(prev => ({ ...prev, [dateId]: lmode }))
+    onLayerMode?.(dateId, lmode)
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const isComputing  = mode === 'compare-api' ? apiRunning : tlRecomputeRunning
+  const runDisabled  = isComputing
+
+  // ── HOME VIEW ─────────────────────────────────────────────────────────────
+
+  function renderHome() {
+    return (
+      <>
+        {/* Project info */}
+        <div className="p-section">
+          <div className="p-label">선택된 프로젝트</div>
+          <div className="site-info-card">
+            <div className="site-info-row">
+              <span className="site-info-k">프로젝트명</span>
+              <span className="site-info-v">{activeSite.name}</span>
+            </div>
+            <div className="site-info-row">
+              <span className="site-info-k">관측 데이터</span>
+              <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {dates.length}건
+                {dates.length > 0 && (
+                  <button
+                    className="dates-drawer-trigger"
+                    onClick={() => setDrawerOpen(o => !o)}
+                    title="Survey Dates 열기"
+                  >
+                    목록
+                  </button>
+                )}
+              </span>
+            </div>
+            {dates.length > 0 && (
+              <div className="site-info-row">
+                <span className="site-info-k">기간</span>
+                <span className="site-info-v site-info-mono">{dateRange}</span>
+              </div>
+            )}
+            <div className="site-info-row">
+              <span className="site-info-k">상태</span>
+              <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
+                {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* New computation button */}
+        <div className="p-section">
+          <button
+            className="new-diff-btn"
+            onClick={onNewComputation}
+            disabled={voxelizedCount < 2}
+            title={voxelizedCount < 2 ? 'Voxel이 완료된 날짜가 2개 이상 필요합니다' : undefined}
+          >
+            ＋ 새 변화탐지
+          </button>
+        </div>
+
+        {/* Diff history */}
+        <div className="p-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="p-label">변화탐지 기록</div>
+          <DiffHistory
+            entries={diffHistory ?? []}
+            activeId={activeDiffId}
+            onLoad={onLoadDiff}
+            onDelete={onDeleteDiff}
+          />
+        </div>
+      </>
+    )
+  }
+
+  // ── COMPUTING VIEW ────────────────────────────────────────────────────────
+
+  function renderComputing() {
+    const isAbMode = mode === 'compare-api'
+    const running  = isAbMode ? apiRunning : tlRecomputeRunning
+
+    return (
+      <>
+        {/* Back + title */}
+        <div className="p-section" style={{ paddingBottom: 0 }}>
+          <button className="back-btn" onClick={onBackToHome}>
+            ← 목록으로
+          </button>
+        </div>
+
+        {/* Computation name */}
+        <div className="p-section">
+          <div className="p-label">분석 이름 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(선택)</span></div>
+          <input
+            className="diff-name-input"
+            type="text"
+            placeholder="예: 2024년 변화탐지"
+            value={diffName}
+            onChange={e => onDiffName(e.target.value)}
+            disabled={running}
+          />
+        </div>
+
+        {/* Analysis mode */}
+        <div className="p-section">
+          <div className="p-label">분석 방법</div>
+          <select
+            className="mode-select"
+            value={mode ?? 'compare-api'}
+            onChange={e => onMode?.(e.target.value)}
+            disabled={running}
+          >
+            {ANALYSIS_MODES.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* A vs B date selectors */}
+        {isAbMode && (
+          <div className="p-section">
+            <div className="p-label">비교 날짜</div>
+            <div className="compare-pair">
+              <div className="compare-row">
+                <span className="compare-ab-lbl">A</span>
+                <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)} disabled={running}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => {
+                    const hasVoxel = d.voxelStatus === 'SUCCEEDED'
+                    return (
+                      <option key={d.id} value={d.id} disabled={!hasVoxel}>
+                        {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+              <div className="compare-row" style={{ marginTop: 6 }}>
+                <span className="compare-ab-lbl">B</span>
+                <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)} disabled={running}>
+                  <option value="">— 날짜 선택 —</option>
+                  {dates.map(d => {
+                    const hasVoxel = d.voxelStatus === 'SUCCEEDED'
+                    return (
+                      <option key={d.id} value={d.id} disabled={!hasVoxel}>
+                        {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+              {dates.some(d => d.voxelStatus !== 'SUCCEEDED') && (
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+                  ⚠ voxel 없음 날짜는 관측 데이터 탭에서 먼저 계산하세요
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Draw area */}
+        <div className="p-section">
+          <div className="p-label">분석 영역</div>
+          <button id="btn-draw-area" onClick={onDrawArea} disabled={running}>{drawBtnLabel}</button>
+          <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
+        </div>
+
+        {/* Run / Cancel / Clear */}
+        <div className="p-section">
+          <div className="compare-action-buttons">
+            <button
+              id="btn-run-diff"
+              disabled={runDisabled}
+              onClick={isAbMode ? onApiRun : onTlRecompute}
+            >
+              {running ? '⟳ 분석 중…' : '⚡ 분석 실행'}
+            </button>
+            {running ? (
+              <button
+                id="btn-clear-diff"
+                style={{ borderColor: '#d49050', color: '#d49050' }}
+                onClick={isAbMode ? onApiCancel : onTlCancelRecompute}
+              >
+                ⏹ 취소
+              </button>
+            ) : (
+              <button id="btn-clear-diff" onClick={onApiClear}>✖ 초기화</button>
+            )}
+          </div>
+          {(apiStatus || tlRecomputeStatus) && (
+            <div id="diff-status" data-state={running ? 'computing' : 'done'} style={{ marginTop: 6 }}>
+              {isAbMode ? apiStatus : tlRecomputeStatus}
+            </div>
+          )}
+          {apiError && (
+            <div id="diff-status" data-state="error" style={{ color: 'var(--removed)', marginTop: 6 }}>
+              {apiError}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
+  // ── DATES DRAWER (shared between both views) ───────────────────────────────
+
+  function renderDatesDrawer() {
+    return (
+      <div className="dates-drawer">
+        <div className="dates-drawer-header">
+          <span className="dates-drawer-title">Survey Dates</span>
+          <button className="dates-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
+        </div>
+        <div className="dates-drawer-body">
+          {dates.length === 0 && (
+            <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
+          )}
+          {dates.map(d => {
+            const isOn        = visibleDateIds.has(d.id)
+            const layerMode   = layerModes[d.id] ?? 'pc'
+            const isPolling   = voxelPollingIds?.has(d.id) ?? false
+            const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
+            return (
+              <div key={d.id} className="date-row-wrap">
+                <button
+                  className={`date-btn${isOn ? ' active' : ''}`}
+                  onClick={() => onToggleDate(d)}
+                >
+                  <span className="date-label">{formatDate(d.observedAt) || d.label}</span>
+                  <span className="date-meta">
+                    <span className="date-name" title={d.name}>{trunc(d.name)}</span>
+                    {isOn && layerMode === 'vox'
+                      ? <span className="ltag ltag-teal">VOX</span>
+                      : <TypeTag type={d.datasetType} />
+                    }
+                  </span>
+                </button>
+                {isOn && (
+                  <LayerModePill
+                    dateId={d.id}
+                    datasetType={d.datasetType}
+                    hasVoxel={hasVoxel}
+                    computing={isPolling}
+                    value={layerMode}
+                    onChange={handleLayerMode}
+                  />
+                )}
+              </div>
+            )
+          })}
+
+          {/* Point size slider — lives here now */}
+          {showPcSlider && (
+            <div className="drawer-pc-size">
+              <span className="drawer-pc-label">포인트 크기</span>
+              <input
+                type="range" min="1" max="20" step="0.5"
+                value={pcSize}
+                onChange={e => onPcSize(parseFloat(e.target.value))}
+              />
+              <span className="drawer-pc-val">{pcSize}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <aside id="panel">
-
-      {/* ── Selected Project ── */}
-      <div className="p-section">
-        <div className="p-label">Selected Project</div>
-        <div className="site-info-card">
-          <div className="site-info-row">
-            <span className="site-info-k">프로젝트명</span>
-            <span className="site-info-v">{activeSite.name}</span>
-          </div>
-          <div className="site-info-row">
-            <span className="site-info-k">관측 데이터</span>
-            <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {dates.length}건
-              {dates.length > 0 && (
-                <button
-                  className="dates-drawer-trigger"
-                  onClick={() => setDrawerOpen(o => !o)}
-                  title="Survey Dates 열기"
-                >
-                  목록
-                </button>
-              )}
-            </span>
-          </div>
-          {dates.length > 0 && (
-            <div className="site-info-row">
-              <span className="site-info-k">기간</span>
-              <span className="site-info-v site-info-mono">{dateRange}</span>
-            </div>
-          )}
-          <div className="site-info-row">
-            <span className="site-info-k">상태</span>
-            <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
-              {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Analysis Mode ── */}
-      <div className="p-section">
-        <div className="p-label">Analysis Mode</div>
-        <select
-          className="mode-select"
-          value={mode ?? 'compare-api'}
-          onChange={e => onMode?.(e.target.value)}
-        >
-          {ANALYSIS_MODES.map(m => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* ── Survey Dates floating drawer ── */}
-      {drawerOpen && (
-        <div className="dates-drawer">
-          <div className="dates-drawer-header">
-            <span className="dates-drawer-title">Survey Dates</span>
-            <button className="dates-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
-          </div>
-          <div className="dates-drawer-body">
-            {dates.length === 0 && (
-              <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
-            )}
-            {dates.map(d => {
-              const isOn        = visibleDateIds.has(d.id)
-              const layerMode   = layerModes[d.id] ?? 'pc'
-              const isPolling   = voxelPollingIds?.has(d.id) ?? false
-              const isComputing = isPolling
-              const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
-              return (
-                <div key={d.id} className="date-row-wrap">
-                  <button
-                    className={`date-btn${isOn ? ' active' : ''}`}
-                    onClick={() => onToggleDate(d)}
-                  >
-                    <span className="date-label">{formatDate(d.observedAt) || d.label}</span>
-                    <span className="date-meta">
-                      <span className="date-name" title={d.name}>{trunc(d.name)}</span>
-                      {isOn && layerMode === 'vox'
-                        ? <span className="ltag ltag-teal">VOX</span>
-                        : <TypeTag type={d.datasetType} />
-                      }
-                    </span>
-                  </button>
-                  {isOn && (
-                    <LayerModePill
-                      dateId={d.id}
-                      datasetType={d.datasetType}
-                      hasVoxel={hasVoxel}
-                      computing={isComputing}
-                      value={layerMode}
-                      onChange={handleLayerMode}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Point size (point cloud only) ── */}
-      {showPcSlider && (
-        <div className="p-section">
-          <div className="p-label">포인트 크기</div>
-          <div className="pc-size-row">
-            <input
-              type="range" min="1" max="20" step="0.5"
-              value={pcSize}
-              onChange={e => onPcSize(parseFloat(e.target.value))}
-            />
-            <span className="pc-size-val">{pcSize}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Diff History ── */}
-      <div className="p-section">
-        <div className="p-label">Diff History</div>
-        <DiffHistory
-          entries={diffHistory ?? []}
-          activeId={activeDiffId}
-          onLoad={onLoadDiff}
-          onDelete={onDeleteDiff}
-        />
-      </div>
-
+      {analysisView === 'home' ? renderHome() : renderComputing()}
+      {drawerOpen && renderDatesDrawer()}
     </aside>
   )
 }

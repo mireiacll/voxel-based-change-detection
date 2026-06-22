@@ -48,7 +48,7 @@ import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
 
 const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
-const DEFAULT_DRAW_BTN  = '✏ Draw Area'
+const DEFAULT_DRAW_BTN  = '✏ 영역 그리기'
 
 // ── Per-tab visibility defaults ───────────────────────────────────────────
 const DEFAULT_VIS = { added: true, removed: true, unchanged: true }
@@ -63,6 +63,10 @@ export default function App() {
 
   const [mode, setMode] = useState('compare-api')
 
+  // 'home' shows project info + diff history; 'computing' shows the new-computation form
+  const [analysisView, setAnalysisView] = useState('home')
+  const [diffName,     setDiffName]     = useState('')
+
   const [visibleDateIds, setVisibleDateIds] = useState(new Set())
   const [activeDate, setActiveDate]         = useState(null)
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
@@ -72,13 +76,8 @@ export default function App() {
   const activeSiteRef     = useRef(null)
   const visibleIdsRef     = useRef(new Set())
   const modeRef           = useRef('compare-api')
-  // Observation ids that are in the process of being deleted. pollVoxelStatus
-  // checks this via shouldStop() before each fetch so it exits cleanly without
-  // firing a GET that would 404 on the now-deleted observation.
   const deletingObsIdsRef = useRef(new Set())
-  // Tracks which site's id the camera has already flown to, so we don't
-  // re-fly redundantly and so handleNavTab knows whether it still needs to.
-  const flownSiteIdRef = useRef(null)
+  const flownSiteIdRef    = useRef(null)
 
   useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
@@ -131,22 +130,6 @@ export default function App() {
   const tlSnapshotsRef = useRef(null)
   useEffect(() => { tlSnapshotsRef.current = tlSnapshots }, [tlSnapshots])
 
-  /**
-   * Dates that must NOT be edited/deleted right now because a diff job is
-   * actively using them. Editing or deleting an observation mid-diff would
-   * leave the running diff referencing a date that's changing or gone.
-   *
-   * Unlike voxelization (which is safely cancellable), a running diff is
-   * NOT auto-cancelled here — instead the edit/delete UI for the relevant
-   * date(s) is disabled until the diff finishes or the user cancels it
-   * themselves (via the existing "취소" button in the diff panel).
-   *
-   *   - A/B diff running  → only date A and date B are blocked.
-   *   - Time-series running → ALL dates in the active site are blocked,
-   *     since a time-series diff spans every consecutive pair.
-   *
-   * Returns a Map<dateId, reason-string-for-tooltip>.
-   */
   const blockedDateInfo = useMemo(() => {
     const map = new Map()
     if (apiRunning) {
@@ -221,21 +204,15 @@ export default function App() {
   // ── Timeline load ────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) {
-      console.log(`[TL-load effect] skip — mode=${mode} hasSite=${!!activeSite} snapshotsAlreadyLoaded=${tlSnapshots !== null}`)
       return
     }
-    console.log(`[TL-load effect] LOADING snapshots for site=${activeSite.id}`)
     setTlLoading(true)
     loadDiffSnapshots(activeSite)
       .then(async snaps => {
-        console.log(`[TL-load effect] got ${snaps.length} snapshots, preloading tilesets…`)
         setTlSnapshots(snaps)
         setTlActiveIndex(0)
         await loadAllSnapshotTilesets(snaps)
-        console.log(`[TL-load effect] preload done — showing index 0`)
-        if (snaps.length > 0) {
-          showSnapshotTileset(snaps[0].id)
-        }
+        if (snaps.length > 0) showSnapshotTileset(snaps[0].id)
       })
       .finally(() => setTlLoading(false))
   }, [mode, activeSite, tlSnapshots])
@@ -248,11 +225,7 @@ export default function App() {
     if (!tlSnapshots?.length) return
     const currentMode = modeRef.current
     const snap = tlSnapshots[tlActiveIndex]
-    console.log(`[TL-index effect] tlActiveIndex=${tlActiveIndex} snapId=${snap?.id} mode=${currentMode}`)
-    if (currentMode !== 'timeline') {
-      console.log(`[TL-index effect] NOT in timeline mode — skipping show`)
-      return
-    }
+    if (currentMode !== 'timeline') return
     if (!snap) return
     showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
@@ -321,16 +294,13 @@ export default function App() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
-  // Loads a site's data into state (activeSite, diff history, voxel poll
-  // resumption, etc.) WITHOUT touching navTab or the camera. Safe to call
-  // while still sitting on the launcher screen (first click on a card) —
-  // it just preloads so that whichever tab the user lands on next already
-  // has the right project's data.
   function loadSiteData(site) {
     console.log('[loadSiteData] site:', site.id, site.name, '— dates:', site.dates?.length)
     clearAllLayers()
     clearPolygon()
     setMode('compare-api')
+    setAnalysisView('home')
+    setDiffName('')
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
     setDrawBanner(false)
@@ -349,33 +319,19 @@ export default function App() {
     fetchProjectDiffs(site.id)
       .then(entries => setDiffHistory(entries))
       .catch(e => console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message))
-    // Use GET /api/jobs to discover all in-progress jobs at once, then
-    // resume polling only for VOXEL_CREATE jobs that target this project's observations.
-    // This is one request instead of N (one per observation with QUEUED/RUNNING status).
     fetchActiveJobs().then(activeJobs => {
-      console.log('[loadSiteData] active jobs:', activeJobs.map(j => `${j.id} ${j.jobType} targetId=${j.targetId} status=${j.status}`))
       const obsIds = new Set((site.dates ?? []).map(d => String(d.id)))
       activeJobs
         .filter(j => j.jobType === 'VOXEL_CREATE' && obsIds.has(String(j.targetId)))
-        .forEach(j => {
-          console.log('[loadSiteData] resuming voxel poll for obsId:', j.targetId)
-          resumeVoxelPoll(String(j.targetId), j.id)
-        })
+        .forEach(j => resumeVoxelPoll(String(j.targetId), j.id))
     }).catch(e => console.warn('[loadSiteData] fetchActiveJobs failed:', e.message))
   }
 
-  // First click on a launcher card — preload the site's data in the
-  // background while staying on the launcher. Re-clicking an already-active
-  // site is a cheap no-op (avoids redundant fetches/layer churn).
   function handlePreloadProject(site) {
     if (activeSiteRef.current?.id === site.id) return
     loadSiteData(site)
   }
 
-  // Second click on a launcher card (or "New project" flow) — actually
-  // navigate into the project. Loads the data if it isn't already the
-  // active site (covers callers other than the launcher), then switches
-  // tab and flies the camera.
   function handleOpenProject({ site, initialTab } = {}) {
     if (activeSiteRef.current?.id !== site.id) loadSiteData(site)
     setNavTab(initialTab ?? 'analysis')
@@ -400,36 +356,20 @@ export default function App() {
     setSites(updated)
     if (activeSite) {
       const updatedSite = updated.find(s => s.id === activeSite.id)
-      console.log('[handleDataChanged] updatedSite:', updatedSite?.id, '— dates:', updatedSite?.dates.length)
       if (updatedSite) {
         setActiveSite(updatedSite)
         window.currentSite = updatedSite
         const current = activeDateRef.current
-        console.log('[handleDataChanged] activeDate was:', current?.id, current?.label)
         if (current) {
           const d = updatedSite.dates.find(x => x.id === current.id)
-          console.log('[handleDataChanged] found updated date:', d?.id, 'datasetPath:', d?.datasetPath)
           if (d?.originalTilesetUrl) {
             invalidateTilesetUrl(d.originalTilesetUrl)
             loadDate(updatedSite, d, modeRef.current, {})
           }
         }
-
-        // The backend auto-starts voxelization as soon as a dataset is
-        // uploaded — but until now nothing in this live session noticed,
-        // because resumeVoxelPoll was only ever kicked off from
-        // handleOpenProject (on initial project open / page refresh).
-        // Without this, a freshly uploaded date's voxel progress/status
-        // would silently update on the server but never appear in the UI
-        // until the user manually refreshed the browser.
-        // Pick up any date that's QUEUED/RUNNING and not already being
-        // tracked in voxelPollingIds, and start polling it now.
         updatedSite.dates
           .filter(d => (d.voxelStatus === 'QUEUED' || d.voxelStatus === 'RUNNING') && !voxelPollingIds.has(d.id))
-          .forEach(d => {
-            console.log('[handleDataChanged] detected new/unpolled voxel job — resuming poll for dateId:', d.id, 'voxelStatus:', d.voxelStatus)
-            resumeVoxelPoll(d.id, d.voxelJobId)
-          })
+          .forEach(d => resumeVoxelPoll(d.id, d.voxelJobId))
       }
     }
     addToast('데이터가 업데이트되었습니다', 'ok')
@@ -511,7 +451,6 @@ export default function App() {
     const prevMode = modeRef.current
     if (prevMode === newMode) return
 
-    console.log(`[handleModeChange] ${prevMode} → ${newMode}`)
     setMode(newMode)
     modeRef.current = newMode
 
@@ -533,6 +472,25 @@ export default function App() {
     }
   }
 
+  // When user clicks "새 변화탐지"
+  function handleNewComputation() {
+    setAnalysisView('computing')
+    setDiffName('')
+    setApiSummary(null)
+    setApiStatus('')
+    setApiError(null)
+    setApiDiffTilesetUrl(null)
+    clearDiffApiTileset()
+    setActiveDiffId(null)
+  }
+
+  // When user clicks "← 목록으로"
+  function handleBackToHome() {
+    setAnalysisView('home')
+    // If a run is in progress, don't clear it — let it finish in background
+    // but stop showing the computing view
+  }
+
   async function handleApiRun() {
     if (apiRunning) return
     if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
@@ -541,19 +499,16 @@ export default function App() {
     const dA = activeSite.dates.find(d => d.id === apiDateIdA)
     const dB = activeSite.dates.find(d => d.id === apiDateIdB)
     if (dA?.voxelStatus !== 'SUCCEEDED') {
-      setApiError(`날짜 A (${dA?.label ?? apiDateIdA})의 Voxel이 아직 생성되지 않았습니다. 왼쪽 패널에서 먼저 계산하세요.`)
+      setApiError(`날짜 A (${dA?.label ?? apiDateIdA})의 Voxel이 아직 생성되지 않았습니다.`)
       return
     }
     if (dB?.voxelStatus !== 'SUCCEEDED') {
-      setApiError(`날짜 B (${dB?.label ?? apiDateIdB})의 Voxel이 아직 생성되지 않았습니다. 왼쪽 패널에서 먼저 계산하세요.`)
+      setApiError(`날짜 B (${dB?.label ?? apiDateIdB})의 Voxel이 아직 생성되지 않았습니다.`)
       return
     }
 
     apiDiffIdRef.current = null
     setApiRunning(true); setApiError(null); setApiSummary(null); setApiDiffTilesetUrl(null)
-    const _apiTimer = `[compare-api] ${dA?.label} vs ${dB?.label}`
-    console.time(_apiTimer)
-    console.log(`[compare-api] ⏱ started — ${dA?.label} (${apiDateIdA}) vs ${dB?.label} (${apiDateIdB})`)
     try {
       const { getPolygonWkt } = await import('./cesium/polygonDraw')
       const areaWkt = getPolygonWkt?.() ?? undefined
@@ -564,6 +519,7 @@ export default function App() {
         apiDateIdB,
         {
           areaWkt,
+          name: diffName || undefined,
           onStatus: setApiStatus,
           onDiffId: id => { apiDiffIdRef.current = id },
         },
@@ -576,7 +532,6 @@ export default function App() {
         await loadDiffApiTileset(result.tilesetUrl)
       }
 
-      // Re-fetch diff history from API so the list is always server-authoritative
       const diffId = apiDiffIdRef.current ?? result.id
       setActiveDiffId(diffId)
       try {
@@ -589,7 +544,6 @@ export default function App() {
       console.error('[handleApiRun] FAILED:', e.message, e)
       setApiError(e.message)
     } finally {
-      console.timeEnd(_apiTimer)
       apiDiffIdRef.current = null
       setApiRunning(false)
     }
@@ -628,7 +582,7 @@ export default function App() {
     const missing = activeSite.dates.filter(d => d.voxelStatus !== 'SUCCEEDED')
     if (missing.length > 0) {
       const labels = missing.map(d => d.label ?? d.id).join(', ')
-      addToast(`Voxel이 없는 날짜가 있습니다: ${labels} — 왼쪽 패널에서 먼저 계산하세요`, 'warn')
+      addToast(`Voxel이 없는 날짜가 있습니다: ${labels}`, 'warn')
       return
     }
 
@@ -639,6 +593,7 @@ export default function App() {
     setTlRecomputeDiffId(null)
     try {
       const diff = await createTimeSeriesDiffAndPoll(activeSite.id, {
+        name: diffName || undefined,
         onStatus: msg => setTlRecomputeStatus(msg),
         onDiffId: id  => setTlRecomputeDiffId(id),
       })
@@ -661,7 +616,7 @@ export default function App() {
       setTlRecomputeRunning(false)
       setTlRecomputeDiffId(null)
     }
-  }, [activeSite])
+  }, [activeSite, diffName])
 
   const handleTlCancelRecompute = useCallback(async () => {
     if (tlRecomputeDiffId) {
@@ -672,7 +627,6 @@ export default function App() {
     setTlRecomputeDiffId(null)
   }, [tlRecomputeDiffId])
 
-  // ── Shared helper — patch one date inside sites + activeSite after voxel completes ─
   function _patchVoxelDate(siteId, dateId, updatedDate) {
     setSites(prev => {
       const next = prev.map(s => {
@@ -688,31 +642,22 @@ export default function App() {
   async function resumeVoxelPoll(dateId, jobId) {
     const site = activeSiteRef.current
     const dateLabel = site?.dates.find(d => d.id === dateId)?.label ?? dateId
-    console.log('[resumeVoxelPoll] START dateId:', dateId, 'jobId:', jobId,
-      'siteId:', activeSiteRef.current?.id)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
-      // Check if already done before starting the poll loop.
-      // pollVoxelStatus works without a jobId — we only need the observationId.
       if (!jobId) {
         const fresh = await fetchObservation(dateId)
         if (fresh.voxelStatus === 'SUCCEEDED') {
-          console.log('[resumeVoxelPoll] already SUCCEEDED — patching state directly')
           _patchVoxelDate(activeSiteRef.current?.id, dateId, fresh)
           addToast(`✓ Voxel 완료: ${dateLabel}`, 'ok')
           setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
           return
         }
         if (fresh.voxelStatus !== 'QUEUED' && fresh.voxelStatus !== 'RUNNING') {
-          console.warn('[resumeVoxelPoll] unexpected voxelStatus:', fresh.voxelStatus, '— skipping poll')
           setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
           return
         }
       }
 
-      // Use pollVoxelStatus — lighter endpoint, no jobId needed after resolution.
-      // shouldStop lets the loop exit cleanly before the next GET when the
-      // observation is being deleted (handleCancelVoxelForDate marks the id).
       const voxResult = await pollVoxelStatus(
         dateId,
         s => {
@@ -723,12 +668,8 @@ export default function App() {
         },
         { shouldStop: () => deletingObsIdsRef.current.has(dateId) }
       )
-      console.log('[resumeVoxelPoll] pollVoxelStatus DONE — status:', voxResult.voxelStatus)
 
       if (voxResult.voxelStatus === 'CANCELLED') {
-        // Expected outcome when the user (or the date-edit/delete flow)
-        // cancelled the job themselves — not a failure, so no error toast.
-        console.log('[resumeVoxelPoll] cancelled by user — no error toast')
         setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
         setStatusMsg(`Voxel 취소됨: ${dateLabel}`)
         setStatusDone(true)
@@ -737,7 +678,6 @@ export default function App() {
       if (voxResult.voxelStatus !== 'SUCCEEDED') throw new Error(`Voxel ${voxResult.voxelStatus.toLowerCase()}`)
 
       const updatedDate = await fetchObservation(dateId)
-      console.log('[resumeVoxelPoll] updatedDate — voxelStatus:', updatedDate?.voxelStatus)
       _patchVoxelDate(activeSiteRef.current?.id, dateId, updatedDate)
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       setStatusMsg(`Voxel 완료: ${dateLabel}`)
@@ -746,11 +686,6 @@ export default function App() {
     } catch (e) {
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       if (/not found/i.test(e.message)) {
-        // The observation was deleted while this poll loop was still
-        // in-flight (delete cancels the voxelizer but the next poll tick
-        // can race ahead and hit a 404 before the loop notices). The date
-        // is gone either way — not a real failure, so no error toast.
-        console.log('[resumeVoxelPoll] observation deleted mid-poll — no error toast')
         setStatusMsg(`Voxel 취소됨: ${dateLabel}`)
         setStatusDone(true)
         return
@@ -764,21 +699,18 @@ export default function App() {
     if (!activeSite) return
     const siteId = activeSite.id
     const dateLabel = activeSite.dates.find(d => d.id === dateId)?.label ?? dateId
-    console.log('[handleComputeVoxel] START dateId:', dateId, 'siteId:', siteId)
     setVoxelPollingIds(prev => new Set([...prev, dateId]))
     try {
       addToast(`⚡ Voxel 생성 시작: ${dateLabel}`, 'ok')
       const updatedDate = await voxelizeAndPoll(
         dateId,
         ({ status, progress, message }) => {
-          console.log('[handleComputeVoxel] poll tick — status:', status, 'progress:', progress)
           const pct = progress ? ` (${progress}%)` : ''
           const msg = message ? ` — ${message}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
           setStatusDone(false)
         }
       )
-      console.log('[handleComputeVoxel] SUCCEEDED — voxelStatus:', updatedDate?.voxelStatus)
       _patchVoxelDate(siteId, dateId, updatedDate)
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       setStatusMsg(`Voxel 완료: ${dateLabel}`, true)
@@ -786,20 +718,7 @@ export default function App() {
       addToast(`✓ Voxel 생성 완료: ${dateLabel}`, 'ok')
     } catch (e) {
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
-      if (/^Voxelization cancelled/i.test(e.message)) {
-        // Expected outcome when the user (or the date-edit/delete flow)
-        // cancelled the job themselves — not a failure, so no error toast.
-        console.log('[handleComputeVoxel] cancelled by user — no error toast')
-        setStatusMsg(`Voxel 취소됨: ${dateLabel}`, true)
-        setStatusDone(true)
-        return
-      }
-      if (/not found/i.test(e.message)) {
-        // The observation was deleted while this poll loop was still
-        // in-flight (delete cancels the voxelizer but the next poll tick
-        // can race ahead and hit a 404 before the loop notices). The date
-        // is gone either way — this isn't a real failure, so no error toast.
-        console.log('[handleComputeVoxel] observation deleted mid-poll — no error toast')
+      if (/^Voxelization cancelled/i.test(e.message) || /not found/i.test(e.message)) {
         setStatusMsg(`Voxel 취소됨: ${dateLabel}`, true)
         setStatusDone(true)
         return
@@ -812,56 +731,17 @@ export default function App() {
     }
   }
 
-  /**
-   * Cancel an in-progress voxelizer job for a date.
-   * Unlike a running diff, voxelization is safe to auto-cancel: nothing else
-   * depends on it yet, so the edit/delete UI calls this directly instead of
-   * just blocking the buttons.
-   */
   async function handleCancelVoxelForDate(dateId) {
-    console.log('[handleCancelVoxelForDate] dateId:', dateId)
-    // Mark the id before doing anything async. The pollVoxelStatus loop running
-    // in resumeVoxelPoll checks this ref via shouldStop() before each fetch and
-    // after each sleep, so it exits cleanly without firing a GET on a deleted
-    // observation.
-    //
-    // IMPORTANT: do NOT clear this in a finally block here. The only caller of
-    // this function is DateRow.handleDelete, which calls onCancelVoxel(id) and
-    // then immediately calls deleteObservation(id) right after — so this id is
-    // always headed for deletion. Meanwhile there may be a resumeVoxelPoll loop
-    // for this exact id sleeping in pollVoxelStatus's 2s setTimeout *right now*
-    // (e.g. the poll that was auto-started when the backend kicked off
-    // voxelization on upload, before the user clicked delete). That loop only
-    // checks shouldStop() twice per 2s cycle — once before the fetch, once
-    // after the sleep. If we clear the ref here as soon as cancelVoxelize +
-    // fetchObservation resolve (typically well under a second), the flag can
-    // close before that other loop ever wakes up to see it, and it proceeds to
-    // GET an observation that's about to be (or already) deleted, causing a
-    // 404. Previously this is exactly what happened — verified via the 404
-    // stack trace pointing at the resumeVoxelPoll call kicked off by
-    // handleDataChanged on upload, not the delete flow itself.
-    //
-    // Leaving the id in the ref permanently is safe: ids are server-assigned
-    // and never reused, deleteObservation makes the id gone for good, and any
-    // future resumeVoxelPoll call for a *different* id is unaffected. We still
-    // clear it in the few early-return/failure paths below where the
-    // observation was NOT actually cancelled and might still be alive (so a
-    // legitimate future poll for this id shouldn't be permanently blocked).
     deletingObsIdsRef.current.add(dateId)
     try {
       const status = await cancelVoxelize(dateId)
-      console.log('[handleCancelVoxelForDate] cancelled — voxelStatus:', status.voxelStatus)
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       const updatedDate = await fetchObservation(dateId)
       if (activeSite) _patchVoxelDate(activeSite.id, dateId, updatedDate)
       addToast('Voxel 작업이 취소되었습니다', 'ok')
-      // NOTE: deliberately not clearing deletingObsIdsRef here — see comment above.
     } catch (e) {
       console.error('[handleCancelVoxelForDate] FAILED:', e.message, e)
       addToast(`Voxel 취소 실패: ${e.message}`, 'warn')
-      // The cancel itself failed, so the observation is presumably still
-      // alive and still voxelizing — don't leave it permanently blocked from
-      // being polled again.
       deletingObsIdsRef.current.delete(dateId)
     }
   }
@@ -883,7 +763,7 @@ export default function App() {
 
     if (entry.type === 'TIME_SERIES') {
       if (!entry.diffId) {
-        addToast('이 기록은 특정 결과를 다시 불러올 수 없습니다 (이전 버전에서 저장됨) — 최신 결과를 표시합니다', 'warn')
+        addToast('이전 버전에서 저장된 기록입니다 — 최신 결과를 표시합니다', 'warn')
         handleModeChange('timeline')
         setActiveDiffId(entry.id)
         return
@@ -891,10 +771,7 @@ export default function App() {
       try {
         setTlLoading(true)
         const snaps = await loadDiffSnapshotsByDiffId(entry.diffId, activeSite.id)
-        if (!snaps.length) {
-          addToast('해당 시계열 결과를 불러올 수 없습니다', 'warn')
-          return
-        }
+        if (!snaps.length) { addToast('해당 시계열 결과를 불러올 수 없습니다', 'warn'); return }
         clearAllSnapshotTilesets()
         setTlSnapshots(snaps)
         setTlActiveIndex(0)
@@ -908,10 +785,7 @@ export default function App() {
         setTlLoading(false)
       }
     } else if (entry.type === 'AB') {
-      if (!entry.diffId) {
-        addToast('이 기록은 특정 결과를 다시 불러올 수 없습니다 (이전 버전에서 저장됨)', 'warn')
-        return
-      }
+      if (!entry.diffId) { addToast('이전 버전에서 저장된 기록입니다', 'warn'); return }
       handleModeChange('compare-api')
       setApiStatus('기록 불러오는 중…')
       setApiError(null)
@@ -921,11 +795,7 @@ export default function App() {
         setApiSummary(report)
         if (tilesetUrl) {
           setApiDiffTilesetUrl(tilesetUrl)
-          try {
-            await loadDiffApiTileset(tilesetUrl)
-          } catch (e) {
-            addToast(`Tileset 로드 실패: ${e.message}`, 'warn')
-          }
+          try { await loadDiffApiTileset(tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
         }
         setApiStatus('기록에서 불러옴')
         setActiveDiffId(entry.id)
@@ -941,7 +811,6 @@ export default function App() {
     try {
       await deleteDiff(diffId)
     } catch (e) {
-      console.warn('[handleDeleteDiff] API delete failed:', e.message)
       addToast(`Diff 삭제 실패: ${e.message}`, 'warn')
       return
     }
@@ -950,8 +819,6 @@ export default function App() {
       const entries = await fetchProjectDiffs(activeSite.id)
       setDiffHistory(entries)
     } catch (e) {
-      console.warn('[handleDeleteDiff] fetchProjectDiffs refresh failed:', e.message)
-      // Optimistic local removal as fallback
       setDiffHistory(prev => prev.filter(e => String(e.id) !== String(diffId)))
     }
   }
@@ -967,10 +834,6 @@ export default function App() {
 
   function handleNavTab(tab) {
     if ((tab === 'upload' || tab === 'analysis') && !activeSite) return
-    // If we're entering a project view tab and the camera hasn't yet flown
-    // to this site (e.g. user clicked once on the launcher card to preload,
-    // then jumped here via the nav bar instead of double-clicking the card),
-    // fly there now.
     if ((tab === 'upload' || tab === 'analysis') && activeSite && flownSiteIdRef.current !== activeSite.id) {
       if (activeSite.centerLon != null && activeSite.centerLat != null) {
         flyTo(activeSite.centerLon, activeSite.centerLat - 0.006, activeSite.cameraHeight)
@@ -990,30 +853,15 @@ export default function App() {
 
   const tlStaleInfo = (() => {
     const succeededDates = (activeSite?.dates ?? []).filter(d => d.voxelStatus === 'SUCCEEDED')
-
-    if (!tlSnapshots?.length || succeededDates.length < 2) {
-      return { stale: false, addedLabels: [], removedLabels: [] }
-    }
-
+    if (!tlSnapshots?.length || succeededDates.length < 2) return { stale: false, addedLabels: [], removedLabels: [] }
     const snapshotObsIds = new Set()
-    tlSnapshots.forEach(s => {
-      snapshotObsIds.add(s.date_a.id)
-      snapshotObsIds.add(s.date_b.id)
-    })
-
+    tlSnapshots.forEach(s => { snapshotObsIds.add(s.date_a.id); snapshotObsIds.add(s.date_b.id) })
     const currentObsIds = new Set(succeededDates.map(d => d.id))
-
-    const addedLabels = succeededDates
-      .filter(d => !snapshotObsIds.has(d.id))
-      .map(d => d.label ?? d.name ?? d.id)
-
-    const removedLabels = [...snapshotObsIds]
-      .filter(id => !currentObsIds.has(id))
-      .map(id => {
-        const found = activeSite?.dates.find(d => d.id === id)
-        return found?.label ?? found?.name ?? id
-      })
-
+    const addedLabels = succeededDates.filter(d => !snapshotObsIds.has(d.id)).map(d => d.label ?? d.name ?? d.id)
+    const removedLabels = [...snapshotObsIds].filter(id => !currentObsIds.has(id)).map(id => {
+      const found = activeSite?.dates.find(d => d.id === id)
+      return found?.label ?? found?.name ?? id
+    })
     let reordered = false
     if (addedLabels.length === 0 && removedLabels.length === 0) {
       const snapshotIdSequence = []
@@ -1025,12 +873,7 @@ export default function App() {
         .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
         .map(d => d.id)
       reordered = snapshotIdSequence.some((id, i) => id !== currentIdSequence[i])
-      if (reordered) console.log(
-        '[tlStaleInfo] reorder detected — snapshot order:', snapshotIdSequence,
-        'current order:', currentIdSequence
-      )
     }
-
     const stale = addedLabels.length > 0 || removedLabels.length > 0 || reordered
     return { stale, addedLabels, removedLabels, reordered }
   })()
@@ -1038,7 +881,6 @@ export default function App() {
   const tlStale = tlStaleInfo.stale
 
   const activeVis = mode === 'timeline' ? tlVis : compareApiVis
-
   const activeVisSetters = mode === 'timeline'
     ? {
         onShowAdded:     v => setTlVis(s => ({ ...s, added: v })),
@@ -1055,10 +897,7 @@ export default function App() {
     <>
       <div
         id="cesiumContainer"
-        className={[
-          '',
-          showAnalysis ? '' : 'cesium-hidden',
-        ].join(' ').trim()}
+        className={showAnalysis ? '' : 'cesium-hidden'}
       />
 
       <NavBar tab={navTab} onTab={handleNavTab} activeSite={activeSite} />
@@ -1109,35 +948,40 @@ export default function App() {
             showPcSlider={showPcSlider}
             voxelPollingIds={voxelPollingIds}
             onLayerMode={handleLayerMode}
-            onComputeVoxel={handleComputeVoxel}
             mode={mode}                     onMode={handleModeChange}
             diffHistory={diffHistory}
             activeDiffId={activeDiffId}
             onLoadDiff={handleLoadDiff}
             onDeleteDiff={handleDeleteDiff}
+            analysisView={analysisView}
+            onNewComputation={handleNewComputation}
+            onBackToHome={handleBackToHome}
+            diffName={diffName}             onDiffName={setDiffName}
+            apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
+            apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
+            apiRunning={apiRunning}         onApiRun={handleApiRun}
+            onApiClear={handleApiClear}     onApiCancel={handleApiCancel}
+            apiStatus={apiStatus}           apiError={apiError}
+            drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
+            tlRecomputeRunning={tlRecomputeRunning}
+            onTlRecompute={handleTlRecompute}
+            onTlCancelRecompute={handleTlCancelRecompute}
+            tlRecomputeStatus={tlRecomputeStatus}
           />
 
           <RightPanel
             mode={mode}
-            activeSite={activeSite}
-            drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
             showAdded={activeVis.added}           onShowAdded={activeVisSetters.onShowAdded}
             showRemoved={activeVis.removed}       onShowRemoved={activeVisSetters.onShowRemoved}
             showUnchanged={activeVis.unchanged}   onShowUnchanged={activeVisSetters.onShowUnchanged}
             tlSnapshots={tlSnapshots}       tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
-            tlLoading={tlLoading}           tlOnRecompute={handleTlRecompute}
-            tlRecomputeRunning={tlRecomputeRunning}
-            tlRecomputeStatus={tlRecomputeStatus}
-            tlOnCancelRecompute={handleTlCancelRecompute}
+            tlLoading={tlLoading}
             tlStale={tlStale}
             tlStaleInfo={tlStaleInfo}
             tlMissingVoxels={tlMissingVoxels}
-            apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
-            apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
-            apiRunning={apiRunning}         onApiRun={handleApiRun}     onApiClear={handleApiClear}   onApiCancel={handleApiCancel}
-            apiStatus={apiStatus}           apiError={apiError}
+            apiRunning={apiRunning}
             apiSummary={apiSummary}
           />
 

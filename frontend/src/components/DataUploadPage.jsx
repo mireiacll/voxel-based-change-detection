@@ -387,6 +387,82 @@ function ManualLocationModal({ site, onSaved, onClose }) {
   )
 }
 
+// ── Camera height modal — type in a height (metres) directly ─────────────
+// Saves only cameraHeight; all other project fields are preserved as-is.
+
+function SetCameraHeightModal({ site, onSaved, onClose }) {
+  const [height,  setHeight]  = useState('')
+  const [error,   setError]   = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  async function handleSave() {
+    const h = height.trim() === '' ? (site.cameraHeight ?? 600) : parseFloat(height)
+    if (Number.isNaN(h) || h <= 0) return setError('높이는 0보다 큰 숫자여야 합니다.')
+
+    setSaving(true)
+    setError('')
+    try {
+      await updateProject(site.id, {
+        name:         site.name,
+        description:  site.description ?? '',
+        centerLon:    site.centerLon   ?? null,
+        centerLat:    site.centerLat   ?? null,
+        cameraHeight: h,
+        status:       site.status      ?? 'ACTIVE',
+      })
+      onSaved(h)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget && !saving) onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={handleBackdrop}>
+      <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">↕ 카메라 높이 설정</span>
+          <button className="modal-close" onClick={onClose} disabled={saving}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-field">
+            <label>카메라 높이 (m)</label>
+            <input
+              type="number"
+              step="any"
+              min="1"
+              value={height}
+              onChange={e => { setHeight(e.target.value); setError('') }}
+              placeholder={`현재: ${site.cameraHeight ?? 600} m`}
+              disabled={saving}
+              autoFocus
+            />
+          </div>
+          <div className="modal-hint">
+            지도에서 현장을 바라보는 초기 카메라 높이(미터)입니다.
+          </div>
+          {error && <div className="modal-error">{error}</div>}
+        </div>
+
+        <div className="modal-footer">
+          <button className="modal-btn-secondary" onClick={onClose} disabled={saving}>
+            취소
+          </button>
+          <button className="modal-btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Single-date row ───────────────────────────────────────────────────────
 
 function DateRow({
@@ -956,7 +1032,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
             tilesetCenter_lon: lon,
             tilesetCenter_lat: lat,
             cameraDestination_lon: lon,
-            cameraDestination_lat: lat - 0.006,
+            cameraDestination_lat: lat - 0.009,
             cameraDestination_height: 600,
             boundingSphere_lon: Cesium.Math.toDegrees(bsCarto.longitude),
             boundingSphere_lat: Cesium.Math.toDegrees(bsCarto.latitude),
@@ -964,7 +1040,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
           })
 
           v.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.006, 600),
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.009, 600),
             orientation: { heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0 },
             duration: 1.2,
           })
@@ -1078,8 +1154,9 @@ export default function DataUploadPage({
   const hasCoords = site.centerLat != null && site.centerLon != null
   const hasDates  = (site.dates?.length ?? 0) > 0
 
-  const [activePreview, setActivePreview] = useState(null)  // { dateId, layer } | null
-  const [manualPos, setManualPos] = useState(false)
+  const [activePreview,  setActivePreview]  = useState(null)  // { dateId, layer } | null
+  const [manualPos,      setManualPos]      = useState(false)
+  const [editHeight,     setEditHeight]     = useState(false)
 
   function handlePreview(date, layer) {
     // Clicking the already-active button toggles it off
@@ -1108,13 +1185,16 @@ export default function DataUploadPage({
           </div>
         </div>
 
-        {/* ── Coordinates display ── */}
+        {/* ── Coordinates + camera height display ── */}
         {hasCoords && (
           <div className="dup-coords-info">
             <span className="dup-coords-label">프로젝트 위치:</span>
             <span className="dup-coords-value">{site.centerLon.toFixed(5)}, {site.centerLat.toFixed(5)}</span>
             <button className="dup-manual-coords-btn" onClick={() => setManualPos(true)}>
               ✎ 좌표 직접 입력
+            </button>
+            <button className="dup-manual-coords-btn" onClick={() => setEditHeight(true)} style={{ marginLeft: '0.5rem' }}>
+              ↕ 카메라 높이
             </button>
           </div>
         )}
@@ -1179,6 +1259,31 @@ export default function DataUploadPage({
             site={site}
             onSaved={() => { setManualPos(false); onSiteUpdated?.() }}
             onClose={() => setManualPos(false)}
+          />
+        )}
+
+        {editHeight && (
+          <SetCameraHeightModal
+            site={site}
+            onSaved={(newHeight) => {
+              setEditHeight(false)
+              onSiteUpdated?.()
+              // Immediately reposition the main Cesium viewer at the new height
+              const viewer = window.viewer
+              const Cesium = window.Cesium
+              if (viewer && !viewer.isDestroyed() && Cesium && site.centerLon != null && site.centerLat != null) {
+                viewer.camera.flyTo({
+                  destination: Cesium.Cartesian3.fromDegrees(
+                    site.centerLon,
+                    site.centerLat - 0.009,
+                    newHeight,
+                  ),
+                  orientation: { heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0 },
+                  duration: 1.2,
+                })
+              }
+            }}
+            onClose={() => setEditHeight(false)}
           />
         )}
       </div>

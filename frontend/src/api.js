@@ -301,6 +301,22 @@ export async function updateProject(id, patch) {
   return _normaliseProject(p)
 }
 
+/**
+ * Update only the cameraHeight of a project, preserving all other fields.
+ * Convenience wrapper around updateProject so callers don't have to pass
+ * every project field just to change the height.
+ */
+export async function updateCameraHeight(site, newHeight) {
+  return updateProject(site.id, {
+    name:         site.name,
+    description:  site.description  ?? '',
+    centerLat:    site.centerLat    ?? null,
+    centerLon:    site.centerLon    ?? null,
+    cameraHeight: newHeight,
+    status:       site.status       ?? 'ACTIVE',
+  })
+}
+
 export async function deleteProject(id) {
   await _delete(`/api/projects/${id}`)
 }

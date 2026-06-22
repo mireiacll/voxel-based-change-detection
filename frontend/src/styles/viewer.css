@@ -651,7 +651,7 @@ select {
 /* ── Timeline bar ───────────────────────────────────────────── */
 #timeline-bar {
   position: fixed;
-  bottom: var(--bbh); left: 0; right: 0;
+  bottom: var(--bbh); left: var(--pw); right: var(--rpw);
   height: 72px;
   background: var(--surf); border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 12px;

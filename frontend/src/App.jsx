@@ -336,7 +336,7 @@ export default function App() {
     if (activeSiteRef.current?.id !== site.id) loadSiteData(site)
     setNavTab(initialTab ?? 'analysis')
     if (site.centerLon != null && site.centerLat != null) {
-      flyTo(site.centerLon, site.centerLat - 0.006, site.cameraHeight)
+      flyTo(site.centerLon, site.centerLat - 0.009, site.cameraHeight)
     }
     flownSiteIdRef.current = site.id
   }
@@ -384,7 +384,7 @@ export default function App() {
         setActiveSite(updatedSite)
         window.currentSite = updatedSite
         if (updatedSite.centerLon != null && updatedSite.centerLat != null) {
-          flyTo(updatedSite.centerLon, updatedSite.centerLat - 0.006, updatedSite.cameraHeight)
+          flyTo(updatedSite.centerLon, updatedSite.centerLat - 0.009, updatedSite.cameraHeight)
         }
       }
     }
@@ -754,6 +754,7 @@ export default function App() {
         clearAllSnapshotTilesets()
         setTlSnapshots(null)
         setTlActiveIndex(0)
+        handleModeChange('compare-api')
       } else if (entry.type === 'AB') {
         handleApiClear()
       }
@@ -825,7 +826,7 @@ export default function App() {
 
   function handleCameraSite() {
     if (!activeSite) return
-    flyTo(activeSite.centerLon, activeSite.centerLat - 0.006, activeSite.cameraHeight, -40)
+    flyTo(activeSite.centerLon, activeSite.centerLat - 0.009, activeSite.cameraHeight, -40)
   }
   function handleCameraTop() {
     if (!activeSite) return
@@ -836,7 +837,7 @@ export default function App() {
     if ((tab === 'upload' || tab === 'analysis') && !activeSite) return
     if ((tab === 'upload' || tab === 'analysis') && activeSite && flownSiteIdRef.current !== activeSite.id) {
       if (activeSite.centerLon != null && activeSite.centerLat != null) {
-        flyTo(activeSite.centerLon, activeSite.centerLat - 0.006, activeSite.cameraHeight)
+        flyTo(activeSite.centerLon, activeSite.centerLat - 0.009, activeSite.cameraHeight)
       }
       flownSiteIdRef.current = activeSite.id
     }

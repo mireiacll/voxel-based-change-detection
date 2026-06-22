@@ -29,6 +29,7 @@ import {
   pollVoxelStatus,
   fetchActiveJobs,
   createAbDiffAndPoll,
+  fetchAbDiffResult,
   cancelDiff,
   deleteDiff,
   fetchProjectDiffs,
@@ -907,28 +908,31 @@ export default function App() {
         setTlLoading(false)
       }
     } else if (entry.type === 'AB') {
-      handleModeChange('compare-api')
-      setApiSummary({
-        diffItemId:       entry.diffItemId ?? null,
-        sourceObservedAt: entry.labelA,
-        targetObservedAt: entry.labelB,
-        addedVolume:      entry.addedVolume   ?? 0,
-        removedVolume:    entry.removedVolume ?? 0,
-        changedVolume:    0,
-        addedCount:       null,
-        removedCount:     null,
-      })
-      if (entry.tilesetUrl) {
-        setApiDiffTilesetUrl(entry.tilesetUrl)
-        try {
-          await loadDiffApiTileset(entry.tilesetUrl)
-        } catch (e) {
-          addToast(`Tileset 로드 실패: ${e.message}`, 'warn')
-        }
+      if (!entry.diffId) {
+        addToast('이 기록은 특정 결과를 다시 불러올 수 없습니다 (이전 버전에서 저장됨)', 'warn')
+        return
       }
-      setApiStatus('기록에서 불러옴')
+      handleModeChange('compare-api')
+      setApiStatus('기록 불러오는 중…')
       setApiError(null)
-      setActiveDiffId(entry.id)
+      setApiSummary(null)
+      try {
+        const { report, tilesetUrl } = await fetchAbDiffResult(entry.diffId)
+        setApiSummary(report)
+        if (tilesetUrl) {
+          setApiDiffTilesetUrl(tilesetUrl)
+          try {
+            await loadDiffApiTileset(tilesetUrl)
+          } catch (e) {
+            addToast(`Tileset 로드 실패: ${e.message}`, 'warn')
+          }
+        }
+        setApiStatus('기록에서 불러옴')
+        setActiveDiffId(entry.id)
+      } catch (e) {
+        setApiStatus('')
+        addToast(`기록 불러오기 실패: ${e.message}`, 'warn')
+      }
     }
   }
 

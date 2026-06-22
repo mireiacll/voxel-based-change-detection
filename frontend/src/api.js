@@ -872,6 +872,114 @@ export async function fetchProjectDiffs(projectId) {
 }
 
 /**
+ * Given a diff item (from fetchDiffItems / list endpoints), fetch its report
+ * and — if available — the fine-resolution mass-summary.json, returning a
+ * normalised summary object with the best-available volumes.
+ *
+ * The /report endpoint alone often returns zeros for volumes; the real
+ * per-level breakdown lives in mass-summary.json (served alongside the voxel
+ * tileset). The LAST level in levelCounts[] is the finest resolution and
+ * gives the correct human-scale volume — coarse levels dominate the totals
+ * with large multi-voxel tiles.
+ *
+ * Used both right after a live diff run (createAbDiffAndPoll) and when
+ * re-loading a past AB result from Diff History, so both paths show the
+ * same fine-grained numbers instead of the coarse item-level totals.
+ *
+ * @param {object} item — a DiffItemResponse (has .id, .addedVolume, .removedVolume, etc.)
+ * @returns {Promise<object>} summary — { diffItemId, sourceObservedAt, targetObservedAt,
+ *   addedVolume, removedVolume, changedVolume, addedCount, removedCount, summaryPath }
+ */
+export async function fetchDiffItemFineSummary(item) {
+  let report = null
+  try { report = await fetchDiffItemReport(item.id) } catch (_) {}
+  console.log('[fetchDiffItemFineSummary] report:', report)
+
+  // The /report endpoint returns zeros — real volumes are in mass-summary.json.
+  // summaryPath from report: /data/voxelsets/.../summary.json
+  // mass-summary served at:  /files/voxelsets/.../voxel/mass-summary.json
+  let massSummary = null
+  if (report?.summaryPath) {
+    try {
+      // Convert /data/voxelsets/…/summary.json → /files/voxelsets/…/voxel/mass-summary.json
+      const massUrl = _toAbsoluteUrl(
+        report.summaryPath
+          .replace(/^\/data\//, '/files/')
+          .replace(/\/summary\.json$/, '/voxel/mass-summary.json')
+      )
+      console.log('[fetchDiffItemFineSummary] fetching mass-summary from:', massUrl)
+      const res = await fetch(massUrl)
+      if (res.ok) {
+        massSummary = await res.json()
+        console.log('[fetchDiffItemFineSummary] mass-summary:', massSummary)
+      } else {
+        console.warn('[fetchDiffItemFineSummary] mass-summary fetch failed:', res.status)
+      }
+    } catch (e) {
+      console.warn('[fetchDiffItemFineSummary] mass-summary fetch error:', e.message)
+    }
+  }
+
+  const lastLevel = massSummary?.levelCounts?.length
+    ? massSummary.levelCounts[massSummary.levelCounts.length - 1]
+    : null
+  if (lastLevel) console.log('[fetchDiffItemFineSummary] lastLevel:', lastLevel)
+
+  const summary = {
+    diffItemId:       item.id,
+    sourceObservedAt: item.sourceObservedAt ?? report?.sourceObservedAt,
+    targetObservedAt: item.targetObservedAt ?? report?.targetObservedAt,
+    // Use last-level fine-resolution volumes; fall back to totals then item/report
+    addedVolume:   lastLevel?.addApproxVolumeCubicMeters
+                ?? massSummary?.totalAddApproxVolumeCubicMeters
+                ?? item.addedVolume   ?? report?.addedVolume   ?? 0,
+    removedVolume: lastLevel?.removeApproxVolumeCubicMeters
+                ?? massSummary?.totalRemoveApproxVolumeCubicMeters
+                ?? item.removedVolume ?? report?.removedVolume ?? 0,
+    changedVolume: 0,
+    // Voxel counts from last level for display
+    addedCount:   lastLevel?.addVoxelCount    ?? massSummary?.totalAddVoxelCount    ?? 0,
+    removedCount: lastLevel?.removeVoxelCount ?? massSummary?.totalRemoveVoxelCount ?? 0,
+    // Average voxel volume at the finest level — same field timeline uses to
+    // derive the displayed voxel edge length (cbrt of this value).
+    avg_vox_vol:  lastLevel?.averageVoxelVolumeCubicMeters ?? null,
+    summaryPath:  report?.summaryPath ?? null,
+  }
+  console.log('[fetchDiffItemFineSummary] final summary:', summary)
+  return summary
+}
+
+/**
+ * Re-fetch the fine-resolution summary + tileset URL for a past AB diff,
+ * for restoring a Diff History entry. Mirrors the tail end of
+ * createAbDiffAndPoll, but starting from an already-known diffId instead
+ * of running a new diff job. Kept lazy (called only when an entry is
+ * clicked) — same pattern as the timeline history's
+ * loadDiffSnapshotsByDiffId, which also fetches its detail on demand rather
+ * than upfront in fetchProjectDiffs.
+ *
+ * @param {string|number} diffId
+ * @returns {Promise<{ report: object, tilesetUrl: string|null }>}
+ */
+export async function fetchAbDiffResult(diffId) {
+  console.log('[fetchAbDiffResult] diffId:', diffId)
+  const items = await fetchDiffItems(diffId)
+  if (!items.length) throw new Error('분석 결과가 없습니다')
+  const item = items[0]
+
+  const report = await fetchDiffItemFineSummary(item)
+
+  let tilesetUrl = null
+  if (item.resultTilesetUrl) {
+    tilesetUrl = _injectVisualizationFolder(_toAbsoluteUrl(item.resultTilesetUrl))
+  } else {
+    try { tilesetUrl = await fetchDiffItemTilesetUrl(item.id) } catch (_) {}
+  }
+
+  return { report, tilesetUrl }
+}
+
+/**
  * Create an A/B diff and poll until the job completes.
  * Calls onStatus(msg: string) with progress updates.
  * Resolves with the first DiffItemResponse enriched with:
@@ -914,63 +1022,7 @@ export async function createAbDiffAndPoll(projectId, sourceObservationId, target
   const item = items[0]
   console.log('[createAbDiffAndPoll] item volumes — added:', item.addedVolume, 'removed:', item.removedVolume, 'changed:', item.changedVolume)
 
-  // Try the /report endpoint for extra fields (summaryPath etc) but don't
-  // rely on it for volumes — the item itself carries addedVolume/removedVolume/
-  // changedVolume directly from the diff computation.
-  let report = null
-  try { report = await fetchDiffItemReport(item.id) } catch (_) {}
-  console.log('[createAbDiffAndPoll] report:', report)
-
-  // The /report endpoint returns zeros — real volumes are in mass-summary.json.
-  // summaryPath from report: /data/voxelsets/.../summary.json
-  // mass-summary served at:  /files/voxelsets/.../voxel/mass-summary.json
-  let massSummary = null
-  if (report?.summaryPath) {
-    try {
-      // Convert /data/voxelsets/…/summary.json → /files/voxelsets/…/voxel/mass-summary.json
-      const massUrl = _toAbsoluteUrl(
-        report.summaryPath
-          .replace(/^\/data\//, '/files/')
-          .replace(/\/summary\.json$/, '/voxel/mass-summary.json')
-      )
-      console.log('[createAbDiffAndPoll] fetching mass-summary from:', massUrl)
-      const res = await fetch(massUrl)
-      if (res.ok) {
-        massSummary = await res.json()
-        console.log('[createAbDiffAndPoll] mass-summary:', massSummary)
-      } else {
-        console.warn('[createAbDiffAndPoll] mass-summary fetch failed:', res.status)
-      }
-    } catch (e) {
-      console.warn('[createAbDiffAndPoll] mass-summary fetch error:', e.message)
-    }
-  }
-
-  // The mass-summary has per-level breakdowns in levelCounts[].
-  // Coarse levels (0-N-1) are large multi-voxel tiles that dominate the totals.
-  // The LAST level is the finest resolution and gives the correct human-scale volume.
-  const lastLevel = massSummary?.levelCounts?.length
-    ? massSummary.levelCounts[massSummary.levelCounts.length - 1]
-    : null
-  if (lastLevel) console.log('[createAbDiffAndPoll] lastLevel:', lastLevel)
-
-  const summary = {
-    diffItemId:       item.id,
-    sourceObservedAt: item.sourceObservedAt ?? report?.sourceObservedAt,
-    targetObservedAt: item.targetObservedAt ?? report?.targetObservedAt,
-    // Use last-level fine-resolution volumes; fall back to totals then item/report
-    addedVolume:   lastLevel?.addApproxVolumeCubicMeters
-                ?? massSummary?.totalAddApproxVolumeCubicMeters
-                ?? item.addedVolume   ?? report?.addedVolume   ?? 0,
-    removedVolume: lastLevel?.removeApproxVolumeCubicMeters
-                ?? massSummary?.totalRemoveApproxVolumeCubicMeters
-                ?? item.removedVolume ?? report?.removedVolume ?? 0,
-    changedVolume: 0,
-    // Voxel counts from last level for display
-    addedCount:   lastLevel?.addVoxelCount    ?? massSummary?.totalAddVoxelCount    ?? 0,
-    removedCount: lastLevel?.removeVoxelCount ?? massSummary?.totalRemoveVoxelCount ?? 0,
-    summaryPath:  report?.summaryPath ?? null,
-  }
+  const summary = await fetchDiffItemFineSummary(item)
   console.log('[createAbDiffAndPoll] final summary:', summary)
 
   let tilesetUrl = null

@@ -17,6 +17,12 @@ function fmtVol(m3) {
   return `${m3.toFixed(1)} m³`
 }
 
+function fmtVoxSize(avgVoxVol) {
+  if (avgVoxVol == null || avgVoxVol <= 0) return '—'
+  const edge = Math.cbrt(avgVoxVol)
+  return `${edge.toFixed(3)} m`
+}
+
 export default function RightPanel({
   mode,
   activeSite,
@@ -168,18 +174,14 @@ export default function RightPanel({
                 </div>
 
                 <div id="stats-box" style={{ marginTop: 8 }}>
-                  {showAdded && (
-                    <div className="stat-row">
-                      <span className="stat-k">추가 부피</span>
-                      <span className="stat-v" style={{ color: 'var(--added)' }}>+{fmtVol(added)}</span>
-                    </div>
-                  )}
-                  {showRemoved && (
-                    <div className="stat-row">
-                      <span className="stat-k">제거 부피</span>
-                      <span className="stat-v" style={{ color: 'var(--removed)' }}>-{fmtVol(removed)}</span>
-                    </div>
-                  )}
+                  <div className="stat-row">
+                    <span className="stat-k">추가 부피</span>
+                    <span className="stat-v" style={{ color: 'var(--added)' }}>+{fmtVol(added)}</span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-k">제거 부피</span>
+                    <span className="stat-v" style={{ color: 'var(--removed)' }}>-{fmtVol(removed)}</span>
+                  </div>
                   {changed > 0 && (
                     <div className="stat-row">
                       <span className="stat-k">변경 부피</span>
@@ -190,6 +192,12 @@ export default function RightPanel({
                     <span className="stat-k">순 변화</span>
                     <span className="stat-v" style={{ color: net >= 0 ? 'var(--added)' : 'var(--removed)' }}>
                       {net >= 0 ? '+' : ''}{fmtVol(net)}
+                    </span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-k">복셀 크기</span>
+                    <span className="stat-v" style={{ fontSize: 10, color: 'var(--muted)' }}>
+                      {fmtVoxSize(apiSummary.avg_vox_vol)}
                     </span>
                   </div>
                 </div>

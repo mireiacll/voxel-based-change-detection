@@ -22,9 +22,9 @@ cd backend
 
 Useful endpoints:
 
-- `GET /api/health`
-- `GET /api/demo`
-- `POST /api/demo/echo`
+- `GET /api/projects`
+- `GET /api/projects/{projectId}/observations`
+- `GET /api/projects/{projectId}/diffs`
 - `GET /actuator/health`
 
 Run tests:
@@ -53,5 +53,4 @@ The `server/` directory contains the Python workspace used for voxel processing 
 Before opening or merging a change:
 
 - Run the affected tests or document why they could not be run.
-- Keep sample/demo endpoints clearly labeled.
 - Avoid committing generated build outputs, local caches, or environment-specific files.

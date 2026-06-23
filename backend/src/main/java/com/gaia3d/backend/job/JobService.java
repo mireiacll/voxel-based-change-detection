@@ -47,6 +47,14 @@ public class JobService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "job not found: " + id));
     }
 
+    public Job find(Long id) {
+        return jobRepository.findById(id).orElse(null);
+    }
+
+    public List<Job> findByTarget(JobTargetType targetType, Long targetId) {
+        return jobRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAscIdAsc(targetType, targetId);
+    }
+
     public JobResponse findById(Long id) {
         return JobResponse.from(getRequired(id));
     }
@@ -76,6 +84,9 @@ public class JobService {
     @Transactional
     public JobResponse cancel(Long id) {
         Job job = getRequired(id);
+        if (job.getJobType() == JobType.PROJECT_DELETE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "project deletion job cannot be cancelled");
+        }
         if (job.getStatus() == JobStatus.SUCCEEDED || job.getStatus() == JobStatus.FAILED
                 || job.getStatus() == JobStatus.CANCELLED) {
             return JobResponse.from(job);

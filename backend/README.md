@@ -69,22 +69,10 @@ http://localhost:8080/v3/api-docs
 In Swagger, test:
 
 ```text
-GET /api/health
-```
-
-Expected:
-
-```json
-{"status":"ok"}
-```
-
-Then test:
-
-```text
 GET /api/projects
 ```
 
-On first startup the backend seeds one empty sample project:
+On first startup the backend seeds one empty project:
 
 ```json
 [

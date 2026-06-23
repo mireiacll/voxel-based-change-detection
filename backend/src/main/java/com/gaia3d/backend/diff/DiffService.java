@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 
+import com.gaia3d.backend.common.CascadeDeletionService;
 import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
@@ -44,6 +45,7 @@ public class DiffService {
     private final VoxelizerCommandService commandService;
     private final VoxelizerProperties properties;
     private final TilesetUrlResolver tilesetUrlResolver;
+    private final CascadeDeletionService cascadeDeletionService;
 
     public DiffService(
             DiffRepository diffRepository,
@@ -55,7 +57,8 @@ public class DiffService {
             DiffJobRunner diffJobRunner,
             VoxelizerCommandService commandService,
             VoxelizerProperties properties,
-            TilesetUrlResolver tilesetUrlResolver) {
+            TilesetUrlResolver tilesetUrlResolver,
+            CascadeDeletionService cascadeDeletionService) {
         this.diffRepository = diffRepository;
         this.diffItemRepository = diffItemRepository;
         this.observationRepository = observationRepository;
@@ -66,6 +69,7 @@ public class DiffService {
         this.commandService = commandService;
         this.properties = properties;
         this.tilesetUrlResolver = tilesetUrlResolver;
+        this.cascadeDeletionService = cascadeDeletionService;
     }
 
     public List<DiffListResponse> findByProject(Long projectId, DiffType type, DiffStatus status) {
@@ -144,10 +148,7 @@ public class DiffService {
 
     @Transactional
     public void delete(Long diffId) {
-        Diff diff = getDiff(diffId);
-        diffItemRepository.deleteByDiffId(diffId);
-        diffRepository.delete(diff);
-        deleteDirectoryQuietly(diffDir(diff.getProjectId(), diffId));
+        cascadeDeletionService.deleteDiff(getDiff(diffId));
     }
 
     @Transactional

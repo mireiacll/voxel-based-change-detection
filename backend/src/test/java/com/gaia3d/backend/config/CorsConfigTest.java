@@ -22,7 +22,7 @@ class CorsConfigTest {
 
     @Test
     void allowsLocalDevelopmentPreflightRequests() throws Exception {
-        mockMvc.perform(options("/api/health")
+        mockMvc.perform(options("/api/projects")
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
                 .andExpect(status().isOk())

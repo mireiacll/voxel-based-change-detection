@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import com.gaia3d.backend.common.CascadeDeletionService;
 import com.gaia3d.backend.common.TilesetUrlResolver;
 import com.gaia3d.backend.common.TilesetUrlResponse;
 import com.gaia3d.backend.job.Job;
@@ -39,6 +40,7 @@ public class ObservationService {
     private final TilesetUrlResolver tilesetUrlResolver;
     private final JobQueue jobQueue;
     private final ObservationVoxelJobRunner observationVoxelJobRunner;
+    private final CascadeDeletionService cascadeDeletionService;
 
     public ObservationService(
             ObservationRepository observationRepository,
@@ -48,7 +50,8 @@ public class ObservationService {
             VoxelizerProperties properties,
             TilesetUrlResolver tilesetUrlResolver,
             JobQueue jobQueue,
-            ObservationVoxelJobRunner observationVoxelJobRunner) {
+            ObservationVoxelJobRunner observationVoxelJobRunner,
+            CascadeDeletionService cascadeDeletionService) {
         this.observationRepository = observationRepository;
         this.projectService = projectService;
         this.jobService = jobService;
@@ -57,6 +60,7 @@ public class ObservationService {
         this.tilesetUrlResolver = tilesetUrlResolver;
         this.jobQueue = jobQueue;
         this.observationVoxelJobRunner = observationVoxelJobRunner;
+        this.cascadeDeletionService = cascadeDeletionService;
     }
 
     public List<ObservationResponse> findByProject(Long projectId) {
@@ -118,7 +122,7 @@ public class ObservationService {
 
     @Transactional
     public void delete(Long id) {
-        observationRepository.delete(getRequired(id));
+        cascadeDeletionService.deleteObservation(getRequired(id));
     }
 
     public TilesetUrlResponse originalTileset(Long id) {

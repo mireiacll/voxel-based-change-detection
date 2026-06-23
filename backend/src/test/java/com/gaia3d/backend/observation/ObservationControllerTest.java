@@ -1,5 +1,6 @@
 package com.gaia3d.backend.observation;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,12 +9,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gaia3d.backend.job.JobRepository;
+import com.gaia3d.backend.voxelizer.VoxelizerProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +43,15 @@ class ObservationControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ObservationRepository observationRepository;
+
+    @Autowired
+    private JobRepository jobRepository;
+
+    @Autowired
+    private VoxelizerProperties properties;
 
     @Test
     void uploadsObservationAndQueuesMockVoxelJob() throws Exception {
@@ -130,6 +144,50 @@ class ObservationControllerTest {
                 .andExpect(jsonPath("$.voxelJobId").value(2));
 
         waitForVoxelSuccess(1, 2);
+    }
+
+    @Test
+    void deletesObservationWithFilesAndJobs() throws Exception {
+        createProject();
+
+        MvcResult uploadResult = mockMvc.perform(multipart("/api/projects/1/observations")
+                        .file(zipFile())
+                        .param("name", "2024-01-01 observation")
+                        .param("datasetType", "pointcloud")
+                        .param("observedAt", "2024-01-01"))
+                .andExpect(status().isAccepted())
+                .andReturn();
+
+        JsonNode uploadJson = objectMapper.readTree(uploadResult.getResponse().getContentAsString());
+        long observationId = uploadJson.path("id").asLong();
+        long jobId = uploadJson.path("voxelJobId").asLong();
+
+        waitForVoxelSuccess(observationId, jobId);
+
+        Path tilesetDir = properties.visualizationTilesPath()
+                .resolve("projects/1/observations/" + observationId + "/tileset")
+                .toAbsolutePath()
+                .normalize();
+        Path voxelDir = properties.voxelSetOutputPath()
+                .resolve("projects/1/observations/" + observationId + "/voxel")
+                .toAbsolutePath()
+                .normalize();
+
+        Assertions.assertTrue(Files.exists(tilesetDir));
+        Assertions.assertTrue(Files.exists(voxelDir));
+
+        mockMvc.perform(delete("/api/observations/" + observationId))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/observations/" + observationId))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/jobs/" + jobId))
+                .andExpect(status().isNotFound());
+
+        Assertions.assertTrue(observationRepository.findById(observationId).isEmpty());
+        Assertions.assertTrue(jobRepository.findById(jobId).isEmpty());
+        Assertions.assertFalse(Files.exists(tilesetDir));
+        Assertions.assertFalse(Files.exists(voxelDir));
     }
 
     private void createProject() throws Exception {

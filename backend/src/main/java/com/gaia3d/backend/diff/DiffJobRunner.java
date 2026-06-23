@@ -107,7 +107,10 @@ public class DiffJobRunner {
         if (diff == null || diff.getStatus() != DiffStatus.QUEUED) {
             return false;
         }
-        Job job = jobService.getRequired(jobId);
+        Job job = jobService.find(jobId);
+        if (job == null) {
+            return false;
+        }
         if (job.getStatus() == JobStatus.CANCELLED || job.getStatus() != JobStatus.QUEUED) {
             return false;
         }
@@ -168,9 +171,10 @@ public class DiffJobRunner {
     }
 
     private boolean isCancelled(Long diffId, Long jobId) {
-        Job job = jobService.getRequired(jobId);
+        Job job = jobService.find(jobId);
         Diff diff = diffRepository.findById(diffId).orElse(null);
-        return job.getStatus() == JobStatus.CANCELLED || diff == null || diff.getStatus() == DiffStatus.CANCELLED;
+        return job == null || job.getStatus() == JobStatus.CANCELLED
+                || diff == null || diff.getStatus() == DiffStatus.CANCELLED;
     }
 
     private void finish(Long diffId, Long jobId, int succeeded) {
@@ -178,7 +182,10 @@ public class DiffJobRunner {
         if (diff == null) {
             return;
         }
-        Job job = jobService.getRequired(jobId);
+        Job job = jobService.find(jobId);
+        if (job == null) {
+            return;
+        }
         if (job.getStatus() == JobStatus.CANCELLED || diff.getStatus() == DiffStatus.CANCELLED) {
             return;
         }

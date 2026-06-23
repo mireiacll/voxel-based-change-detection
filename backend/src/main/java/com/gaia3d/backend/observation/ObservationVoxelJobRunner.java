@@ -94,7 +94,10 @@ public class ObservationVoxelJobRunner {
             return null;
         }
 
-        Job job = jobService.getRequired(observation.getVoxelJobId());
+        Job job = jobService.find(observation.getVoxelJobId());
+        if (job == null) {
+            return null;
+        }
         if (job.getStatus() == JobStatus.CANCELLED || observation.getVoxelStatus() == ObservationStatus.CANCELLED) {
             return null;
         }
@@ -136,7 +139,10 @@ public class ObservationVoxelJobRunner {
         if (observation == null) {
             return;
         }
-        Job job = jobService.getRequired(jobId);
+        Job job = jobService.find(jobId);
+        if (job == null) {
+            return;
+        }
         if (job.getStatus() == JobStatus.CANCELLED || observation.getVoxelStatus() == ObservationStatus.CANCELLED) {
             return;
         }
@@ -151,7 +157,10 @@ public class ObservationVoxelJobRunner {
         if (observation == null) {
             return;
         }
-        Job job = jobService.getRequired(jobId);
+        Job job = jobService.find(jobId);
+        if (job == null) {
+            return;
+        }
         if (job.getStatus() == JobStatus.CANCELLED || observation.getVoxelStatus() == ObservationStatus.CANCELLED) {
             return;
         }

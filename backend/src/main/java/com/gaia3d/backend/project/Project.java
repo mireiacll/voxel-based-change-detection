@@ -56,6 +56,10 @@ public class Project extends BaseTimeEntity {
         this.status = status == null ? this.status : status;
     }
 
+    public void markDeleting() {
+        this.status = ProjectStatus.DELETING;
+    }
+
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getDescription() { return description; }

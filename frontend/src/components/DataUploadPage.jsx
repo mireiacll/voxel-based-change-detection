@@ -543,24 +543,41 @@ function DateRow({
 
   const hasCoords = site.centerLat != null && site.centerLon != null
 
+  const isRowActive = activePreview?.dateId === date.id
+
+  function handleRowClick() {
+    if (editing || confirmDelete || !hasData) return
+    onPreview(date, 'pc')
+  }
+
   return (
-    <div className={`dup-date-card${editing ? ' dup-date-card-open' : ''}`}>
+    <div
+      className={`dup-date-card${editing ? ' dup-date-card-open' : ''}${isRowActive ? ' dup-date-card-active' : ''}`}
+      style={isRowActive ? { borderColor: 'var(--accent, #5af)', boxShadow: '0 0 0 1px var(--accent, #5af)' } : undefined}
+    >
       {/* ── Header row ── */}
-      <div className="dup-date-header">
+      <div
+        className="dup-date-header"
+        onClick={handleRowClick}
+        style={{
+          cursor: hasData && !editing && !confirmDelete ? 'pointer' : 'default',
+          ...(isRowActive ? {
+            borderLeft: '3px solid var(--accent, #5af)',
+            paddingLeft: 9,
+            background: 'rgba(85,170,255,0.06)',
+          } : {}),
+        }}
+      >
         <div className="dup-date-info">
-          <span className="dup-date-label">{isoToLabel(date.observedAt) || date.label}</span>
+          <span className="dup-date-label" style={isRowActive ? { color: 'var(--accent, #5af)' } : undefined}>
+            {isoToLabel(date.observedAt) || date.label}
+          </span>
           <span className="dup-date-name" title={date.name}>{date.name}</span>
         </div>
 
         <div className="dup-date-actions" onClick={e => e.stopPropagation()}>
           {!editing && !confirmDelete && (
             <>
-              <PreviewTrigger
-                date={date}
-                activePreview={activePreview}
-                onPreview={onPreview}
-              />
-
               <VoxelStatusBadge
                 date={date}
                 isBusy={isBusy}
@@ -1033,14 +1050,14 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
             tilesetCenter_lat: lat,
             cameraDestination_lon: lon,
             cameraDestination_lat: lat - 0.006,
-            cameraDestination_height: 600,
+            cameraDestination_height: 500,
             boundingSphere_lon: Cesium.Math.toDegrees(bsCarto.longitude),
             boundingSphere_lat: Cesium.Math.toDegrees(bsCarto.latitude),
             boundingSphere_height: bsCarto.height,
           })
 
           v.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.006, 600),
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat - 0.006, 500),
             orientation: { heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0 },
             duration: 1.2,
           })
@@ -1247,7 +1264,16 @@ export default function DataUploadPage({
 
           <div className="dup-preview-col">
             <div className="dup-preview-pane">
-              <div className="dup-preview-pane-label">미리보기</div>
+              <div className="dup-preview-pane-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>미리보기</span>
+                {previewDate && (
+                  <PreviewTrigger
+                    date={previewDate}
+                    activePreview={activePreview}
+                    onPreview={handlePreview}
+                  />
+                )}
+              </div>
               <MiniCesiumPreview preview={activePreview} date={previewDate} site={site} onSiteUpdated={onSiteUpdated} />
             </div>
           </div>

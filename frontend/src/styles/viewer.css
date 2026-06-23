@@ -1152,7 +1152,7 @@ select {
 .dup-body-cols {
   display: flex; gap: 24px; align-items: flex-start;
 }
-.dup-list-col { flex: 0 0 580px; min-width: 0; }
+.dup-list-col { flex: 0 0 520px; min-width: 0; }
 .dup-preview-col { flex: 1; min-width: 200px; position: sticky; top: 16px; }
 
 /* ── Preview pane wrapper ── */

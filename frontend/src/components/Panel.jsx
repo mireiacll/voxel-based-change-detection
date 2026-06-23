@@ -26,35 +26,6 @@ function TypeTag({ type }) {
   )
 }
 
-function LayerModePill({ dateId, datasetType, hasVoxel, computing, value, onChange }) {
-  const voxClickable = hasVoxel && !computing
-  const voxLabel     = computing ? '⏳' : 'VOX'
-  const pcLabel      = datasetType === 'mesh' ? 'MESH' : 'PC'
-  const voxTitle     = computing
-    ? 'Voxel 계산 중…'
-    : hasVoxel
-      ? 'Pre-computed voxel 표시'
-      : 'Voxel 없음 — 데이터 업로드 탭에서 먼저 계산하세요'
-
-  return (
-    <div className="date-layer-pill">
-      <button
-        className={`dlp-btn${value === 'pc' ? ' dlp-active' : ''}`}
-        onClick={e => { e.stopPropagation(); onChange(dateId, 'pc') }}
-      >
-        {pcLabel}
-      </button>
-      <button
-        className={`dlp-btn${value === 'vox' ? ' dlp-active' : ''}${!voxClickable ? ' dlp-locked' : ''}${computing ? ' dlp-computing' : ''}`}
-        disabled={!voxClickable}
-        title={voxTitle}
-        onClick={e => { e.stopPropagation(); onChange(dateId, 'vox') }}
-      >
-        {voxLabel}
-      </button>
-    </div>
-  )
-}
 
 const ANALYSIS_MODES = [
   { value: 'compare-api', label: 'A vs B 비교' },
@@ -65,8 +36,6 @@ export default function Panel({
   activeSite,
   visibleDateIds, onToggleDate,
   pcSize, onPcSize, showPcSlider,
-  voxelPollingIds,
-  onLayerMode,
   mode, onMode,
   diffHistory,
   activeDiffId,
@@ -93,15 +62,7 @@ export default function Panel({
   const lastDate       = dates[dates.length - 1]?.label ?? '—'
   const dateRange      = dates.length > 1 ? `${firstDate} ~ ${lastDate}` : firstDate
 
-  const [layerModes, setLayerModes] = useState({})
   const [drawerOpen, setDrawerOpen] = useState(false)
-
-  async function handleLayerMode(dateId, lmode) {
-    const d = dates.find(x => x.id === dateId)
-    if (!d) return
-    setLayerModes(prev => ({ ...prev, [dateId]: lmode }))
-    onLayerMode?.(dateId, lmode)
-  }
 
   const isComputing  = mode === 'compare-api' ? apiRunning : tlRecomputeRunning
   const runDisabled  = isComputing
@@ -358,10 +319,7 @@ export default function Panel({
             <div className="no-dates">날짜 없음 — 데이터 업로드 탭에서 추가하세요</div>
           )}
           {dates.map(d => {
-            const isOn        = visibleDateIds.has(d.id)
-            const layerMode   = layerModes[d.id] ?? 'pc'
-            const isPolling   = voxelPollingIds?.has(d.id) ?? false
-            const hasVoxel    = !!d.voxelPath && d.voxelStatus === 'SUCCEEDED'
+            const isOn = visibleDateIds.has(d.id)
             return (
               <div key={d.id} className="date-row-wrap">
                 <button
@@ -371,22 +329,9 @@ export default function Panel({
                   <span className="date-label">{formatDate(d.observedAt) || d.label}</span>
                   <span className="date-meta">
                     <span className="date-name" title={d.name}>{trunc(d.name)}</span>
-                    {isOn && layerMode === 'vox'
-                      ? <span className="ltag ltag-teal">VOX</span>
-                      : <TypeTag type={d.datasetType} />
-                    }
+                    <TypeTag type={d.datasetType} />
                   </span>
                 </button>
-                {isOn && (
-                  <LayerModePill
-                    dateId={d.id}
-                    datasetType={d.datasetType}
-                    hasVoxel={hasVoxel}
-                    computing={isPolling}
-                    value={layerMode}
-                    onChange={handleLayerMode}
-                  />
-                )}
               </div>
             )
           })}

@@ -162,7 +162,7 @@ function _startDraw() {
   const site = window.currentSite
   if (site) {
     import('./cesiumInit').then(({ flyTo }) =>
-      flyTo(site.centerLon, site.centerLat, site.cameraHeight * 1.2, -90, 0)
+      flyTo(site.centerLon, site.centerLat, site.cameraHeight * 1.8, -90, 0)
     )
   }
 

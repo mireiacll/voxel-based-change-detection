@@ -218,24 +218,11 @@ export default function MapOverlayControls({
       <div className="moc-camera">
         <button
           className="moc-zoom-btn"
-          title="현장으로 이동"
-          onClick={onCameraSite}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.6"/>
-            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
-            <path d="M12 1.5v3.2M12 19.3v3.2M1.5 12h3.2M19.3 12h3.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-          </svg>
-        </button>
-        <div className="moc-zoom-divider" />
-        <button
-          className="moc-zoom-btn"
-          title="수직으로 보기"
+          title="현장 수직으로 보기"
           onClick={onCameraTop}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.6"/>
-            <path d="M12 8v8M8.5 11.5L12 8l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 3L2 10h3v10h5v-6h4v6h5V10h3L12 3z"/>
           </svg>
         </button>
       </div>

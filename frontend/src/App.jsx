@@ -491,6 +491,10 @@ export default function App() {
   // When user clicks "← 목록으로"
   function handleBackToHome() {
     setAnalysisView('home')
+    clearPolygon()
+    setDrawInfo(DEFAULT_DRAW_INFO)
+    setDrawBtnLabel(DEFAULT_DRAW_BTN)
+    setDrawBanner(false)
     // If a run is in progress, don't clear it — let it finish in background
     // but stop showing the computing view
   }
@@ -834,7 +838,7 @@ export default function App() {
   }
   function handleCameraTop() {
     if (!activeSite) return
-    flyTo(activeSite.centerLon, activeSite.centerLat, activeSite.cameraHeight * 1.2, -90)
+    flyTo(activeSite.centerLon, activeSite.centerLat, activeSite.cameraHeight * 1.8, -90)
   }
 
   function handleNavTab(tab) {

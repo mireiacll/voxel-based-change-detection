@@ -66,12 +66,10 @@ export default function Panel({
 
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  // Mode select stays enabled even mid-computation (so the user can browse
-  // the other mode's setup while waiting), but the Run button stays
-  // disabled if *either* job type is in flight — switching modes must not
-  // let someone kick off a second, concurrent diff job.
+  // Each mode's Run button is only disabled by its own in-flight job.
+  // An A·B job running does NOT block starting a timeline job and vice versa.
   const isComputing  = apiRunning || tlRecomputeRunning
-  const runDisabled  = isComputing
+  const runDisabled  = mode === 'compare-api' ? apiRunning : tlRecomputeRunning
 
   // ── HOME VIEW ─────────────────────────────────────────────────────────────
 
@@ -279,12 +277,7 @@ export default function Panel({
 
         {/* Run / Cancel / Clear */}
         <div className="p-section">
-          {!running && isComputing && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-              ⟳ {isAbMode ? '시계열' : 'A vs B'} 분석이 백그라운드에서 진행 중입니다
-            </div>
-          )}
-          <div className="compare-action-buttons">
+        <div className="compare-action-buttons">
             <button
               id="btn-run-diff"
               disabled={runDisabled}

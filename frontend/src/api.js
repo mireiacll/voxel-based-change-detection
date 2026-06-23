@@ -1051,6 +1051,7 @@ export async function fetchAbDiffResult(diffId) {
 export async function createAbDiffAndPoll(projectId, sourceObservationId, targetObservationId, opts = {}) {
   const onStatus  = opts.onStatus  ?? (() => {})
   const onDiffId  = opts.onDiffId  ?? (() => {})   // called with diffId once created
+  const onJobTick = opts.onJobTick ?? (() => {})   // called on each poll tick with the raw job object
   const shouldStop = opts.shouldStop ?? null        // () => boolean — set before cancel call
 
   onStatus('A/B 분석 작업 생성 중…')
@@ -1066,6 +1067,7 @@ export async function createAbDiffAndPoll(projectId, sourceObservationId, target
       const pct = j.progress ? ` (${j.progress}%)` : ''
       const msg = j.message  ? ` — ${j.message}`  : ''
       onStatus(`분석 중${pct}${msg}`)
+      onJobTick(j)
     },
     { intervalMs: 3000, timeoutMs: 600_000, shouldStop },
   )
@@ -1137,6 +1139,7 @@ export async function createTimeSeriesDiff(projectId, opts = {}) {
 export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
   const onStatus  = opts.onStatus  ?? (() => {})
   const onDiffId  = opts.onDiffId  ?? (() => {})
+  const onJobTick = opts.onJobTick ?? (() => {})   // called on each poll tick with the raw job object
   const shouldStop = opts.shouldStop ?? null        // () => boolean — set before cancel call
 
   onStatus('시계열 분석 작업 생성 중…')
@@ -1152,6 +1155,7 @@ export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
       const pct = j.progress ? ` (${j.progress}%)` : ''
       const msg = j.message  ? ` — ${j.message}`   : ''
       onStatus(`시계열 분석 중${pct}${msg}`)
+      onJobTick(j)
     },
     { intervalMs: 3000, timeoutMs: 900_000, shouldStop },
   )

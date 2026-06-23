@@ -213,10 +213,10 @@ export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCan
                     <span className="vst-badge vst-done">완료</span>
                   )}
                   {isQueued && (
-                    <span className="vst-badge vst-running">대기</span>
+                    <span className="vst-badge vst-running">대기 중</span>
                   )}
                   {isRunning && (
-                    <span className="vst-badge vst-running">처리 중</span>
+                    <span className="vst-badge vst-running">생성 중</span>
                   )}
                 </>
               )}

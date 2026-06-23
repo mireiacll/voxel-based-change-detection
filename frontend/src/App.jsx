@@ -79,14 +79,16 @@ export default function App() {
   const activeSiteRef     = useRef(null)
   const visibleIdsRef     = useRef(new Set())
   const modeRef           = useRef('compare-api')
+  const analysisViewRef   = useRef('home')
   const deletingObsIdsRef = useRef(new Set())
   const flownSiteIdRef    = useRef(null)
   const diffHistoryRef    = useRef([])
 
-  useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
-  useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
-  useEffect(() => { visibleIdsRef.current = visibleDateIds }, [visibleDateIds])
-  useEffect(() => { modeRef.current       = mode },           [mode])
+  useEffect(() => { activeDateRef.current   = activeDate },     [activeDate])
+  useEffect(() => { activeSiteRef.current   = activeSite },     [activeSite])
+  useEffect(() => { visibleIdsRef.current   = visibleDateIds }, [visibleDateIds])
+  useEffect(() => { modeRef.current         = mode },           [mode])
+  useEffect(() => { analysisViewRef.current = analysisView },   [analysisView])
 
   const [compareApiVis, setCompareApiVis] = useState({ ...DEFAULT_VIS })
   const [tlVis,         setTlVis]         = useState({ ...DEFAULT_VIS })
@@ -212,20 +214,14 @@ export default function App() {
   }, [tlPlaying, tlSnapshots])
 
   // ── Timeline load ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (mode !== 'timeline' || !activeSite || tlSnapshots !== null) {
-      return
-    }
-    setTlLoading(true)
-    loadDiffSnapshots(activeSite)
-      .then(async snaps => {
-        setTlSnapshots(snaps)
-        setTlActiveIndex(0)
-        await loadAllSnapshotTilesets(snaps)
-        if (snaps.length > 0) showSnapshotTileset(snaps[0].id)
-      })
-      .finally(() => setTlLoading(false))
-  }, [mode, activeSite, tlSnapshots])
+  // Snapshots are ONLY loaded explicitly:
+  //   · after handleTlRecompute completes (sets tlSnapshots(null) to re-trigger)
+  //   · when the user clicks a TS entry in diff history (handleLoadDiff)
+  // We do NOT auto-fetch on entering the timeline tab so that the computing
+  // view starts blank and doesn't display stale previous results.
+  // This effect is therefore intentionally left empty — snapshot loading is
+  // handled directly in handleTlRecompute and handleLoadDiff.
+  // (kept as a no-op block so the dependency refs stay declared in order)
 
   // ── Timeline snapshot switch ─────────────────────────────────────────
   const tlActiveIndexRef = useRef(0)
@@ -511,8 +507,19 @@ export default function App() {
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
     setDrawBanner(false)
-    // If a run is in progress, don't clear it — let it finish in background
-    // but stop showing the computing view
+    // Hide all diff visuals — the viewer should be blank on the home view.
+    // In-flight jobs keep running in the background (apiRunning /
+    // tlRecomputeRunning stay true so the history spinner keeps going),
+    // but we don't want stale tileset results sitting in the viewport.
+    clearDiffApiTileset()
+    clearAllSnapshotTilesets()
+    setApiSummary(null)
+    setApiStatus('')
+    setApiError(null)
+    setApiDiffTilesetUrl(null)
+    setTlSnapshots(null)
+    setTlActiveIndex(0)
+    setActiveDiffId(null)
   }
 
   async function handleApiRun() {
@@ -549,13 +556,10 @@ export default function App() {
           shouldStop: () => apiCancelledRef.current,
           onStatus: msg => {
             setApiStatus(msg)
-            const id = apiDiffIdRef.current
-            if (id != null) {
-              const s = /취소/.test(msg) ? 'CANCELLED' : 'RUNNING'
-              setDiffHistory(prev => prev.map(e =>
-                String(e.id) === String(id) ? { ...e, status: s } : e
-              ))
-            }
+            // Do NOT touch diffHistory status here — pollJob's tick callback
+            // already sets the correct QUEUED/RUNNING from job.status.
+            // Stamping RUNNING from the message text races against that and
+            // causes all entries to show 생성 중 regardless of real state.
           },
           onDiffId: id => {
             apiDiffIdRef.current = id
@@ -574,24 +578,46 @@ export default function App() {
               ...prev,
             ])
           },
+          onJobTick: job => {
+            const id = apiDiffIdRef.current
+            if (id == null) return
+            const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
+            setDiffHistory(prev => prev.map(e =>
+              String(e.id) === String(id) ? { ...e, status: s } : e
+            ))
+          },
         },
       )
 
       // null means the job was cancelled cleanly — nothing to display
       if (result == null) return
 
-      setApiSummary(result.report)
-
-      if (result.tilesetUrl) {
-        setApiDiffTilesetUrl(result.tilesetUrl)
-        // Don't auto-load onto the main viewer — the user views the result
-        // by clicking the entry in Diff History (handleLoadDiff), same as
-        // any other past result.
+      // Use refs so we read the current view/mode even inside a stale closure.
+      // Only show results if the user is still in computing view on the A/B tab.
+      // If they went to home (목록) or switched to timeline, just update history —
+      // they can click the entry themselves to load it.
+      const stillViewing = analysisViewRef.current === 'computing' && modeRef.current === 'compare-api'
+      if (stillViewing) {
+        setApiSummary(result.report)
+        if (result.tilesetUrl) {
+          setApiDiffTilesetUrl(result.tilesetUrl)
+          try { await loadDiffApiTileset(result.tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
+        }
       }
+      // else: silently drop — history was refreshed above, user loads manually
 
       try {
         const entries = await fetchProjectDiffs(activeSite.id)
-        setDiffHistory(entries)
+        // Merge: keep any optimistic in-progress entries the other concurrent
+        // job may have added (QUEUED/RUNNING), replacing only the entries that
+        // now exist in the refreshed list.
+        const refreshedIds = new Set(entries.map(e => String(e.id)))
+        setDiffHistory(prev => {
+          const inFlight = prev.filter(e =>
+            (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
+          )
+          return [...inFlight, ...entries]
+        })
       } catch (e) {
         console.warn('[handleApiRun] fetchProjectDiffs refresh failed:', e.message)
       }
@@ -658,8 +684,10 @@ export default function App() {
       return
     }
 
-    clearAllSnapshotTilesets()
-    setTlSnapshots(null)
+    if (modeRef.current === 'timeline') {
+      clearAllSnapshotTilesets()
+      setTlSnapshots(null)
+    }
     setTlRecomputeRunning(true)
     setTlRecomputeStatus('')
     setTlRecomputeDiffId(null)
@@ -678,13 +706,8 @@ export default function App() {
         shouldStop: () => tlCancelledRef.current,
         onStatus: msg => {
           setTlRecomputeStatus(msg)
-          const id = tlRecomputeDiffIdRef.current
-          if (id != null) {
-            const s = /취소/.test(msg) ? 'CANCELLED' : 'RUNNING'
-            setDiffHistory(prev => prev.map(e =>
-              String(e.id) === String(id) ? { ...e, status: s } : e
-            ))
-          }
+          // Do NOT touch diffHistory status here — pollJob's tick callback
+          // already sets the correct QUEUED/RUNNING from job.status.
         },
         onDiffId: id => {
           tlRecomputeDiffIdRef.current = id
@@ -704,6 +727,14 @@ export default function App() {
             ...prev,
           ])
         },
+        onJobTick: job => {
+          const id = tlRecomputeDiffIdRef.current
+          if (id == null) return
+          const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
+          setDiffHistory(prev => prev.map(e =>
+            String(e.id) === String(id) ? { ...e, status: s } : e
+          ))
+        },
       })
 
       // null means the job was cancelled cleanly — nothing to display
@@ -713,12 +744,34 @@ export default function App() {
 
       try {
         const entries = await fetchProjectDiffs(activeSite.id)
-        setDiffHistory(entries)
+        const refreshedIds = new Set(entries.map(e => String(e.id)))
+        setDiffHistory(prev => {
+          const inFlight = prev.filter(e =>
+            (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
+          )
+          return [...inFlight, ...entries]
+        })
       } catch (e) {
         console.warn('[handleTlRecompute] fetchProjectDiffs refresh failed:', e.message)
       }
 
-      setTlSnapshots(null)
+      // Only display results if still in computing/timeline view.
+      // If the user navigated to home (목록) or switched to A/B, just leave
+      // the history updated — they can click the entry themselves to load it.
+      if (analysisViewRef.current === 'computing' && modeRef.current === 'timeline') {
+        try {
+          setTlLoading(true)
+          const snaps = await loadDiffSnapshots(activeSite)
+          setTlSnapshots(snaps)
+          setTlActiveIndex(0)
+          await loadAllSnapshotTilesets(snaps)
+          if (snaps.length > 0) showSnapshotTileset(snaps[0].id)
+        } catch (e) {
+          console.warn('[handleTlRecompute] snapshot reload failed:', e.message)
+        } finally {
+          setTlLoading(false)
+        }
+      }
       addToast(`✓ "${runName}" 분석 완료`, 'ok')
     } catch (e) {
       console.error('[handleTlRecompute] failed:', e.message)
@@ -827,10 +880,9 @@ export default function App() {
     if (!diffId || !jobId) return
     diffPollCancelledMap.current.delete(String(diffId))
     setDiffPollingIds(prev => new Set([...prev, String(diffId)]))
-    // Update the history entry to show RUNNING status
-    setDiffHistory(prev => prev.map(e =>
-      String(e.id) === String(diffId) ? { ...e, status: 'RUNNING' } : e
-    ))
+    // Do NOT force RUNNING here — let pollJob's first tick set the real
+    // status (QUEUED or RUNNING) from the backend, so multiple in-progress
+    // entries each show their true state rather than all showing 생성 중.
     const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
       ?? `diff-${diffId}`
     try {
@@ -1049,43 +1101,15 @@ export default function App() {
 
   // Mirror RightPanel's own visibility logic so DrawBanner + MapOverlayControls
   // can correctly offset themselves left when the right panel is actually visible.
+  // Right panel only appears when there are actual results to show.
+  // For A/B: only when apiSummary is populated (job done).
+  // For timeline: only when snapshots are loaded (job done).
+  // Running state is shown in the left Panel — the right panel stays hidden during computation.
   const showRightPanel =
-    (mode === 'compare-api' && (apiSummary != null || apiRunning)) ||
+    (mode === 'compare-api' && apiSummary != null) ||
     (mode === 'timeline'    && tlSnapshots != null)
 
-  // ── Timeline staleness / readiness checks ─────────────────────────────
-  const tlMissingVoxels = (activeSite?.dates ?? [])
-    .filter(d => d.voxelStatus !== 'SUCCEEDED')
-    .map(d => d.label ?? d.id)
-
-  const tlStaleInfo = (() => {
-    const succeededDates = (activeSite?.dates ?? []).filter(d => d.voxelStatus === 'SUCCEEDED')
-    if (!tlSnapshots?.length || succeededDates.length < 2) return { stale: false, addedLabels: [], removedLabels: [] }
-    const snapshotObsIds = new Set()
-    tlSnapshots.forEach(s => { snapshotObsIds.add(s.date_a.id); snapshotObsIds.add(s.date_b.id) })
-    const currentObsIds = new Set(succeededDates.map(d => d.id))
-    const addedLabels = succeededDates.filter(d => !snapshotObsIds.has(d.id)).map(d => d.label ?? d.name ?? d.id)
-    const removedLabels = [...snapshotObsIds].filter(id => !currentObsIds.has(id)).map(id => {
-      const found = activeSite?.dates.find(d => d.id === id)
-      return found?.label ?? found?.name ?? id
-    })
-    let reordered = false
-    if (addedLabels.length === 0 && removedLabels.length === 0) {
-      const snapshotIdSequence = []
-      tlSnapshots.forEach(s => {
-        if (!snapshotIdSequence.includes(s.date_a.id)) snapshotIdSequence.push(s.date_a.id)
-        if (!snapshotIdSequence.includes(s.date_b.id)) snapshotIdSequence.push(s.date_b.id)
-      })
-      const currentIdSequence = [...succeededDates]
-        .sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
-        .map(d => d.id)
-      reordered = snapshotIdSequence.some((id, i) => id !== currentIdSequence[i])
-    }
-    const stale = addedLabels.length > 0 || removedLabels.length > 0 || reordered
-    return { stale, addedLabels, removedLabels, reordered }
-  })()
-
-  const tlStale = tlStaleInfo.stale
+  const tlStale = false  // stale-detection removed; user recomputes manually from computing view
 
   const activeVis = mode === 'timeline' ? tlVis : compareApiVis
   const activeVisSetters = mode === 'timeline'
@@ -1187,11 +1211,8 @@ export default function App() {
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}           tlOnPlayPause={() => setTlPlaying(v => !v)}
             tlLoading={tlLoading}
-            tlStale={tlStale}
-            tlStaleInfo={tlStaleInfo}
-            tlMissingVoxels={tlMissingVoxels}
-            apiRunning={apiRunning}
             apiSummary={apiSummary}
+            visible={showRightPanel}
           />
 
           <MapOverlayControls

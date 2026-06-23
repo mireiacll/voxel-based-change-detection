@@ -1109,7 +1109,6 @@ export default function App() {
     (mode === 'compare-api' && apiSummary != null) ||
     (mode === 'timeline'    && tlSnapshots != null)
 
-  const tlStale = false  // stale-detection removed; user recomputes manually from computing view
 
   const activeVis = mode === 'timeline' ? tlVis : compareApiVis
   const activeVisSetters = mode === 'timeline'

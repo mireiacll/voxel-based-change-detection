@@ -18,6 +18,13 @@ function fmtVol(m3) {
   return `${m3.toFixed(1)} m³`
 }
 
+function fmtCount(n) {
+  if (n == null || isNaN(n)) return '—'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
 function fmtVoxSize(avgVoxVol) {
   if (avgVoxVol == null || avgVoxVol <= 0) return '—'
   const edge = Math.cbrt(avgVoxVol)
@@ -34,7 +41,6 @@ export default function RightPanel({
   tlSnapshots, tlActiveIndex, tlOnSelect,
   tlPlaying, tlOnPlayPause,
   tlLoading,
-  tlStale, tlStaleInfo, tlMissingVoxels,
   // compare-api results
   apiRunning, apiSummary,
 }) {
@@ -107,10 +113,22 @@ export default function RightPanel({
                 <span className="stat-k">추가 부피</span>
                 <span className="stat-v" style={{ color: 'var(--added)' }}>+{fmtVol(added)}</span>
               </div>
+              {apiSummary.addedCount != null && (
+                <div className="stat-row" style={{ marginTop: -2 }}>
+                  <span className="stat-k" style={{ fontSize: 10, color: 'var(--muted)' }}>추가 복셀 수</span>
+                  <span className="stat-v" style={{ fontSize: 10, color: 'var(--added)' }}>{fmtCount(apiSummary.addedCount)}</span>
+                </div>
+              )}
               <div className="stat-row">
                 <span className="stat-k">제거 부피</span>
                 <span className="stat-v" style={{ color: 'var(--removed)' }}>-{fmtVol(removed)}</span>
               </div>
+              {apiSummary.removedCount != null && (
+                <div className="stat-row" style={{ marginTop: -2 }}>
+                  <span className="stat-k" style={{ fontSize: 10, color: 'var(--muted)' }}>제거 복셀 수</span>
+                  <span className="stat-v" style={{ fontSize: 10, color: 'var(--removed)' }}>{fmtCount(apiSummary.removedCount)}</span>
+                </div>
+              )}
               {changed > 0 && (
                 <div className="stat-row">
                   <span className="stat-k">변경 부피</span>
@@ -160,9 +178,6 @@ export default function RightPanel({
             playing={tlPlaying}
             onPlayPause={tlOnPlayPause}
             loading={tlLoading}
-            stale={tlStale}
-            staleInfo={tlStaleInfo}
-            missingVoxels={tlMissingVoxels}
           />
         </div>
       )}

@@ -4,32 +4,26 @@
  * Left-panel section shown when mode === 'timeline'.
  * Shows:
  *  · Loading state while snapshots fetch
- *  · "No diffs yet" state with compute button (or cancel during computation)
+ *  · "No diffs yet" empty state
  *  · Mini bar chart of added/removed per snapshot
  *  · Visibility toggles (added / removed / unchanged)
  *  · Stats for the active snapshot (volumes from mass-summary last level)
- *  · "Recompute all diffs" button
+ *  · Playback controls
  *
  * Props
  * ─────
- *   snapshots          — Snapshot[] | null
- *   activeIndex        — number
- *   onSelect           — (i) => void
- *   showAdded          — bool
- *   onShowAdded        — (bool) => void
- *   showRemoved        — bool
- *   onShowRemoved      — (bool) => void
- *   showUnchanged      — bool
- *   onShowUnchanged    — (bool) => void
- *   playing            — bool
- *   onPlayPause        — () => void
- *   onRecompute        — () => void
- *   loading            — bool
- *   tlRecomputeRunning — bool    (true while createTimeSeriesDiffAndPoll is in flight)
- *   tlRecomputeStatus  — string  (status message during recompute)
- *   onCancelRecompute  — () => void
- *   stale              — bool    (loaded snapshots don't match current voxelized date count)
- *   missingVoxels      — string[] (labels of dates that still lack a SUCCEEDED voxel)
+ *   snapshots       — Snapshot[] | null
+ *   activeIndex     — number
+ *   onSelect        — (i) => void
+ *   showAdded       — bool
+ *   onShowAdded     — (bool) => void
+ *   showRemoved     — bool
+ *   onShowRemoved   — (bool) => void
+ *   showUnchanged   — bool
+ *   onShowUnchanged — (bool) => void
+ *   playing         — bool
+ *   onPlayPause     — () => void
+ *   loading         — bool
  */
 
 function Toggle({ id, checked, onChange }) {
@@ -50,8 +44,14 @@ function fmtVol(m3) {
   return `${m3.toFixed(1)} m³`
 }
 
+function fmtCount(n) {
+  if (n == null || isNaN(n)) return '—'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
 function fmtVoxSize(voxSize, avgVoxVol) {
-  // Prefer a derived edge-length from the actual average voxel volume
   if (avgVoxVol != null && avgVoxVol > 0) {
     const edge = Math.cbrt(avgVoxVol)
     return `${edge.toFixed(3)} m`
@@ -104,97 +104,12 @@ export default function TimelinePanel({
   showRemoved, onShowRemoved,
   showUnchanged, onShowUnchanged,
   playing, onPlayPause,
-  onRecompute, loading,
-  tlRecomputeRunning, tlRecomputeStatus, onCancelRecompute,
-  stale, staleInfo, missingVoxels,
+  loading,
 }) {
   const active = snapshots?.[activeIndex] ?? null
 
   return (
     <>
-      {/* ── Missing voxels warning ── */}
-      {missingVoxels?.length > 0 && !loading && (
-        <div className="p-section">
-          <div className="tl-warn-banner tl-warn-voxel">
-            <div className="tl-warn-icon">⚠</div>
-            <div className="tl-warn-body">
-              <div className="tl-warn-title">Voxel 미완료 날짜 있음</div>
-              <div className="tl-warn-detail">
-                시계열 분석 전에 아래 날짜의 Voxel을 먼저 계산하세요
-                (왼쪽 패널 → Voxel Calculation):
-              </div>
-              <ul className="tl-warn-list">
-                {missingVoxels.map(lbl => (
-                  <li key={lbl}>{lbl}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Stale snapshots warning ── */}
-      {stale && !loading && (
-        <div className="p-section">
-          <div className="tl-warn-banner tl-warn-stale">
-            <div className="tl-warn-icon">🔄</div>
-            <div className="tl-warn-body">
-              <div className="tl-warn-title">관측 데이터 변경됨 — 재계산 필요</div>
-
-              {/* Added dates */}
-              {staleInfo?.addedLabels?.length > 0 && (
-                <div className="tl-warn-detail" style={{ marginTop: 4 }}>
-                  <span style={{ color: 'var(--added)' }}>＋ 새로 추가된 날짜</span> ({staleInfo.addedLabels.length}개):
-                  <ul className="tl-warn-list">
-                    {staleInfo.addedLabels.map(lbl => <li key={lbl}>{lbl}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              {/* Removed dates */}
-              {staleInfo?.removedLabels?.length > 0 && (
-                <div className="tl-warn-detail" style={{ marginTop: 4 }}>
-                  <span style={{ color: 'var(--removed)' }}>－ 삭제된 날짜</span> ({staleInfo.removedLabels.length}개):
-                  <ul className="tl-warn-list">
-                    {staleInfo.removedLabels.map(lbl => <li key={lbl}>{lbl}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              {/* Reorder: same IDs, different observedAt order */}
-              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length && staleInfo?.reordered) && (
-                <div className="tl-warn-detail">
-                  날짜 순서가 변경되었습니다 — 시계열 diff 순서도 달라집니다.
-                  정확한 분석을 위해 전체 재계산을 권장합니다.
-                </div>
-              )}
-
-              {/* Fallback: stale for unknown reason */}
-              {(!staleInfo?.addedLabels?.length && !staleInfo?.removedLabels?.length && !staleInfo?.reordered) && (
-                <div className="tl-warn-detail">
-                  Voxel이 완료된 날짜 수와 현재 스냅샷 수가 맞지 않습니다.
-                  정확한 분석을 위해 전체 재계산을 권장합니다.
-                </div>
-              )}
-
-              <button
-                className="pbtn"
-                style={{ marginTop: 6, width: '100%', fontSize: 11 }}
-                onClick={onRecompute}
-                disabled={tlRecomputeRunning || (missingVoxels?.length > 0)}
-              >
-                ⚡ 전체 재계산
-              </button>
-              {missingVoxels?.length > 0 && (
-                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-                  Voxel 미완료 날짜를 먼저 계산하세요
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Initial loading ── */}
       {loading && (
         <div className="p-section">
@@ -206,36 +121,13 @@ export default function TimelinePanel({
         </div>
       )}
 
-      {/* ── No data: compute or show running state ── */}
+      {/* ── No data ── */}
       {!loading && snapshots?.length === 0 && (
         <div className="p-section">
           <div className="p-label">시계열 변화탐지</div>
-
-          {tlRecomputeRunning ? (
-            <>
-              <div className="tl-loading">
-                <div className="tl-loading-dots"><span /><span /><span /></div>
-                {tlRecomputeStatus || '분석 중…'}
-              </div>
-              <button
-                className="pbtn"
-                style={{ marginTop: 8, width: '100%', color: 'var(--removed)' }}
-                onClick={onCancelRecompute}
-              >
-                ✕ 취소
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="tl-empty">
-                사전 계산된 변화 데이터가 없습니다.<br />
-                아래 버튼을 눌러 시계열 diff를 계산하세요.
-              </div>
-              <button className="pbtn" style={{ marginTop: 8, width: '100%' }} onClick={onRecompute}>
-                ⚡ 전체 계산
-              </button>
-            </>
-          )}
+          <div className="tl-empty">
+            사전 계산된 변화 데이터가 없습니다.
+          </div>
         </div>
       )}
 
@@ -271,6 +163,12 @@ export default function TimelinePanel({
                       : fmtVol(active.stats.added_count * (active.avg_vox_vol ?? 0))}
                   </span>
                 </div>
+                {active.stats.added_count != null && (
+                  <div className="stat-row" style={{ marginTop: -2 }}>
+                    <span className="stat-k" style={{ fontSize: 10, color: 'var(--muted)' }}>추가 복셀 수</span>
+                    <span className="stat-v" style={{ fontSize: 10, color: 'var(--added)' }}>{fmtCount(active.stats.added_count)}</span>
+                  </div>
+                )}
                 <div className="stat-row">
                   <span className="stat-k">제거</span>
                   <span className="stat-v" style={{ color: 'var(--removed)' }}>
@@ -279,6 +177,12 @@ export default function TimelinePanel({
                       : fmtVol(active.stats.removed_count * (active.avg_vox_vol ?? 0))}
                   </span>
                 </div>
+                {active.stats.removed_count != null && (
+                  <div className="stat-row" style={{ marginTop: -2 }}>
+                    <span className="stat-k" style={{ fontSize: 10, color: 'var(--muted)' }}>제거 복셀 수</span>
+                    <span className="stat-v" style={{ fontSize: 10, color: 'var(--removed)' }}>{fmtCount(active.stats.removed_count)}</span>
+                  </div>
+                )}
                 <div className="stat-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 6 }}>
                   <span className="stat-k">순 변화</span>
                   {(() => {
@@ -365,32 +269,7 @@ export default function TimelinePanel({
             </div>
           </div>
 
-          {/* ── Recompute ── */}
-          <div className="p-section">
-            <div className="p-label">Data</div>
-            <div className="tl-data-note">
-              {snapshots.length}개 스냅샷 로드됨
-            </div>
-            {tlRecomputeRunning ? (
-              <>
-                <div className="tl-loading" style={{ marginTop: 6 }}>
-                  <div className="tl-loading-dots"><span /><span /><span /></div>
-                  {tlRecomputeStatus || '분석 중…'}
-                </div>
-                <button
-                  className="pbtn"
-                  style={{ marginTop: 6, width: '100%', color: 'var(--removed)' }}
-                  onClick={onCancelRecompute}
-                >
-                  ✕ 취소
-                </button>
-              </>
-            ) : !stale && (
-              <button className="pbtn" style={{ marginTop: 6, width: '100%' }} onClick={onRecompute}>
-                ⚡ 전체 재계산
-              </button>
-            )}
-          </div>
+
         </>
       )}
     </>

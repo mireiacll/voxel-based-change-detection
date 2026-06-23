@@ -634,18 +634,31 @@ const TERMINAL_JOB_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
  *
  * @param {number|string} jobId
  * @param {(job: object) => void} [onProgress]  — called on each poll
- * @param {{ intervalMs?, timeoutMs? }} [opts]
+ * @param {{ intervalMs?, timeoutMs?, shouldStop? }} [opts]
+ *   shouldStop — optional () => boolean called before each fetch and after each
+ *                sleep. When it returns true the loop exits immediately with a
+ *                synthetic CANCELLED result so no further network request is made.
+ *                Set this flag before calling cancelDiff() so the poll loop stops
+ *                the moment it wakes up rather than firing one extra GET /api/jobs/…
  * @returns {Promise<object>}  final job object
  */
-export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs = 300_000 } = {}) {
+export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs = 300_000, shouldStop } = {}) {
   const deadline = Date.now() + timeoutMs
   while (true) {
+    if (shouldStop?.()) {
+      console.log(`[pollJob] jobId=${jobId} — shouldStop=true, exiting loop cleanly`)
+      return { status: 'CANCELLED' }
+    }
     const job = await _get(`/api/jobs/${jobId}`)
     console.log(`[pollJob] jobId=${jobId} status=${job.status} progress=${job.progress}`)
     onProgress?.(job)
     if (TERMINAL_JOB_STATUSES.has(job.status)) return job
     if (Date.now() > deadline) throw new Error(`Job ${jobId} timed out after ${timeoutMs / 1000}s`)
     await new Promise(r => setTimeout(r, intervalMs))
+    if (shouldStop?.()) {
+      console.log(`[pollJob] jobId=${jobId} — shouldStop=true after sleep, exiting loop cleanly`)
+      return { status: 'CANCELLED' }
+    }
   }
 }
 
@@ -811,6 +824,35 @@ export async function cancelDiff(diffId) {
 export async function deleteDiff(diffId) {
   console.log('[api.deleteDiff] diffId:', diffId)
   await _delete(`/api/diffs/${diffId}`)
+}
+
+/**
+ * Fetch a single diff by id.
+ * Returns DiffResponse: { id, projectId, name, type, status, jobId, … }
+ */
+export async function fetchDiffById(diffId) {
+  return _get(`/api/diffs/${diffId}`)
+}
+
+/**
+ * Fetch all in-progress (QUEUED or RUNNING) diffs for a project.
+ * Returns lightweight entries shaped for DiffHistory pending display:
+ *   { id, diffId, name, type, status, jobId, createdAt }
+ */
+export async function fetchProjectDiffsInProgress(projectId) {
+  const [queued, running] = await Promise.all([
+    _get(`/api/projects/${projectId}/diffs?status=QUEUED`).catch(() => []),
+    _get(`/api/projects/${projectId}/diffs?status=RUNNING`).catch(() => []),
+  ])
+  return [...queued, ...running].map(d => ({
+    id:        d.id,
+    diffId:    d.id,
+    name:      d.name ?? `diff-${d.id}`,
+    type:      d.type === 'A_B' ? 'AB' : 'TIME_SERIES',
+    status:    d.status,
+    jobId:     d.jobId,
+    createdAt: d.createdAt,
+  }))
 }
 
 /**
@@ -1009,6 +1051,7 @@ export async function fetchAbDiffResult(diffId) {
 export async function createAbDiffAndPoll(projectId, sourceObservationId, targetObservationId, opts = {}) {
   const onStatus  = opts.onStatus  ?? (() => {})
   const onDiffId  = opts.onDiffId  ?? (() => {})   // called with diffId once created
+  const shouldStop = opts.shouldStop ?? null        // () => boolean — set before cancel call
 
   onStatus('A/B 분석 작업 생성 중…')
   const diff = await createAbDiff(projectId, sourceObservationId, targetObservationId, opts)
@@ -1024,9 +1067,13 @@ export async function createAbDiffAndPoll(projectId, sourceObservationId, target
       const msg = j.message  ? ` — ${j.message}`  : ''
       onStatus(`분석 중${pct}${msg}`)
     },
-    { intervalMs: 3000, timeoutMs: 600_000 },
+    { intervalMs: 3000, timeoutMs: 600_000, shouldStop },
   )
 
+  if (job.status === 'CANCELLED') {
+    onStatus('취소됨')
+    return null
+  }
   if (job.status !== 'SUCCEEDED') {
     throw new Error(`분석 ${job.status.toLowerCase()}: ${job.message ?? '오류 없음'}`)
   }
@@ -1088,8 +1135,9 @@ export async function createTimeSeriesDiff(projectId, opts = {}) {
  * @param {{ onStatus?, onDiffId?, areaWkt?, maxLevel? }} [opts]
  */
 export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
-  const onStatus = opts.onStatus ?? (() => {})
-  const onDiffId = opts.onDiffId ?? (() => {})
+  const onStatus  = opts.onStatus  ?? (() => {})
+  const onDiffId  = opts.onDiffId  ?? (() => {})
+  const shouldStop = opts.shouldStop ?? null        // () => boolean — set before cancel call
 
   onStatus('시계열 분석 작업 생성 중…')
   const diff = await createTimeSeriesDiff(projectId, opts)
@@ -1105,9 +1153,13 @@ export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
       const msg = j.message  ? ` — ${j.message}`   : ''
       onStatus(`시계열 분석 중${pct}${msg}`)
     },
-    { intervalMs: 3000, timeoutMs: 900_000 },
+    { intervalMs: 3000, timeoutMs: 900_000, shouldStop },
   )
 
+  if (job.status === 'CANCELLED') {
+    onStatus('취소됨')
+    return null
+  }
   if (job.status !== 'SUCCEEDED') {
     throw new Error(`시계열 분석 ${job.status.toLowerCase()}: ${job.message ?? '오류 없음'}`)
   }

@@ -38,9 +38,11 @@ export default function Panel({
   pcSize, onPcSize, showPcSlider,
   mode, onMode,
   diffHistory,
+  diffPollingIds,
   activeDiffId,
   onLoadDiff,
   onDeleteDiff,
+  onCancelDiff,
   // new computation view props
   analysisView,         // 'home' | 'computing'
   onNewComputation,     // () => void — go to computing view
@@ -64,7 +66,11 @@ export default function Panel({
 
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const isComputing  = mode === 'compare-api' ? apiRunning : tlRecomputeRunning
+  // Mode select stays enabled even mid-computation (so the user can browse
+  // the other mode's setup while waiting), but the Run button stays
+  // disabled if *either* job type is in flight — switching modes must not
+  // let someone kick off a second, concurrent diff job.
+  const isComputing  = apiRunning || tlRecomputeRunning
   const runDisabled  = isComputing
 
   // ── HOME VIEW ─────────────────────────────────────────────────────────────
@@ -130,6 +136,8 @@ export default function Panel({
             activeId={activeDiffId}
             onLoad={onLoadDiff}
             onDelete={onDeleteDiff}
+            onCancel={onCancelDiff}
+            pollingIds={diffPollingIds}
           />
         </div>
       </>
@@ -202,14 +210,15 @@ export default function Panel({
           />
         </div>
 
-        {/* Analysis mode */}
+        {/* Analysis mode — switchable even while a computation is running;
+            the running job keeps going in the background regardless of
+            which mode is shown */}
         <div className="p-section">
           <div className="p-label">분석 방법</div>
           <select
             className="mode-select"
             value={mode ?? 'compare-api'}
             onChange={e => onMode?.(e.target.value)}
-            disabled={running}
           >
             {ANALYSIS_MODES.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -270,6 +279,11 @@ export default function Panel({
 
         {/* Run / Cancel / Clear */}
         <div className="p-section">
+          {!running && isComputing && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+              ⟳ {isAbMode ? '시계열' : 'A vs B'} 분석이 백그라운드에서 진행 중입니다
+            </div>
+          )}
           <div className="compare-action-buttons">
             <button
               id="btn-run-diff"

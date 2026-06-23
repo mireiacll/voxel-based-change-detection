@@ -24,7 +24,7 @@
   --green:    #4cc97a;
   --amber:    #d49050;
   /* Layout */
-  --pw:    272px;   /* left panel width */
+  --pw:    340px;   /* left panel width */
   --rpw:   280px;   /* right panel width */
   --nav-h: 44px;
   --mshh:  38px;    /* map sub-header height */
@@ -1527,7 +1527,9 @@ kbd {
 .dh-list { display: flex; flex-direction: column; gap: 3px; }
 
 .dh-entry {
-  display: flex; align-items: center; gap: 5px;
+  display: grid;
+  grid-template-columns: 28px 1fr 65px 40px 16px;
+  align-items: center; gap: 6px;
   padding: 5px 6px;
   border: 1px solid var(--border); border-radius: 5px;
   cursor: pointer; user-select: none; min-width: 0;
@@ -1536,16 +1538,24 @@ kbd {
 .dh-entry:hover { border-color: var(--accent); background: rgba(255,255,255,0.03); }
 
 .dh-type-badge {
+  grid-column: 1;
+  justify-self: start;
   flex-shrink: 0; font-size: 9px; font-weight: 700;
   letter-spacing: 0.04em; padding: 1px 4px;
   border-radius: 3px; line-height: 1.6; font-family: var(--mono);
+  text-align: center;
 }
 .dh-ab { background: rgba(77,159,255,0.18); color: #4d9fff; }
 .dh-ts { background: rgba(212,144,80,0.18); color: #d49050; }
 
 .dh-dates {
-  flex: 1 1 0; font-size: 11px; color: var(--text);
+  grid-column: 2;
+  font-size: 11px; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.dh-range {
+  font-size: 10px; color: var(--muted); font-family: var(--mono);
+  margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dh-arrow { margin: 0 2px; color: var(--muted); font-size: 10px; }
 
@@ -1556,12 +1566,29 @@ kbd {
 
 .dh-area-dot { flex-shrink: 0; font-size: 10px; color: var(--muted); }
 
+/* Status badge + spinner column — fixed width (56px) so the badge
+   stays aligned across rows regardless of badge text length ("완료"
+   vs "처리 중") or date-range length. Scoped to DiffHistory only —
+   .vst-badge is shared with the voxel-status rows elsewhere and must
+   keep its natural width there. */
+.dh-status-col {
+  grid-column: 3;
+  display: flex; align-items: center; justify-content: flex-end; gap: 5px;
+}
+.dh-status-col .vst-badge {
+  width: 65px; text-align: center; white-space: nowrap;
+}
+
 .dh-time {
+  grid-column: 4;
   flex-shrink: 0; font-size: 9px; color: var(--muted);
   font-family: var(--mono); white-space: nowrap;
+  justify-self: end;
 }
 
 .dh-icon-btn {
+  grid-column: 5;
+  justify-self: end;
   flex-shrink: 0; background: none; border: none;
   color: var(--muted); cursor: pointer; font-size: 10px;
   padding: 1px 3px; border-radius: 3px; line-height: 1;
@@ -1573,6 +1600,40 @@ kbd {
 .dh-entry.dh-active {
   background: var(--accent-soft, rgba(77, 159, 255, 0.12));
   border-color: var(--accent, #4d9fff);
+}
+
+/* Row mid-deletion: dimmed and inert. pointer-events:none means the
+   click-to-load handler on .dh-entry can't fire even if something
+   else slips past the isDeleting check in JS — belt and suspenders. */
+.dh-entry.dh-deleting {
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* ...except the delete button itself stays hit-testable so its
+   disabled/title state is reachable for assistive tech, even though
+   visually it's just a spinner now. */
+.dh-entry.dh-deleting .dh-icon-btn {
+  pointer-events: auto;
+}
+
+.vst-deleting {
+  background: rgba(220,50,50,.10); color: #ff8080;
+  border: 1px solid rgba(220,50,50,.22);
+}
+
+/* Same spinner animation, recolored to match the deleting badge
+   instead of the running/orange one. */
+.vst-spinner-del {
+  border-color: rgba(220,50,50,.2);
+  border-top-color: #ff8080;
+}
+
+.dh-icon-btn:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+.dh-icon-btn:disabled:hover {
+  background: none;
 }
 
 /* ── ProjectLauncher selected states ────────────────────────────
@@ -1721,12 +1782,12 @@ kbd {
 /* ── Survey Dates floating drawer ──────────────────────────────────────── */
 .dates-drawer {
   position: fixed;
-  left: var(--panel-width, 280px);
+  left: calc(var(--pw) + 8px);
   top: 80px;
   width: 220px;
   max-height: 70vh;
-  background: var(--panel-bg, #1a1a2e);
-  border: 0.5px solid var(--panel-border, rgba(255,255,255,0.1));
+  background: var(--surf);
+  border: 0.5px solid var(--border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -1740,7 +1801,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px 8px;
-  border-bottom: 0.5px solid var(--panel-border, rgba(255,255,255,0.1));
+  border-bottom: 0.5px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -1749,7 +1810,7 @@ kbd {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-secondary, #888);
+  color: var(--muted);
 }
 
 .dates-drawer-close {
@@ -1757,7 +1818,7 @@ kbd {
   border: none;
   cursor: pointer;
   font-size: 12px;
-  color: var(--color-text-secondary, #888);
+  color: var(--muted);
   padding: 0;
   line-height: 1;
   opacity: 0.7;

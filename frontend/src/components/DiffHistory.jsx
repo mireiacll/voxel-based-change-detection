@@ -1,122 +1,259 @@
+import { useState } from 'react'
+
 /**
  * DiffHistory.jsx
  *
- * Compact clickable list of past diff computations for the active project.
- * Persisted in localStorage under key `diffHistory:${projectId}`.
- *
- * Entry shape:
- *   id              — diff API id (number/string)
- *   type            — 'AB' | 'TIME_SERIES'
- *   createdAt       — ISO timestamp string
- *   labelA          — source date label
- *   labelB          — target date label
- *   areaWkt         — polygon WKT or null
- *   observationCount — number (TS only)
- *   // AB only:
- *   addedVolume     — number (m³)
- *   removedVolume   — number (m³)
- *   diffItemId      — number
- *   tilesetUrl      — string | null
+ * Renders the list of past (and in-progress) diff computations.
+ * Uses .dh-* CSS classes from viewer.css.
  */
 
-// ── Formatting ────────────────────────────────────────────────────────────
+/**
+ * Parses a backend timestamp, treating it as UTC if it has no explicit
+ * timezone marker. The backend sends naive strings like
+ * "2026-06-23T01:47:17.770" with no "Z" or "+09:00" suffix — JS's Date
+ * parser treats those as LOCAL time, which is wrong here since the
+ * backend's clock is UTC. In KST (UTC+9) that shows times ~9h off
+ * (e.g. a 23-min-old entry displaying as "9시간 전"). Appending "Z" when
+ * no offset is present makes the parse correct everywhere.
+ */
+function parseServerDate(iso) {
+  if (!iso) return null
+  const hasOffset = /Z$|[+-]\d{2}:?\d{2}$/.test(iso)
+  return new Date(hasOffset ? iso : iso + 'Z')
+}
 
-function fmtShortDate(label) {
-  if (!label) return '?'
-  // Raw ISO date → "Jun 1"
-  if (/^\d{4}-\d{2}-\d{2}/.test(label)) {
-    const [, m, d] = label.slice(0, 10).split('-')
-    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    return `${M[parseInt(m,10)-1] ?? m} ${parseInt(d,10)}`
+const _MONTHS_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+// Recent (< 1h): relative ("5분 전"). Today: clock time ("14:32").
+// Older: "Jun 12" (year prefixed only if not this year, "'25 Jun 12").
+// 3-letter month instead of zero-padded "06.12" — the numeric form takes
+// about the same width as "처리 중" anyway, so a readable month name costs
+// nothing extra. Absolute time/date is used past the 1h mark so any
+// remaining clock skew can't show a confusing "X시간 전" for something
+// that just finished — a wall-clock time or date is unambiguous.
+function timeAgo(iso) {
+  const date = parseServerDate(iso)
+  if (!date) return ''
+  const now  = new Date()
+  const diff = now.getTime() - date.getTime()
+  const m    = Math.floor(diff / 60000)
+
+  if (m < 1)  return '방금'
+  if (m < 60) return `${m}분 전`
+
+  const sameDay = date.toDateString() === now.toDateString()
+  if (sameDay) {
+    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
   }
-  // Already formatted like "Jun 1, 2026" → "Jun 1"
-  return label.split(',')[0].trim()
+
+  const sameYear = date.getFullYear() === now.getFullYear()
+  const mo = _MONTHS_ABBR[date.getMonth()]
+  const d  = date.getDate()
+  return sameYear ? `${mo} ${d}` : `'${String(date.getFullYear()).slice(2)} ${mo} ${d}`
 }
 
-function fmtTime(iso) {
-  if (!iso) return ''
-  // "2026-06-17T14:32:00.000Z" → "Jun 17 14:32"
-  try {
-    const d = new Date(iso)
-    const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]
-    const day   = d.getDate()
-    const hh    = String(d.getHours()).padStart(2, '0')
-    const mm    = String(d.getMinutes()).padStart(2, '0')
-    return `${month} ${day} ${hh}:${mm}`
-  } catch { return iso.slice(0, 16).replace('T', ' ') }
-}
+const _MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
 
-// ── Component ─────────────────────────────────────────────────────────────
+// Pulls {y, m, d} out of common label formats:
+// "2024-06-12", "2024.06.12", "2024/06/12", "2024년 6월 12일", "Oct 9, 2025"
+function parseLabelDate(label) {
+  if (!label) return null
+  const str = String(label)
 
-import { useState } from 'react'
-
-export default function DiffHistory({ entries = [], activeId, onLoad, onDelete }) {
-  const [deletingIds, setDeletingIds] = useState(new Set())
-
-  async function handleDelete(ev, id) {
-    ev.stopPropagation()
-    if (deletingIds.has(id)) return
-    setDeletingIds(prev => new Set([...prev, id]))
-    try {
-      await onDelete?.(id)
-    } finally {
-      setDeletingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+  // "Oct 9, 2025" / "October 9, 2025"
+  const named = str.match(/([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})/)
+  if (named) {
+    const mi = _MONTHS.indexOf(named[1].slice(0, 3).toLowerCase())
+    if (mi !== -1) {
+      return { y: named[3], m: String(mi + 1).padStart(2, '0'), d: named[2].padStart(2, '0') }
     }
   }
 
-  if (entries.length === 0) {
-    return <div className="no-dates" style={{ fontSize: 11 }}>아직 계산 결과 없음</div>
+  // "2024-06-12" / "2024.06.12" / "2024/06/12" / "2024년 6월 12일"
+  const numeric = str.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/)
+  if (numeric) {
+    return { y: numeric[1], m: numeric[2].padStart(2, '0'), d: numeric[3].padStart(2, '0') }
+  }
+
+  return null
+}
+
+// Compact range, always "YY.MM.DD → YY.MM.DD". Falls back to the
+// raw label untouched if it doesn't match a known date pattern.
+function shortRange(labelA, labelB) {
+  const a = parseLabelDate(labelA)
+  const aShort = a ? `${a.y.slice(2)}.${a.m}.${a.d}` : labelA
+  if (!labelB || labelB === labelA) return { a: aShort, b: null }
+  const b = parseLabelDate(labelB)
+  const bShort = b ? `${b.y.slice(2)}.${b.m}.${b.d}` : labelB
+  return { a: aShort, b: bShort }
+}
+
+export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCancel, pollingIds }) {
+  // Tracks ids currently being deleted/cancelled, purely client-side.
+  // A row stays "deleting"/"cancelling" from the moment ✕ is clicked
+  // until the parent call settles. Kept as two separate sets (rather
+  // than one "busy" set) because a SUCCEEDED row can only ever be
+  // deleted and a QUEUED/RUNNING row can only ever be cancelled — never
+  // both — so there's no ambiguity, but keeping them separate makes
+  // each render branch read directly off the action it actually means.
+  const [deletingIds, setDeletingIds]   = useState(() => new Set())
+  const [cancellingIds, setCancellingIds] = useState(() => new Set())
+
+  async function handleDeleteClick(e, id) {
+    e.stopPropagation()
+    if (deletingIds.has(id)) return // already in flight — ignore repeat clicks
+    setDeletingIds(prev => new Set(prev).add(id))
+    try {
+      await onDelete(id)
+    } catch {
+      // Defensive only: as currently wired, the parent's delete handler
+      // swallows its own errors (shows a toast, then resolves normally)
+      // rather than rejecting, so this branch won't usually run. Kept
+      // in case that ever changes upstream.
+    } finally {
+      // Release the lock once onDelete settles, success or failure. On
+      // success the row disappears from `entries` on the next parent
+      // refresh anyway; on failure (reported via toast in the parent)
+      // this puts the row back to normal so the person can retry
+      // instead of it spinning forever.
+      setDeletingIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  // Same shape as handleDeleteClick, but for QUEUED/RUNNING rows. The
+  // parent's onCancel (App.jsx's handleCancelHistoryDiff) flips the
+  // entry's status to CANCELLED on success, which means it drops out
+  // of `visible` below on the next render — so same cleanup story as
+  // delete: clear the local flag once the call settles either way.
+  async function handleCancelClick(e, id) {
+    e.stopPropagation()
+    if (cancellingIds.has(id)) return
+    setCancellingIds(prev => new Set(prev).add(id))
+    try {
+      await onCancel(id)
+    } catch {
+      // onCancel reports its own failure toast upstream; nothing else to do here.
+    } finally {
+      setCancellingIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  const visible = entries.filter(e =>
+    e.status === 'SUCCEEDED' || e.status === 'QUEUED' || e.status === 'RUNNING'
+  )
+
+  if (!visible.length) {
+    return (
+      <div className="no-dates">변화탐지 기록이 없습니다</div>
+    )
   }
 
   return (
     <div className="dh-list">
-      {entries.map(e => {
-        const isAB      = e.type === 'AB'
-        const isActive  = activeId != null && String(e.id) === String(activeId)
-        const isDeleting = deletingIds.has(e.id)
+      {visible.map(entry => {
+        const isActive     = activeId != null && String(activeId) === String(entry.id)
+        const isRunning    = entry.status === 'RUNNING'
+        const isQueued     = entry.status === 'QUEUED'
+        const isSucceeded  = entry.status === 'SUCCEEDED'
+        const isDeleting   = deletingIds.has(entry.id)
+        const isCancelling = cancellingIds.has(entry.id)
+        const isBusy       = isDeleting || isCancelling
 
         return (
           <div
-            key={e.id}
-            className={`dh-entry${isActive ? ' dh-active' : ''}${isDeleting ? ' dh-deleting' : ''}`}
-            onClick={() => !isDeleting && onLoad?.(e)}
-            title={isDeleting ? '삭제 중…' : '클릭하여 결과 불러오기'}
-            style={isDeleting ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+            key={entry.id}
+            className={`dh-entry${isActive ? ' dh-active' : ''}${isBusy ? ' dh-deleting' : ''}`}
+            onClick={() => isSucceeded && !isBusy && onLoad(entry)}
+            style={{ cursor: isSucceeded && !isBusy ? 'pointer' : 'default' }}
           >
             {/* Type badge */}
-            <span className={`dh-type-badge ${isAB ? 'dh-ab' : 'dh-ts'}`}>
-              {isAB ? 'A/B' : 'TS'}
+            <span className={`dh-type-badge ${entry.type === 'AB' ? 'dh-ab' : 'dh-ts'}`}>
+              {entry.type === 'AB' ? 'A·B' : 'TS'}
             </span>
 
-            {/* Date range */}
-            <span className="dh-dates">
-              {fmtShortDate(e.labelA)}
-              <span className="dh-arrow">→</span>
-              {fmtShortDate(e.labelB)}
-            </span>
+            {/* Name + date range */}
+            <div className="dh-dates">
+              <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {entry.name ?? `diff-${entry.id}`}
+              </div>
+              {isSucceeded && entry.labelA && (() => {
+                const { a, b } = shortRange(entry.labelA, entry.labelB)
+                return (
+                  <div className="dh-range" title={`${entry.labelA}${entry.labelB && entry.labelB !== entry.labelA ? ' → ' + entry.labelB : ''}`}>
+                    {a}
+                    {b && <><span className="dh-arrow">→</span>{b}</>}
+                  </div>
+                )
+              })()}
+            </div>
 
-            {/* TS: date count */}
-            {!isAB && e.observationCount != null && (
-              <span className="dh-count">{e.observationCount}개</span>
+            {/* Status badge + spinner — own fixed-width column, sits
+                immediately left of the time so it stays aligned across
+                rows whether the time text is "10:21" or "Jun 22".
+                While deleting/cancelling, this overrides the normal
+                status to show "삭제 중"/"취소 중" so it's obvious the
+                row is mid-action. */}
+            <div className="dh-status-col">
+              {isDeleting ? (
+                <span className="vst-badge vst-deleting">삭제 중</span>
+              ) : isCancelling ? (
+                <span className="vst-badge vst-deleting">취소 중</span>
+              ) : (
+                <>
+                  {isSucceeded && (
+                    <span className="vst-badge vst-done">완료</span>
+                  )}
+                  {isQueued && (
+                    <span className="vst-badge vst-running">대기</span>
+                  )}
+                  {isRunning && (
+                    <span className="vst-badge vst-running">처리 중</span>
+                  )}
+                </>
+              )}
+              {(isQueued || isRunning || isBusy) && (
+                <span className={`vst-spinner${isBusy ? ' vst-spinner-del' : ''}`} />
+              )}
+            </div>
+
+            {/* Time */}
+            {entry.createdAt && (
+              <span className="dh-time">{timeAgo(entry.createdAt)}</span>
             )}
 
-            {/* Area indicator */}
-            {e.areaWkt && (
-              <span className="dh-area-dot" title="분석 영역 있음">◈</span>
+            {/* ✕ — delete for a finished row, cancel for one still in
+                flight. Once clicked, swaps to a disabled blank state so
+                a second click can't fire a second request while the
+                first is still in flight. */}
+            {isSucceeded && (
+              <button
+                className="dh-icon-btn dh-del"
+                onClick={e => handleDeleteClick(e, entry.id)}
+                disabled={isDeleting}
+                title={isDeleting ? '삭제 중...' : '삭제'}
+              >
+                {isDeleting ? '' : '✕'}
+              </button>
             )}
-
-            {/* Time generated */}
-            <span className="dh-time">{fmtTime(e.createdAt)}</span>
-
-            {/* Delete */}
-            <button
-              className="dh-icon-btn dh-del"
-              title={isDeleting ? '삭제 중…' : '기록 삭제'}
-              disabled={isDeleting}
-              onClick={ev => handleDelete(ev, e.id)}
-            >
-              {isDeleting ? '…' : '✕'}
-            </button>
+            {(isQueued || isRunning) && (
+              <button
+                className="dh-icon-btn dh-del"
+                onClick={e => handleCancelClick(e, entry.id)}
+                disabled={isCancelling}
+                title={isCancelling ? '취소 중...' : '취소'}
+              >
+                {isCancelling ? '' : '✕'}
+              </button>
+            )}
           </div>
         )
       })}

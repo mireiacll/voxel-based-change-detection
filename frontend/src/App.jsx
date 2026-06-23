@@ -33,6 +33,8 @@ import {
   cancelDiff,
   deleteDiff,
   fetchProjectDiffs,
+  fetchProjectDiffsInProgress,
+  fetchDiffById,
   createTimeSeriesDiffAndPoll,
   cancelVoxelize,
 } from './api'
@@ -71,6 +73,7 @@ export default function App() {
   const [activeDate, setActiveDate]         = useState(null)
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
   const [voxelPollingIds, setVoxelPollingIds] = useState(new Set())
+  const [diffPollingIds,  setDiffPollingIds]  = useState(new Set())
 
   const activeDateRef     = useRef(null)
   const activeSiteRef     = useRef(null)
@@ -78,6 +81,7 @@ export default function App() {
   const modeRef           = useRef('compare-api')
   const deletingObsIdsRef = useRef(new Set())
   const flownSiteIdRef    = useRef(null)
+  const diffHistoryRef    = useRef([])
 
   useEffect(() => { activeDateRef.current = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current = activeSite },     [activeSite])
@@ -103,7 +107,11 @@ export default function App() {
   const [diffHistory,  setDiffHistory]  = useState([])
   const [activeDiffId, setActiveDiffId] = useState(null)
 
-  const apiDiffIdRef = useRef(null)
+  useEffect(() => { diffHistoryRef.current = diffHistory }, [diffHistory])
+
+  const apiDiffIdRef         = useRef(null)
+  const apiCancelledRef      = useRef(false)  // flipped to true before cancelDiff() so pollJob stops immediately
+  const diffPollCancelledMap = useRef(new Map()) // diffId → true when history-entry poll should stop
 
   const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
   const [drawBtnLabel, setDrawBtnLabel] = useState(DEFAULT_DRAW_BTN)
@@ -125,6 +133,8 @@ export default function App() {
   const [tlRecomputeRunning, setTlRecomputeRunning] = useState(false)
   const [tlRecomputeStatus,  setTlRecomputeStatus]  = useState('')
   const [tlRecomputeDiffId,  setTlRecomputeDiffId]  = useState(null)
+  const tlRecomputeDiffIdRef = useRef(null)
+  const tlCancelledRef       = useRef(false)  // flipped to true before cancelDiff() so pollJob stops immediately
   const tlPlayTimer    = useRef(null)
   const viewerReady    = useRef(false)
   const tlSnapshotsRef = useRef(null)
@@ -316,9 +326,15 @@ export default function App() {
     window.currentSite = site
     flownSiteIdRef.current = null
     setActiveDiffId(null)
-    fetchProjectDiffs(site.id)
-      .then(entries => setDiffHistory(entries))
-      .catch(e => console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message))
+    Promise.all([
+      fetchProjectDiffs(site.id)
+        .catch(e => { console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message); return [] }),
+      fetchProjectDiffsInProgress(site.id)
+        .catch(e => { console.warn('[loadSiteData] fetchProjectDiffsInProgress failed:', e.message); return [] }),
+    ]).then(([succeeded, inProgress]) => {
+      setDiffHistory([...inProgress, ...succeeded])
+      inProgress.forEach(d => resumeDiffPoll(d.id, d.jobId))
+    })
     fetchActiveJobs().then(activeJobs => {
       const obsIds = new Set((site.dates ?? []).map(d => String(d.id)))
       activeJobs
@@ -515,7 +531,9 @@ export default function App() {
       return
     }
 
-    apiDiffIdRef.current = null
+    apiDiffIdRef.current    = null
+    apiCancelledRef.current = false
+    const runName = diffName || 'A·B 분석'
     setApiRunning(true); setApiError(null); setApiSummary(null); setApiDiffTilesetUrl(null)
     try {
       const { getPolygonWkt } = await import('./cesium/polygonDraw')
@@ -528,30 +546,71 @@ export default function App() {
         {
           areaWkt,
           name: diffName || undefined,
-          onStatus: setApiStatus,
-          onDiffId: id => { apiDiffIdRef.current = id },
+          shouldStop: () => apiCancelledRef.current,
+          onStatus: msg => {
+            setApiStatus(msg)
+            const id = apiDiffIdRef.current
+            if (id != null) {
+              const s = /취소/.test(msg) ? 'CANCELLED' : 'RUNNING'
+              setDiffHistory(prev => prev.map(e =>
+                String(e.id) === String(id) ? { ...e, status: s } : e
+              ))
+            }
+          },
+          onDiffId: id => {
+            apiDiffIdRef.current = id
+            setDiffPollingIds(prev => new Set([...prev, String(id)]))
+            setDiffHistory(prev => [
+              {
+                id,
+                diffId: id,
+                name: diffName || `diff-${id}`,
+                type: 'AB',
+                status: 'QUEUED',
+                createdAt: new Date().toISOString(),
+                labelA: dA?.label,
+                labelB: dB?.label,
+              },
+              ...prev,
+            ])
+          },
         },
       )
+
+      // null means the job was cancelled cleanly — nothing to display
+      if (result == null) return
 
       setApiSummary(result.report)
 
       if (result.tilesetUrl) {
         setApiDiffTilesetUrl(result.tilesetUrl)
-        await loadDiffApiTileset(result.tilesetUrl)
+        // Don't auto-load onto the main viewer — the user views the result
+        // by clicking the entry in Diff History (handleLoadDiff), same as
+        // any other past result.
       }
 
-      const diffId = apiDiffIdRef.current ?? result.id
-      setActiveDiffId(diffId)
       try {
         const entries = await fetchProjectDiffs(activeSite.id)
         setDiffHistory(entries)
       } catch (e) {
         console.warn('[handleApiRun] fetchProjectDiffs refresh failed:', e.message)
       }
+      addToast(`✓ "${runName}" 분석 완료`, 'ok')
     } catch (e) {
       console.error('[handleApiRun] FAILED:', e.message, e)
       setApiError(e.message)
+      const failedId = apiDiffIdRef.current
+      const wasCancelled = /취소/.test(e.message)
+      if (failedId != null) {
+        setDiffHistory(prev => prev.map(en =>
+          String(en.id) === String(failedId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
+        ))
+      }
+      if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
     } finally {
+      if (apiDiffIdRef.current != null) {
+        setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(apiDiffIdRef.current)); return s })
+      }
       apiDiffIdRef.current = null
       setApiRunning(false)
     }
@@ -560,13 +619,18 @@ export default function App() {
   async function handleApiCancel() {
     const diffId = apiDiffIdRef.current
     if (!diffId) { setApiRunning(false); return }
+    apiCancelledRef.current = true   // stop pollJob before the network cancel round-trip
     try {
       await cancelDiff(diffId)
       setApiStatus('취소됨')
+      setDiffHistory(prev => prev.map(e =>
+        String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
+      ))
+      addToast('분석이 중단되었습니다', 'ok')
     } catch (e) {
       console.warn('[handleApiCancel] cancel request failed:', e.message)
     } finally {
-      apiDiffIdRef.current = null
+      setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
       setApiRunning(false)
     }
   }
@@ -599,16 +663,54 @@ export default function App() {
     setTlRecomputeRunning(true)
     setTlRecomputeStatus('')
     setTlRecomputeDiffId(null)
+    tlRecomputeDiffIdRef.current = null
+    tlCancelledRef.current       = false
+    const runName = diffName || '시계열 분석'
     try {
-      const diff = await createTimeSeriesDiffAndPoll(activeSite.id, {
+      const sortedDates = [...activeSite.dates].sort((a, b) =>
+        (a.observedAt ?? '').localeCompare(b.observedAt ?? '')
+      )
+      const tlLabelA = sortedDates[0]?.label
+      const tlLabelB = sortedDates[sortedDates.length - 1]?.label
+
+      await createTimeSeriesDiffAndPoll(activeSite.id, {
         name: diffName || undefined,
-        onStatus: msg => setTlRecomputeStatus(msg),
-        onDiffId: id  => setTlRecomputeDiffId(id),
+        shouldStop: () => tlCancelledRef.current,
+        onStatus: msg => {
+          setTlRecomputeStatus(msg)
+          const id = tlRecomputeDiffIdRef.current
+          if (id != null) {
+            const s = /취소/.test(msg) ? 'CANCELLED' : 'RUNNING'
+            setDiffHistory(prev => prev.map(e =>
+              String(e.id) === String(id) ? { ...e, status: s } : e
+            ))
+          }
+        },
+        onDiffId: id => {
+          tlRecomputeDiffIdRef.current = id
+          setTlRecomputeDiffId(id)
+          setDiffPollingIds(prev => new Set([...prev, String(id)]))
+          setDiffHistory(prev => [
+            {
+              id,
+              diffId: id,
+              name: diffName || `diff-${id}`,
+              type: 'TIME_SERIES',
+              status: 'QUEUED',
+              createdAt: new Date().toISOString(),
+              labelA: tlLabelA,
+              labelB: tlLabelB,
+            },
+            ...prev,
+          ])
+        },
       })
+
+      // null means the job was cancelled cleanly — nothing to display
+      if (tlCancelledRef.current) return
+
       invalidateDiffCache(activeSite.id)
 
-      const diffId = diff?.id ?? null
-      setActiveDiffId(diffId)
       try {
         const entries = await fetchProjectDiffs(activeSite.id)
         setDiffHistory(entries)
@@ -617,10 +719,23 @@ export default function App() {
       }
 
       setTlSnapshots(null)
+      addToast(`✓ "${runName}" 분석 완료`, 'ok')
     } catch (e) {
       console.error('[handleTlRecompute] failed:', e.message)
       setTlRecomputeStatus(`오류: ${e.message}`)
+      const failedId = tlRecomputeDiffIdRef.current
+      const wasCancelled = /취소/.test(e.message)
+      if (failedId != null) {
+        setDiffHistory(prev => prev.map(en =>
+          String(en.id) === String(failedId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
+        ))
+      }
+      if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
     } finally {
+      if (tlRecomputeDiffIdRef.current != null) {
+        setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(tlRecomputeDiffIdRef.current)); return s })
+      }
+      tlRecomputeDiffIdRef.current = null
       setTlRecomputeRunning(false)
       setTlRecomputeDiffId(null)
     }
@@ -628,7 +743,12 @@ export default function App() {
 
   const handleTlCancelRecompute = useCallback(async () => {
     if (tlRecomputeDiffId) {
+      tlCancelledRef.current = true   // stop pollJob before the network cancel round-trip
       try { await cancelDiff(tlRecomputeDiffId) } catch (_) {}
+      setDiffHistory(prev => prev.map(e =>
+        String(e.id) === String(tlRecomputeDiffId) ? { ...e, status: 'CANCELLED' } : e
+      ))
+      addToast('분석이 중단되었습니다', 'ok')
     }
     setTlRecomputeRunning(false)
     setTlRecomputeStatus('')
@@ -700,6 +820,46 @@ export default function App() {
       }
       console.error('[resumeVoxelPoll] FAILED:', e.message, e)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
+    }
+  }
+
+  async function resumeDiffPoll(diffId, jobId) {
+    if (!diffId || !jobId) return
+    diffPollCancelledMap.current.delete(String(diffId))
+    setDiffPollingIds(prev => new Set([...prev, String(diffId)]))
+    // Update the history entry to show RUNNING status
+    setDiffHistory(prev => prev.map(e =>
+      String(e.id) === String(diffId) ? { ...e, status: 'RUNNING' } : e
+    ))
+    const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
+      ?? `diff-${diffId}`
+    try {
+      await pollJob(
+        jobId,
+        job => {
+          const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
+          setDiffHistory(prev => prev.map(e =>
+            String(e.id) === String(diffId) ? { ...e, status: s } : e
+          ))
+        },
+        { shouldStop: () => diffPollCancelledMap.current.has(String(diffId)) },
+      )
+      // Job done — refresh full diff history to get the enriched SUCCEEDED entry
+      if (activeSiteRef.current) {
+        const entries = await fetchProjectDiffs(activeSiteRef.current.id)
+        setDiffHistory(entries)
+      }
+      addToast(`✓ "${entryName}" 분석 완료`, 'ok')
+    } catch (e) {
+      console.error('[resumeDiffPoll] FAILED:', e.message)
+      const wasCancelled = /취소/.test(e.message)
+      setDiffHistory(prev => prev.map(en =>
+        String(en.id) === String(diffId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
+      ))
+      if (!wasCancelled) addToast(`❌ "${entryName}" 분석 실패: ${e.message}`, 'warn')
+    } finally {
+      diffPollCancelledMap.current.delete(String(diffId))
+      setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
     }
   }
 
@@ -830,6 +990,38 @@ export default function App() {
     } catch (e) {
       setDiffHistory(prev => prev.filter(e => String(e.id) !== String(diffId)))
     }
+    addToast('삭제되었습니다', 'ok')
+  }
+
+  // Cancels a QUEUED/RUNNING diff job directly from the history list.
+  // If the targeted diff happens to be the one the *computing view*
+  // currently has in flight, delegate to the existing per-mode handler
+  // instead of duplicating its cleanup — handleApiCancel/
+  // handleTlCancelRecompute already clear apiRunning/tlRecomputeRunning
+  // and their tracking refs, which a separate cancelDiff() call here
+  // wouldn't know to touch, leaving the computing-view panel stuck
+  // showing "분석 중" for a job that's actually dead.
+  async function handleCancelHistoryDiff(diffId) {
+    if (String(apiDiffIdRef.current) === String(diffId)) {
+      await handleApiCancel()
+      return
+    }
+    if (String(tlRecomputeDiffIdRef.current) === String(diffId)) {
+      await handleTlCancelRecompute()
+      return
+    }
+    diffPollCancelledMap.current.set(String(diffId), true)  // stop resumeDiffPoll before network cancel
+    try {
+      await cancelDiff(diffId)
+      setDiffHistory(prev => prev.map(e =>
+        String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
+      ))
+      addToast('분석이 취소되었습니다', 'ok')
+    } catch (e) {
+      addToast(`취소 실패: ${e.message}`, 'warn')
+    } finally {
+      setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+    }
   }
 
   function handleCameraSite() {
@@ -838,7 +1030,7 @@ export default function App() {
   }
   function handleCameraTop() {
     if (!activeSite) return
-    flyTo(activeSite.centerLon, activeSite.centerLat, activeSite.cameraHeight * 1.8, -90)
+    flyTo(activeSite.centerLon, activeSite.centerLat, activeSite.cameraHeight * 1.3, -90)
   }
 
   function handleNavTab(tab) {
@@ -965,9 +1157,11 @@ export default function App() {
             onLayerMode={handleLayerMode}
             mode={mode}                     onMode={handleModeChange}
             diffHistory={diffHistory}
+            diffPollingIds={diffPollingIds}
             activeDiffId={activeDiffId}
             onLoadDiff={handleLoadDiff}
             onDeleteDiff={handleDeleteDiff}
+            onCancelDiff={handleCancelHistoryDiff}
             analysisView={analysisView}
             onNewComputation={handleNewComputation}
             onBackToHome={handleBackToHome}

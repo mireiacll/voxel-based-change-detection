@@ -472,6 +472,16 @@ export default function App() {
 
         addToast(`✓ 업로드 완료: ${name}`, 'ok')
         setUploadingDateInfo(prev => { const next = new Map(prev); next.delete(tempId); return next })
+
+        // The backend auto-starts voxelization on upload — if the returned
+        // date already came back QUEUED/RUNNING, start polling it right
+        // away. Without this, the row shows whatever status this one-time
+        // response carried and then never updates again (no spinner, no
+        // poll loop) until a page reload re-discovers it via
+        // fetchActiveJobs/handleDataChanged.
+        if (newDate.voxelStatus === 'QUEUED' || newDate.voxelStatus === 'RUNNING') {
+          resumeVoxelPoll(newDate.id, newDate.voxelJobId)
+        }
       } catch (e) {
         console.error('[handleUploadObservation] FAILED:', e.message, e)
         patch({ phase: 'error', error: e.message })
@@ -895,6 +905,15 @@ export default function App() {
           const msg = s.jobMessage ? ` — ${s.jobMessage}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${s.voxelStatus}${pct}]${msg}`)
           setStatusDone(false)
+          // Patch the live status into the date object itself so the row's
+          // VoxelStatusBadge (keyed off date.voxelStatus) reflects QUEUED →
+          // RUNNING transitions immediately instead of staying frozen at
+          // whatever status it had when polling started.
+          _patchVoxelDate(activeSiteRef.current?.id, dateId, {
+            voxelStatus: s.voxelStatus,
+            jobProgress: s.jobProgress,
+            jobMessage:  s.jobMessage,
+          })
         },
         { shouldStop: () => deletingObsIdsRef.current.has(dateId) }
       )
@@ -1026,6 +1045,11 @@ export default function App() {
           const msg = message ? ` — ${message}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
           setStatusDone(false)
+          _patchVoxelDate(siteId, dateId, {
+            voxelStatus: status,
+            jobProgress: progress,
+            jobMessage:  message,
+          })
         }
       )
       _patchVoxelDate(siteId, dateId, updatedDate)

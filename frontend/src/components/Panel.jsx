@@ -8,7 +8,7 @@
  * Point size slider lives in the floating dates drawer.
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { formatDate } from '../api'
 import DiffHistory from './DiffHistory'
 
@@ -53,12 +53,11 @@ export default function Panel({
   // compare-api props (now in left panel)
   apiDateIdA, onApiDateIdA,
   apiDateIdB, onApiDateIdB,
-  apiRunning, onApiRun, onApiClear, onApiCancel,
-  apiStatus, apiError,
+  onApiRun, apiError,
   // draw area
   drawInfo, drawBtnLabel, onDrawArea,
   // timeline recompute
-  tlRecomputeRunning, onTlRecompute, onTlCancelRecompute, tlRecomputeStatus,
+  onTlRecompute,
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
@@ -68,10 +67,37 @@ export default function Panel({
 
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  // Each mode's Run button is only disabled by its own in-flight job.
-  // An A·B job running does NOT block starting a timeline job and vice versa.
-  const isComputing  = apiRunning || tlRecomputeRunning
-  const runDisabled  = mode === 'compare-api' ? apiRunning : tlRecomputeRunning
+  // ── Last-submitted job tracking (computing view) ───────────────────────────
+  // When the user clicks 분석 실행, we flip `pendingCapture` so the next
+  // diffHistory update can capture the newly-added QUEUED entry's id.
+  // `lastJobId` holds that id for the duration of the computing session;
+  // it resets when the user goes back to home or fires a brand-new run.
+  const [lastJobId,    setLastJobId]    = useState(null)
+  const pendingCapture = useRef(false)
+
+  useEffect(() => {
+    if (!pendingCapture.current) return
+    const newest = diffHistory?.[0]
+    if (newest && (newest.status === 'QUEUED' || newest.status === 'RUNNING')) {
+      setLastJobId(newest.id)
+      pendingCapture.current = false
+    }
+  }, [diffHistory])
+
+  // Reset when switching back to home
+  useEffect(() => {
+    if (analysisView === 'home') {
+      setLastJobId(null)
+      pendingCapture.current = false
+    }
+  }, [analysisView])
+
+  // Derive last-job status from diffHistory so the UI stays in sync
+  const lastJobEntry     = lastJobId != null
+    ? (diffHistory?.find(e => String(e.id) === String(lastJobId)) ?? null)
+    : null
+  const lastJobRunning    = lastJobEntry?.status === 'QUEUED' || lastJobEntry?.status === 'RUNNING'
+  const lastJobCancelling = cancellingDiffIds?.has(lastJobId)
 
   // ── HOME VIEW ─────────────────────────────────────────────────────────────
 
@@ -147,10 +173,34 @@ export default function Panel({
   }
 
   // ── COMPUTING VIEW ────────────────────────────────────────────────────────
+  // Clicking 분석 실행 fires the job in the background. The run button is
+  // replaced by a status row (spinner + cancel) until the job finishes or
+  // the user clicks "새 변화탐지" to start fresh without cancelling the current job.
+  // Results are only ever loaded by clicking the entry in 변화탐지 기록.
 
   function renderComputing() {
     const isAbMode = mode === 'compare-api'
-    const running  = isAbMode ? apiRunning : tlRecomputeRunning
+
+    // Basic validation only — never blocked by "another job is running",
+    // since any number of jobs can be in flight at once.
+    const canRun = isAbMode
+      ? Boolean(apiDateIdA && apiDateIdB && apiDateIdA !== apiDateIdB)
+      : dates.length >= 2 && dates.every(d => d.voxelStatus === 'SUCCEEDED')
+
+    function handleRun() {
+      if (isAbMode) onApiRun(); else onTlRecompute()
+      // Flag that we're waiting to capture the incoming diffHistory entry
+      pendingCapture.current = true
+    }
+
+    function handleNewRun() {
+      // Queue another run without cancelling the current one.
+      // Clears the captured job id so the status bar disappears and the
+      // form is fresh, but leaves the previous job running in the background.
+      setLastJobId(null)
+      pendingCapture.current = false
+      onDiffName('')
+    }
 
     return (
       <>
@@ -208,13 +258,10 @@ export default function Panel({
             placeholder="예: 2024년 변화탐지"
             value={diffName}
             onChange={e => onDiffName(e.target.value)}
-            disabled={running}
           />
         </div>
 
-        {/* Analysis mode — switchable even while a computation is running;
-            the running job keeps going in the background regardless of
-            which mode is shown */}
+        {/* Analysis mode */}
         <div className="p-section">
           <div className="p-label">분석 방법</div>
           <select
@@ -235,7 +282,7 @@ export default function Panel({
             <div className="compare-pair">
               <div className="compare-row">
                 <span className="compare-ab-lbl">A</span>
-                <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)} disabled={running}>
+                <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
                   {dates.map(d => {
                     const hasVoxel = d.voxelStatus === 'SUCCEEDED'
@@ -249,7 +296,7 @@ export default function Panel({
               </div>
               <div className="compare-row" style={{ marginTop: 6 }}>
                 <span className="compare-ab-lbl">B</span>
-                <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)} disabled={running}>
+                <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)}>
                   <option value="">— 날짜 선택 —</option>
                   {dates.map(d => {
                     const hasVoxel = d.voxelStatus === 'SUCCEEDED'
@@ -274,37 +321,45 @@ export default function Panel({
         {isAbMode && (
           <div className="p-section">
             <div className="p-label">분석 영역</div>
-            <button id="btn-draw-area" onClick={onDrawArea} disabled={running}>{drawBtnLabel}</button>
+            <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
             <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
           </div>
         )}
 
-        {/* Run / Cancel / Clear */}
+        {/* Run */}
         <div className="p-section">
-        <div className="compare-action-buttons">
+          {lastJobRunning ? (
+            /* A job from this session is in flight — show status row */
+            <div className="computing-status-block">
+              <div className="computing-status-row">
+                <span className="vst-spinner" />
+                <span className="computing-status-label">
+                  {lastJobEntry?.status === 'QUEUED' ? '대기 중…' : '분석 중…'}
+                </span>
+                <button
+                  className="computing-cancel-btn"
+                  onClick={() => onCancelDiff(lastJobId)}
+                  disabled={lastJobCancelling}
+                >
+                  {lastJobCancelling ? '취소 중' : '취소'}
+                </button>
+              </div>
+              <button
+                className="new-run-btn"
+                onClick={handleNewRun}
+              >
+                ＋ 새 변화탐지
+              </button>
+            </div>
+          ) : (
             <button
               id="btn-run-diff"
-              disabled={runDisabled}
-              onClick={isAbMode ? onApiRun : onTlRecompute}
+              className="run-diff-btn"
+              disabled={!canRun}
+              onClick={handleRun}
             >
-              {running ? '⟳ 분석 중…' : '⚡ 분석 실행'}
+              ⚡ 분석 실행
             </button>
-            {running ? (
-              <button
-                id="btn-clear-diff"
-                style={{ borderColor: '#d49050', color: '#d49050' }}
-                onClick={isAbMode ? onApiCancel : onTlCancelRecompute}
-              >
-                ⏹ 중단
-              </button>
-            ) : (isAbMode ? apiStatus : tlRecomputeStatus) ? (
-              <button id="btn-clear-diff" onClick={onApiClear}>✖ 결과 지우기</button>
-            ) : null}
-          </div>
-          {(apiStatus || tlRecomputeStatus) && (
-            <div id="diff-status" data-state={running ? 'computing' : 'done'} style={{ marginTop: 6 }}>
-              {isAbMode ? apiStatus : tlRecomputeStatus}
-            </div>
           )}
           {apiError && (
             <div id="diff-status" data-state="error" style={{ color: 'var(--removed)', marginTop: 6 }}>

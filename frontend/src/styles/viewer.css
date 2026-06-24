@@ -773,11 +773,17 @@ select {
 #toasts {
   position: fixed;
   bottom: calc(var(--bbh) + 8px);
-  /* Always reserve the right panel's width, even when it's not currently
-     shown — keeps toasts from jumping position as the panel floats in
-     and out, and avoids ever sitting underneath it. */
-  right: calc(var(--rpw) + 14px);
+  /* Default: right panel closed — sit close to the right edge. When the
+     right panel is open, App.jsx adds .toasts-rp-open, which pushes the
+     stack left by the panel's width so toasts never appear underneath it.
+     Transition mirrors #map-overlay-controls so both move in sync as the
+     panel floats in/out. */
+  right: 14px;
   display: flex; flex-direction: column; gap: 6px; z-index: 300;
+  transition: right 0.15s ease;
+}
+#toasts.toasts-rp-open {
+  right: calc(var(--rpw) + 14px);
 }
 .toast {
   background: var(--surf2); border: 1px solid var(--border2);
@@ -1859,8 +1865,9 @@ kbd {
 .back-btn {
   background: none;
   border: none;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -1868,7 +1875,40 @@ kbd {
   gap: 4px;
   transition: color 0.12s;
 }
-.back-btn:hover { color: var(--text); }
+.back-btn:hover { color: #fff; }
+
+/* Computing view in-flight status block */
+.computing-status-block { display: flex; flex-direction: column; gap: 6px; }
+.computing-status-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  background: rgba(251,146,60,.06);
+  border: 1px solid rgba(251,146,60,.2);
+  border-radius: var(--r);
+}
+.computing-status-label {
+  flex: 1; font-size: 11px; color: #fb923c; font-family: var(--mono);
+}
+.computing-cancel-btn {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 3px; cursor: pointer;
+  background: rgba(220,50,50,.1); color: #ff8080;
+  border: 1px solid rgba(220,50,50,.25);
+  transition: background .12s, border-color .12s;
+  font-family: var(--mono);
+}
+.computing-cancel-btn:hover:not(:disabled) { background: rgba(220,50,50,.2); border-color: rgba(220,50,50,.5); }
+.computing-cancel-btn:disabled { opacity: .5; cursor: not-allowed; }
+.new-run-btn {
+  width: 100%; padding: 10px 0;
+  background: linear-gradient(135deg, rgba(92,143,255,.15), rgba(92,143,255,.08));
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  color: var(--accent); font-size: 13px; font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer; transition: background .15s;
+}
+.new-run-btn:hover { background: linear-gradient(135deg, rgba(92,143,255,.25), rgba(92,143,255,.15)); }
 
 .diff-name-input {
   width: 100%;

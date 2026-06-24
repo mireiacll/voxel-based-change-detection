@@ -42,13 +42,13 @@ export default function RightPanel({
   tlPlaying, tlOnPlayPause,
   tlLoading,
   // compare-api results
-  apiRunning, apiSummary,
+  apiSummary,
 }) {
   const inTimeline   = mode === 'timeline'
   const inApiCompare = mode === 'compare-api'
 
   // Determine whether there is anything to show
-  const hasAbResult      = inApiCompare && (apiSummary != null || apiRunning)
+  const hasAbResult      = inApiCompare && apiSummary != null
   const hasTimelineResult = inTimeline && tlSnapshots != null
 
   if (!hasAbResult && !hasTimelineResult) return null
@@ -151,15 +151,6 @@ export default function RightPanel({
           </div>
         )
       })()}
-
-      {/* Spinner while AB is running but no result yet */}
-      {inApiCompare && apiRunning && !apiSummary && (
-        <div className="p-section">
-          <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', padding: '20px 0' }}>
-            분석 중…
-          </div>
-        </div>
-      )}
 
       {/* ── Timeline results ── */}
       {inTimeline && (

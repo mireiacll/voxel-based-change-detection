@@ -15,7 +15,7 @@ import {
   setDiffApiTilesetVisibility,
 } from './cesium/layers'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
-import { loadDiffSnapshots, loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
+import { loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
 import {
   fetchProjects,
   enrichProjectWithDates,
@@ -100,8 +100,6 @@ export default function App() {
 
   const [apiDateIdA,        setApiDateIdA]        = useState('')
   const [apiDateIdB,        setApiDateIdB]        = useState('')
-  const [apiRunning,        setApiRunning]        = useState(false)
-  const [apiStatus,         setApiStatus]         = useState('')
   const [apiError,          setApiError]          = useState(null)
   const [apiSummary,        setApiSummary]        = useState(null)
   const [apiDiffTilesetUrl, setApiDiffTilesetUrl] = useState(null)
@@ -113,8 +111,19 @@ export default function App() {
 
   useEffect(() => { diffHistoryRef.current = diffHistory }, [diffHistory])
 
-  const apiDiffIdRef         = useRef(null)
-  const apiCancelledRef      = useRef(false)  // flipped to true before cancelDiff() so pollJob stops immediately
+  // ── In-flight job registry ───────────────────────────────────────────
+  // Replaces the old per-mode singleton tracking (apiRunning/apiDiffIdRef/
+  // apiCancelledRef, tlRecomputeRunning/tlRecomputeDiffIdRef/tlCancelledRef).
+  // Each call to handleApiRun/handleTlRecompute fires independently and
+  // registers itself here the instant onDiffId resolves, keyed by diffId:
+  //   diffId → { type: 'AB'|'TIME_SERIES', cancelledRef: {current:bool}, dateIds: [id,...] }
+  // This lets any number of A·B and/or timeline jobs run concurrently,
+  // each individually cancellable from the diff-history list, with
+  // blockedDateInfo derived as the union of dateIds across all entries.
+  const inFlightJobsRef = useRef(new Map())
+  const [inFlightVersion, setInFlightVersion] = useState(0) // bump to force blockedDateInfo recompute
+  const bumpInFlight = () => setInFlightVersion(v => v + 1)
+
   const diffPollCancelledMap = useRef(new Map()) // diffId → true when history-entry poll should stop
 
   const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
@@ -134,11 +143,6 @@ export default function App() {
   const [tlActiveIndex, setTlActiveIndex] = useState(0)
   const [tlLoading,     setTlLoading]     = useState(false)
   const [tlPlaying,     setTlPlaying]     = useState(false)
-  const [tlRecomputeRunning, setTlRecomputeRunning] = useState(false)
-  const [tlRecomputeStatus,  setTlRecomputeStatus]  = useState('')
-  const [tlRecomputeDiffId,  setTlRecomputeDiffId]  = useState(null)
-  const tlRecomputeDiffIdRef = useRef(null)
-  const tlCancelledRef       = useRef(false)  // flipped to true before cancelDiff() so pollJob stops immediately
   const tlPlayTimer    = useRef(null)
   const viewerReady    = useRef(false)
   const tlSnapshotsRef = useRef(null)
@@ -146,17 +150,15 @@ export default function App() {
 
   const blockedDateInfo = useMemo(() => {
     const map = new Map()
-    if (apiRunning) {
-      if (apiDateIdA) map.set(apiDateIdA, 'A/B 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
-      if (apiDateIdB) map.set(apiDateIdB, 'A/B 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
-    }
-    if (tlRecomputeRunning && activeSite) {
-      activeSite.dates.forEach(d => {
-        map.set(d.id, '시계열 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.')
-      })
+    for (const job of inFlightJobsRef.current.values()) {
+      const msg = job.type === 'AB'
+        ? 'A/B 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.'
+        : '시계열 분석이 진행 중입니다 — 분석이 끝나거나 취소된 후 수정/삭제할 수 있습니다.'
+      job.dateIds.forEach(id => map.set(id, msg))
     }
     return map
-  }, [apiRunning, apiDateIdA, apiDateIdB, tlRecomputeRunning, activeSite])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inFlightVersion])
 
   // ── Helpers ───────────────────────────────────────────────────────────
   const addToast = useCallback((msg, type = 'ok') => {
@@ -316,7 +318,7 @@ export default function App() {
     setActiveDate(null)
     setApiDateIdA(site.dates?.[0]?.id ?? '')
     setApiDateIdB(site.dates?.[1]?.id ?? site.dates?.[0]?.id ?? '')
-    setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
+    setApiSummary(null); setApiError(null); setApiDiffTilesetUrl(null)
     setTlSnapshots(null); setTlActiveIndex(0); setTlPlaying(false)
     setCompareApiVis({ ...DEFAULT_VIS })
     setTlVis({ ...DEFAULT_VIS })
@@ -324,6 +326,8 @@ export default function App() {
     window.currentSite = site
     flownSiteIdRef.current = null
     setActiveDiffId(null)
+    inFlightJobsRef.current.clear()
+    bumpInFlight()
     Promise.all([
       fetchProjectDiffs(site.id)
         .catch(e => { console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message); return [] }),
@@ -491,7 +495,6 @@ export default function App() {
     setAnalysisView('computing')
     setDiffName('')
     setApiSummary(null)
-    setApiStatus('')
     setApiError(null)
     setApiDiffTilesetUrl(null)
     clearDiffApiTileset()
@@ -510,13 +513,13 @@ export default function App() {
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
     setDrawBanner(false)
     // Hide all diff visuals — the viewer should be blank on the home view.
-    // In-flight jobs keep running in the background (apiRunning /
-    // tlRecomputeRunning stay true so the history spinner keeps going),
-    // but we don't want stale tileset results sitting in the viewport.
+    // Any in-flight jobs keep running in the background regardless (they're
+    // tracked in inFlightJobsRef, not view state), so the history spinner
+    // keeps going — we just don't want stale tileset results sitting in
+    // the viewport.
     clearDiffApiTileset()
     clearAllSnapshotTilesets()
     setApiSummary(null)
-    setApiStatus('')
     setApiError(null)
     setApiDiffTilesetUrl(null)
     setTlSnapshots(null)
@@ -524,8 +527,13 @@ export default function App() {
     setActiveDiffId(null)
   }
 
+  // Fires an A·B computation and returns immediately once the job is
+  // created — does NOT block on the full poll-to-completion. The caller
+  // (the run button) resets the form (name field) the instant this
+  // function returns, so the user can immediately queue another run.
+  // Multiple calls can be in flight at once, each independently tracked
+  // in inFlightJobsRef and individually cancellable from diff history.
   async function handleApiRun() {
-    if (apiRunning) return
     if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
     if (apiDateIdA === apiDateIdB)  { setApiError('서로 다른 날짜를 선택하세요'); return }
 
@@ -540,137 +548,113 @@ export default function App() {
       return
     }
 
-    apiDiffIdRef.current    = null
-    apiCancelledRef.current = false
+    setApiError(null)
     const runName = diffName || 'A·B 분석'
-    setApiRunning(true); setApiError(null); setApiSummary(null); setApiDiffTilesetUrl(null)
-    try {
-      const { getPolygonWkt } = await import('./cesium/polygonDraw')
-      const areaWkt = getPolygonWkt?.() ?? undefined
+    const cancelledRef = { current: false }
 
-      const result = await createAbDiffAndPoll(
-        activeSite.id,
-        apiDateIdA,
-        apiDateIdB,
-        {
-          areaWkt,
-          name: diffName || undefined,
-          shouldStop: () => apiCancelledRef.current,
-          onStatus: msg => {
-            setApiStatus(msg)
-            // Do NOT touch diffHistory status here — pollJob's tick callback
-            // already sets the correct QUEUED/RUNNING from job.status.
-            // Stamping RUNNING from the message text races against that and
-            // causes all entries to show 생성 중 regardless of real state.
-          },
-          onDiffId: id => {
-            apiDiffIdRef.current = id
-            setDiffPollingIds(prev => new Set([...prev, String(id)]))
-            setDiffHistory(prev => [
-              {
-                id,
-                diffId: id,
-                name: diffName || `diff-${id}`,
+    const { getPolygonWkt } = await import('./cesium/polygonDraw')
+    const areaWkt = getPolygonWkt?.() ?? undefined
+
+    // Runs in the background — intentionally not awaited by the caller.
+    ;(async () => {
+      let diffId = null
+      try {
+        const result = await createAbDiffAndPoll(
+          activeSite.id,
+          apiDateIdA,
+          apiDateIdB,
+          {
+            areaWkt,
+            name: diffName || undefined,
+            shouldStop: () => cancelledRef.current,
+            onStatus: () => {
+              // No live status display anymore — results are only ever
+              // loaded from diff history afterward, never auto-shown.
+            },
+            onDiffId: id => {
+              diffId = id
+              inFlightJobsRef.current.set(String(id), {
                 type: 'AB',
-                status: 'QUEUED',
-                createdAt: new Date().toISOString(),
-                labelA: dA?.label,
-                labelB: dB?.label,
-              },
-              ...prev,
-            ])
+                cancelledRef,
+                dateIds: [apiDateIdA, apiDateIdB],
+              })
+              bumpInFlight()
+              setDiffPollingIds(prev => new Set([...prev, String(id)]))
+              setDiffHistory(prev => [
+                {
+                  id,
+                  diffId: id,
+                  name: diffName || `diff-${id}`,
+                  type: 'AB',
+                  status: 'QUEUED',
+                  createdAt: new Date().toISOString(),
+                  labelA: dA?.label,
+                  labelB: dB?.label,
+                },
+                ...prev,
+              ])
+              addToast(`⚡ "${runName}" 분석 시작됨`, 'ok')
+            },
+            onJobTick: job => {
+              if (diffId == null) return
+              const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
+              setDiffHistory(prev => prev.map(e =>
+                String(e.id) === String(diffId) ? { ...e, status: s } : e
+              ))
+            },
           },
-          onJobTick: job => {
-            const id = apiDiffIdRef.current
-            if (id == null) return
-            const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
-            setDiffHistory(prev => prev.map(e =>
-              String(e.id) === String(id) ? { ...e, status: s } : e
-            ))
-          },
-        },
-      )
+        )
 
-      // null means the job was cancelled cleanly — nothing to display
-      if (result == null) return
+        // null means the job was cancelled cleanly — nothing further to do;
+        // handleCancelHistoryDiff already stamped the history row CANCELLED.
+        if (result == null) return
 
-      // Use refs so we read the current view/mode even inside a stale closure.
-      // Only show results if the user is still in computing view on the A/B tab.
-      // If they went to home (목록) or switched to timeline, just update history —
-      // they can click the entry themselves to load it.
-      const stillViewing = analysisViewRef.current === 'computing' && modeRef.current === 'compare-api'
-      if (stillViewing) {
-        setApiSummary(result.report)
-        if (result.tilesetUrl) {
-          setApiDiffTilesetUrl(result.tilesetUrl)
-          try { await loadDiffApiTileset(result.tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
+        try {
+          const entries = await fetchProjectDiffs(activeSite.id)
+          // Merge: keep any optimistic in-progress entries other concurrent
+          // jobs may have added (QUEUED/RUNNING), replacing only entries that
+          // now exist in the refreshed list.
+          const refreshedIds = new Set(entries.map(e => String(e.id)))
+          setDiffHistory(prev => {
+            const inFlight = prev.filter(e =>
+              (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
+            )
+            return [...inFlight, ...entries]
+          })
+        } catch (e) {
+          console.warn('[handleApiRun] fetchProjectDiffs refresh failed:', e.message)
+        }
+        addToast(`✓ "${runName}" 분석 완료 — 기록에서 확인하세요`, 'ok')
+      } catch (e) {
+        console.error('[handleApiRun] FAILED:', e.message, e)
+        const wasCancelled = /취소/.test(e.message)
+        if (diffId != null) {
+          setDiffHistory(prev => prev.map(en =>
+            String(en.id) === String(diffId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
+          ))
+        }
+        if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
+      } finally {
+        if (diffId != null) {
+          setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+          inFlightJobsRef.current.delete(String(diffId))
+          bumpInFlight()
         }
       }
-      // else: silently drop — history was refreshed above, user loads manually
-
-      try {
-        const entries = await fetchProjectDiffs(activeSite.id)
-        // Merge: keep any optimistic in-progress entries the other concurrent
-        // job may have added (QUEUED/RUNNING), replacing only the entries that
-        // now exist in the refreshed list.
-        const refreshedIds = new Set(entries.map(e => String(e.id)))
-        setDiffHistory(prev => {
-          const inFlight = prev.filter(e =>
-            (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
-          )
-          return [...inFlight, ...entries]
-        })
-      } catch (e) {
-        console.warn('[handleApiRun] fetchProjectDiffs refresh failed:', e.message)
-      }
-      addToast(`✓ "${runName}" 분석 완료`, 'ok')
-    } catch (e) {
-      console.error('[handleApiRun] FAILED:', e.message, e)
-      setApiError(e.message)
-      const failedId = apiDiffIdRef.current
-      const wasCancelled = /취소/.test(e.message)
-      if (failedId != null) {
-        setDiffHistory(prev => prev.map(en =>
-          String(en.id) === String(failedId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
-        ))
-      }
-      if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
-    } finally {
-      if (apiDiffIdRef.current != null) {
-        setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(apiDiffIdRef.current)); return s })
-      }
-      apiDiffIdRef.current = null
-      setApiRunning(false)
-    }
-  }
-
-  async function handleApiCancel() {
-    const diffId = apiDiffIdRef.current
-    if (!diffId) { setApiRunning(false); return }
-    apiCancelledRef.current = true   // stop pollJob before the network cancel round-trip
-    try {
-      await cancelDiff(diffId)
-      setApiStatus('취소됨')
-      setDiffHistory(prev => prev.map(e =>
-        String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
-      ))
-      addToast('분석이 중단되었습니다', 'ok')
-    } catch (e) {
-      console.warn('[handleApiCancel] cancel request failed:', e.message)
-    } finally {
-      setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
-      setApiRunning(false)
-    }
+    })()
   }
 
   function handleApiClear() {
-    setApiSummary(null); setApiStatus(''); setApiError(null); setApiDiffTilesetUrl(null)
+    setApiSummary(null); setApiError(null); setApiDiffTilesetUrl(null)
     setActiveDiffId(null)
     clearDiffApiTileset()
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
+  // Fires a timeline (시계열) computation and returns immediately once the
+  // job is created — same fire-and-forget pattern as handleApiRun. Results
+  // are never auto-displayed; the user loads them from diff history.
   const handleTlRecompute = useCallback(async () => {
     if (!activeSite) return
 
@@ -686,129 +670,96 @@ export default function App() {
       return
     }
 
-    if (modeRef.current === 'timeline') {
-      clearAllSnapshotTilesets()
-      setTlSnapshots(null)
-    }
-    setTlRecomputeRunning(true)
-    setTlRecomputeStatus('')
-    setTlRecomputeDiffId(null)
-    tlRecomputeDiffIdRef.current = null
-    tlCancelledRef.current       = false
     const runName = diffName || '시계열 분석'
-    try {
-      const sortedDates = [...activeSite.dates].sort((a, b) =>
-        (a.observedAt ?? '').localeCompare(b.observedAt ?? '')
-      )
-      const tlLabelA = sortedDates[0]?.label
-      const tlLabelB = sortedDates[sortedDates.length - 1]?.label
+    const cancelledRef = { current: false }
+    const allDateIds = activeSite.dates.map(d => d.id)
+    const sortedDates = [...activeSite.dates].sort((a, b) =>
+      (a.observedAt ?? '').localeCompare(b.observedAt ?? '')
+    )
+    const tlLabelA = sortedDates[0]?.label
+    const tlLabelB = sortedDates[sortedDates.length - 1]?.label
 
-      await createTimeSeriesDiffAndPoll(activeSite.id, {
-        name: diffName || undefined,
-        shouldStop: () => tlCancelledRef.current,
-        onStatus: msg => {
-          setTlRecomputeStatus(msg)
-          // Do NOT touch diffHistory status here — pollJob's tick callback
-          // already sets the correct QUEUED/RUNNING from job.status.
-        },
-        onDiffId: id => {
-          tlRecomputeDiffIdRef.current = id
-          setTlRecomputeDiffId(id)
-          setDiffPollingIds(prev => new Set([...prev, String(id)]))
-          setDiffHistory(prev => [
-            {
-              id,
-              diffId: id,
-              name: diffName || `diff-${id}`,
-              type: 'TIME_SERIES',
-              status: 'QUEUED',
-              createdAt: new Date().toISOString(),
-              labelA: tlLabelA,
-              labelB: tlLabelB,
-            },
-            ...prev,
-          ])
-        },
-        onJobTick: job => {
-          const id = tlRecomputeDiffIdRef.current
-          if (id == null) return
-          const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
-          setDiffHistory(prev => prev.map(e =>
-            String(e.id) === String(id) ? { ...e, status: s } : e
-          ))
-        },
-      })
-
-      // null means the job was cancelled cleanly — nothing to display
-      if (tlCancelledRef.current) return
-
-      invalidateDiffCache(activeSite.id)
-
+    // Runs in the background — intentionally not awaited by the caller.
+    ;(async () => {
+      let diffId = null
       try {
-        const entries = await fetchProjectDiffs(activeSite.id)
-        const refreshedIds = new Set(entries.map(e => String(e.id)))
-        setDiffHistory(prev => {
-          const inFlight = prev.filter(e =>
-            (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
-          )
-          return [...inFlight, ...entries]
+        await createTimeSeriesDiffAndPoll(activeSite.id, {
+          name: diffName || undefined,
+          shouldStop: () => cancelledRef.current,
+          onStatus: () => {
+            // No live status display anymore — results load from history.
+          },
+          onDiffId: id => {
+            diffId = id
+            inFlightJobsRef.current.set(String(id), {
+              type: 'TIME_SERIES',
+              cancelledRef,
+              dateIds: allDateIds,
+            })
+            bumpInFlight()
+            setDiffPollingIds(prev => new Set([...prev, String(id)]))
+            setDiffHistory(prev => [
+              {
+                id,
+                diffId: id,
+                name: diffName || `diff-${id}`,
+                type: 'TIME_SERIES',
+                status: 'QUEUED',
+                createdAt: new Date().toISOString(),
+                labelA: tlLabelA,
+                labelB: tlLabelB,
+              },
+              ...prev,
+            ])
+            addToast(`⚡ "${runName}" 분석 시작됨`, 'ok')
+          },
+          onJobTick: job => {
+            if (diffId == null) return
+            const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
+            setDiffHistory(prev => prev.map(e =>
+              String(e.id) === String(diffId) ? { ...e, status: s } : e
+            ))
+          },
         })
-      } catch (e) {
-        console.warn('[handleTlRecompute] fetchProjectDiffs refresh failed:', e.message)
-      }
 
-      // Only display results if still in computing/timeline view.
-      // If the user navigated to home (목록) or switched to A/B, just leave
-      // the history updated — they can click the entry themselves to load it.
-      if (analysisViewRef.current === 'computing' && modeRef.current === 'timeline') {
+        // cancelledRef.current true means the job was cancelled cleanly —
+        // handleCancelHistoryDiff already stamped the history row.
+        if (cancelledRef.current) return
+
+        invalidateDiffCache(activeSite.id)
+
         try {
-          setTlLoading(true)
-          const snaps = await loadDiffSnapshots(activeSite)
-          setTlSnapshots(snaps)
-          setTlActiveIndex(0)
-          await loadAllSnapshotTilesets(snaps)
-          if (snaps.length > 0) showSnapshotTileset(snaps[0].id)
+          const entries = await fetchProjectDiffs(activeSite.id)
+          const refreshedIds = new Set(entries.map(e => String(e.id)))
+          setDiffHistory(prev => {
+            const inFlight = prev.filter(e =>
+              (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
+            )
+            return [...inFlight, ...entries]
+          })
         } catch (e) {
-          console.warn('[handleTlRecompute] snapshot reload failed:', e.message)
-        } finally {
-          setTlLoading(false)
+          console.warn('[handleTlRecompute] fetchProjectDiffs refresh failed:', e.message)
+        }
+
+        addToast(`✓ "${runName}" 분석 완료 — 기록에서 확인하세요`, 'ok')
+      } catch (e) {
+        console.error('[handleTlRecompute] failed:', e.message)
+        const wasCancelled = /취소/.test(e.message)
+        if (diffId != null) {
+          setDiffHistory(prev => prev.map(en =>
+            String(en.id) === String(diffId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
+          ))
+        }
+        if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
+      } finally {
+        if (diffId != null) {
+          setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+          inFlightJobsRef.current.delete(String(diffId))
+          bumpInFlight()
         }
       }
-      addToast(`✓ "${runName}" 분석 완료`, 'ok')
-    } catch (e) {
-      console.error('[handleTlRecompute] failed:', e.message)
-      setTlRecomputeStatus(`오류: ${e.message}`)
-      const failedId = tlRecomputeDiffIdRef.current
-      const wasCancelled = /취소/.test(e.message)
-      if (failedId != null) {
-        setDiffHistory(prev => prev.map(en =>
-          String(en.id) === String(failedId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
-        ))
-      }
-      if (!wasCancelled) addToast(`❌ "${runName}" 분석 실패: ${e.message}`, 'warn')
-    } finally {
-      if (tlRecomputeDiffIdRef.current != null) {
-        setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(tlRecomputeDiffIdRef.current)); return s })
-      }
-      tlRecomputeDiffIdRef.current = null
-      setTlRecomputeRunning(false)
-      setTlRecomputeDiffId(null)
-    }
+    })()
   }, [activeSite, diffName])
-
-  const handleTlCancelRecompute = useCallback(async () => {
-    if (tlRecomputeDiffId) {
-      tlCancelledRef.current = true   // stop pollJob before the network cancel round-trip
-      try { await cancelDiff(tlRecomputeDiffId) } catch (_) {}
-      setDiffHistory(prev => prev.map(e =>
-        String(e.id) === String(tlRecomputeDiffId) ? { ...e, status: 'CANCELLED' } : e
-      ))
-      addToast('분석이 중단되었습니다', 'ok')
-    }
-    setTlRecomputeRunning(false)
-    setTlRecomputeStatus('')
-    setTlRecomputeDiffId(null)
-  }, [tlRecomputeDiffId])
 
   function _patchVoxelDate(siteId, dateId, updatedDate) {
     setSites(prev => {
@@ -882,11 +833,31 @@ export default function App() {
     if (!diffId || !jobId) return
     diffPollCancelledMap.current.delete(String(diffId))
     setDiffPollingIds(prev => new Set([...prev, String(diffId)]))
+
+    // Register in the in-flight registry too, so blockedDateInfo correctly
+    // blocks edit/delete on the relevant dates for jobs resumed after a
+    // page reload — not just freshly-started ones. The cancelledRef here
+    // mirrors diffPollCancelledMap (the pre-existing mechanism for resumed
+    // jobs) so handleCancelHistoryDiff's cancelDiff() call still works via
+    // its existing diffPollCancelledMap path; this registration only adds
+    // date-blocking, it doesn't change cancellation flow for resumed jobs.
+    const entry = diffHistoryRef.current.find(e => String(e.id) === String(diffId))
+    const dateIds = entry?.type === 'TIME_SERIES'
+      ? (activeSiteRef.current?.dates ?? []).map(d => d.id)
+      : [] // AB date IDs aren't known for resumed entries without extra lookups; skip blocking for those
+    if (dateIds.length > 0) {
+      inFlightJobsRef.current.set(String(diffId), {
+        type: entry?.type === 'TIME_SERIES' ? 'TIME_SERIES' : 'AB',
+        cancelledRef: { current: false },
+        dateIds,
+      })
+      bumpInFlight()
+    }
+
     // Do NOT force RUNNING here — let pollJob's first tick set the real
     // status (QUEUED or RUNNING) from the backend, so multiple in-progress
     // entries each show their true state rather than all showing 생성 중.
-    const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
-      ?? `diff-${diffId}`
+    const entryName = entry?.name ?? `diff-${diffId}`
     try {
       const job = await pollJob(
         jobId,
@@ -938,6 +909,10 @@ export default function App() {
     } finally {
       diffPollCancelledMap.current.delete(String(diffId))
       setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+      if (inFlightJobsRef.current.has(String(diffId))) {
+        inFlightJobsRef.current.delete(String(diffId))
+        bumpInFlight()
+      }
     }
   }
 
@@ -1034,7 +1009,6 @@ export default function App() {
     } else if (entry.type === 'AB') {
       if (!entry.diffId) { addToast('이전 버전에서 저장된 기록입니다', 'warn'); return }
       handleModeChange('compare-api')
-      setApiStatus('기록 불러오는 중…')
       setApiError(null)
       setApiSummary(null)
       try {
@@ -1044,10 +1018,8 @@ export default function App() {
           setApiDiffTilesetUrl(tilesetUrl)
           try { await loadDiffApiTileset(tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
         }
-        setApiStatus('기록에서 불러옴')
         setActiveDiffId(entry.id)
       } catch (e) {
-        setApiStatus('')
         addToast(`기록 불러오기 실패: ${e.message}`, 'warn')
       }
     }
@@ -1087,36 +1059,34 @@ export default function App() {
   }
 
   // Cancels a QUEUED/RUNNING diff job directly from the history list.
-  // If the targeted diff happens to be the one the *computing view*
-  // currently has in flight, delegate to the existing per-mode handler
-  // instead of duplicating its cleanup — handleApiCancel/
-  // handleTlCancelRecompute already clear apiRunning/tlRecomputeRunning
-  // and their tracking refs, which a separate cancelDiff() call here
-  // wouldn't know to touch, leaving the computing-view panel stuck
-  // showing "분석 중" for a job that's actually dead.
+  // Works uniformly for any in-flight job — freshly started (tracked in
+  // inFlightJobsRef) or resumed after a page reload (tracked in
+  // diffPollCancelledMap) — since there's no more single "computing view's
+  // job" to special-case; every job is already individually tracked by
+  // diffId the instant it's created.
   async function handleCancelHistoryDiff(diffId) {
     if (cancellingDiffIds.has(diffId)) return
     setCancellingDiffIds(prev => new Set(prev).add(diffId))
+    const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
+      ?? `diff-${diffId}`
     try {
-      if (String(apiDiffIdRef.current) === String(diffId)) {
-        await handleApiCancel()
-        return
-      }
-      if (String(tlRecomputeDiffIdRef.current) === String(diffId)) {
-        await handleTlCancelRecompute()
-        return
-      }
+      const job = inFlightJobsRef.current.get(String(diffId))
+      if (job) job.cancelledRef.current = true   // stop pollJob before the network cancel round-trip
       diffPollCancelledMap.current.set(String(diffId), true)  // stop resumeDiffPoll before network cancel
       try {
         await cancelDiff(diffId)
         setDiffHistory(prev => prev.map(e =>
           String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
         ))
-        addToast('분석이 취소되었습니다', 'ok')
+        addToast(`"${entryName}" 분석이 취소되었습니다`, 'ok')
       } catch (e) {
         addToast(`취소 실패: ${e.message}`, 'warn')
       } finally {
         setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+        if (inFlightJobsRef.current.has(String(diffId))) {
+          inFlightJobsRef.current.delete(String(diffId))
+          bumpInFlight()
+        }
       }
     } finally {
       setCancellingDiffIds(prev => { const s = new Set(prev); s.delete(diffId); return s })
@@ -1240,14 +1210,10 @@ export default function App() {
             diffName={diffName}             onDiffName={setDiffName}
             apiDateIdA={apiDateIdA}         onApiDateIdA={setApiDateIdA}
             apiDateIdB={apiDateIdB}         onApiDateIdB={setApiDateIdB}
-            apiRunning={apiRunning}         onApiRun={handleApiRun}
-            onApiClear={handleApiClear}     onApiCancel={handleApiCancel}
-            apiStatus={apiStatus}           apiError={apiError}
+            onApiRun={handleApiRun}
+            apiError={apiError}
             drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
-            tlRecomputeRunning={tlRecomputeRunning}
             onTlRecompute={handleTlRecompute}
-            onTlCancelRecompute={handleTlCancelRecompute}
-            tlRecomputeStatus={tlRecomputeStatus}
           />
 
           <RightPanel
@@ -1288,7 +1254,7 @@ export default function App() {
         <BottomBar statusMsg={statusMsg} statusDone={statusDone} mode="compare-api" />
       )}
 
-      <Toasts items={toasts} />
+      <Toasts items={toasts} showRightPanel={showRightPanel} />
     </>
   )
 }

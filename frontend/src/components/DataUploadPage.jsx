@@ -470,6 +470,7 @@ function DateRow({
   voxelRunning, onCancelVoxel,
   voxelPollingIds, computingId, onComputeVoxel,
   activePreview, onPreview,
+  layerPref,
 }) {
   const [editing,         setEditing]         = useState(false)
   const [editObservedAt,  setEditObservedAt]  = useState(date.observedAt ?? '')
@@ -547,7 +548,11 @@ function DateRow({
 
   function handleRowClick() {
     if (editing || confirmDelete || !hasData) return
-    onPreview(date, 'pc')
+    // If the user last explicitly chose vox and this date has vox ready, open vox.
+    // Otherwise default to pc/mesh.
+    const hasVoxel = !!date.voxelTilesetUrl && date.voxelStatus === 'SUCCEEDED'
+    const layer = (layerPref === 'vox' && hasVoxel) ? 'vox' : 'pc'
+    onPreview(date, layer)
   }
 
   return (
@@ -1172,6 +1177,7 @@ export default function DataUploadPage({
   const hasDates  = (site.dates?.length ?? 0) > 0
 
   const [activePreview,  setActivePreview]  = useState(null)  // { dateId, layer } | null
+  const [layerPref,      setLayerPref]      = useState('pc')  // 'pc' | 'vox' — last explicit user choice
   const [manualPos,      setManualPos]      = useState(false)
   const [editHeight,     setEditHeight]     = useState(false)
 
@@ -1181,6 +1187,8 @@ export default function DataUploadPage({
       setActivePreview(null)
       return
     }
+    // Remember explicit layer choice so row-clicks on other dates respect it
+    setLayerPref(layer)
     setActivePreview({ dateId: date.id, layer })
   }
 
@@ -1256,6 +1264,7 @@ export default function DataUploadPage({
                   onComputeVoxel={onComputeVoxel}
                   activePreview={activePreview}
                   onPreview={handlePreview}
+                  layerPref={layerPref}
                 />
               ))}
               <NewDateCard site={site} onCreated={onCreated} />

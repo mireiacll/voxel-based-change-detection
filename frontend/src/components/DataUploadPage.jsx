@@ -13,20 +13,29 @@
  *
  * Props
  * ─────
- *   site            — site object (required)
- *   onUploaded      — () => void   called after any successful upload
- *   onCreated       — () => void   called after date creation / deletion
- *   onSiteUpdated   — () => void   called after project coords are saved
- *   blockedDateInfo — Map<dateId, reason> dates locked by a running diff
- *   voxelPollingIds — Set<dateId>  dates whose voxel job is being polled
- *   onCancelVoxel   — (dateId) => Promise<void>
- *   onComputeVoxel  — (dateId) => Promise<void>
- *   computingId     — dateId | null
+ *   site                — site object (required)
+ *   onUploaded          — () => void   called after a date's edit (name/date) is saved
+ *   onCreated           — () => void   called after date deletion (refreshes site/date list)
+ *   onSiteUpdated       — () => void   called after project coords are saved
+ *   blockedDateInfo     — Map<dateId, reason> dates locked by a running diff
+ *   voxelPollingIds     — Set<dateId>  dates whose voxel job is being polled
+ *   onCancelVoxel       — (dateId) => Promise<void>
+ *   onComputeVoxel      — (dateId) => Promise<void>
+ *   computingId         — dateId | null
+ *   uploadingDateInfo   — Map<tempId, { name, observedAt, datasetType, phase, pct, error }>
+ *                         in-flight/failed background uploads (see App.jsx's
+ *                         handleUploadObservation) — any number can be
+ *                         in-flight concurrently, each rendered as its own
+ *                         row via UploadingDateCard
+ *   onUploadObservation — (siteId, { name, observedAt, datasetType, files }) => tempId
+ *                         fire-and-forget — starts a background upload and
+ *                         returns immediately; NewDateCard resets/closes
+ *                         right away so another upload can be started
+ *   onDismissUpload     — (tempId) => void   clears a failed upload's row
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  uploadObservation,
   updateObservation,
   deleteObservation,
   updateProject,
@@ -40,13 +49,6 @@ function isoToLabel(iso) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const m = MONTHS[parseInt(month, 10) - 1] ?? month
   return `${m} ${parseInt(day, 10)}, ${year}`
-}
-
-function progressLabel({ phase, pct }) {
-  if (phase === 'checking')  return '형식 확인 중…'
-  if (phase === 'zipping')   return `압축 중…  ${pct}%`
-  if (phase === 'uploading') return '업로드 중…'
-  return ''
 }
 
 function DatasetTypeBadge({ type }) {
@@ -672,44 +674,40 @@ function DateRow({
 
 // ── New date card ─────────────────────────────────────────────────────────
 
-function NewDateCard({ site, onCreated }) {
+function NewDateCard({ site, onUploadObservation }) {
   const [open,        setOpen]        = useState(false)
   const [observedAt,  setObservedAt]  = useState('')
   const [name,        setName]        = useState('')
   const [datasetType, setDatasetType] = useState('pointcloud')
   const [files,       setFiles]       = useState([])
   const [dragOver,    setDragOver]    = useState(false)
-  const [loading,     setLoading]     = useState(false)
-  const [progress,    setProgress]    = useState('')
   const [error,       setError]       = useState('')
   const inputRef = useRef(null)
 
   function handleFileChange(e) { setFiles([...e.target.files]); setError('') }
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(observedAt)) return setError('날짜 형식은 YYYY-MM-DD여야 합니다.')
     if (!name.trim())                              return setError('이름(설명)은 필수입니다.')
     if (!files.length)                             return setError('파일을 선택하세요 — 데이터 파일이 필요합니다.')
 
-    setLoading(true)
-    setError('')
-    try {
-      await uploadObservation(site.id, {
-        name:        name.trim(),
-        observedAt:  observedAt,
-        datasetType: datasetType,
-        files,
-        onProgress:  p => setProgress(progressLabel(p)),
-      })
-      setProgress('완료!')
-      setObservedAt(''); setName(''); setFiles([])
-      if (inputRef.current) inputRef.current.value = ''
-      setTimeout(() => { setProgress(''); setOpen(false); onCreated() }, 800)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
+    // Hand off to the background upload registry (App.jsx) and reset the
+    // form immediately — uploading is no longer something this form waits
+    // on, so the card closes right away and the user is free to open
+    // "새 날짜 추가" again to start another upload in parallel. Progress for
+    // this upload is tracked separately and shown as its own row in the
+    // list (see UploadingDateCard) until it succeeds or fails.
+    onUploadObservation(site.id, {
+      name:        name.trim(),
+      observedAt:  observedAt,
+      datasetType: datasetType,
+      files,
+    })
+
+    setObservedAt(''); setName(''); setFiles([])
+    setDatasetType('pointcloud'); setError('')
+    if (inputRef.current) inputRef.current.value = ''
+    setOpen(false)
   }
 
   async function handleDrop(e) {
@@ -778,7 +776,6 @@ function NewDateCard({ site, onCreated }) {
               <DateTextInput
                 value={observedAt}
                 onChange={v => { setObservedAt(v); setError('') }}
-                disabled={loading}
               />
             </div>
             <div className="modal-field">
@@ -788,7 +785,6 @@ function NewDateCard({ site, onCreated }) {
                 value={name}
                 onChange={e => { setName(e.target.value); setError('') }}
                 placeholder="예) 251106_둔포면"
-                disabled={loading}
               />
             </div>
           </div>
@@ -799,14 +795,12 @@ function NewDateCard({ site, onCreated }) {
               <button
                 className={`dup-type-btn${datasetType === 'pointcloud' ? ' active' : ''}`}
                 onClick={() => setDatasetType('pointcloud')}
-                disabled={loading}
               >
                 ☁ Point Cloud
               </button>
               <button
                 className={`dup-type-btn${datasetType === 'mesh' ? ' active' : ''}`}
                 onClick={() => setDatasetType('mesh')}
-                disabled={loading}
               >
                 ◈ 3D Mesh
               </button>
@@ -830,7 +824,6 @@ function NewDateCard({ site, onCreated }) {
                 multiple
                 webkitdirectory=""
                 onChange={handleFileChange}
-                disabled={loading}
               />
               {files.length === 0 ? (
                 <div>폴더 또는 ZIP을 여기에 드래그<br/>또는 클릭하여 탐색</div>
@@ -844,8 +837,7 @@ function NewDateCard({ site, onCreated }) {
             </div>
           </div>
 
-          {error    && <div className="modal-error">{error}</div>}
-          {progress && <div className="modal-progress">{progress}</div>}
+          {error && <div className="modal-error">{error}</div>}
 
           <div className="dup-actions">
             <button
@@ -853,16 +845,73 @@ function NewDateCard({ site, onCreated }) {
               onClick={() => {
                 setOpen(false); setObservedAt(''); setName('')
                 setDatasetType('pointcloud'); setFiles([])
-                setError(''); setProgress('')
+                setError('')
               }}
-              disabled={loading}
             >
               취소
             </button>
-            <button className="modal-btn-primary" onClick={handleSubmit} disabled={loading}>
-              {loading ? '처리 중…' : '날짜 추가'}
+            <button className="modal-btn-primary" onClick={handleSubmit}>
+              날짜 추가
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── In-progress upload row ────────────────────────────────────────────────
+//
+// Renders one row per entry in uploadingDateInfo (App.jsx's background
+// upload registry). Several of these can be visible simultaneously since
+// uploads now run concurrently — each tracks its own phase/pct/error
+// independently. A failed upload stays visible (with its error) until
+// dismissed, rather than silently disappearing.
+
+function UploadingDateCard({ tempId, info, onDismiss }) {
+  const { name, observedAt, phase, pct, error } = info
+  const isError = phase === 'error'
+
+  let label
+  if (isError)                 label = `실패 — ${error}`
+  else if (phase === 'checking')  label = '형식 확인 중…'
+  else if (phase === 'zipping')   label = `압축 중…  ${pct}%`
+  else if (phase === 'uploading') label = pct >= 100 ? '처리 중…' : `업로드 중…  ${pct}%`
+  else                          label = '준비 중…'
+
+  return (
+    <div className={`dup-date-card dup-uploading-card${isError ? ' dup-uploading-card-error' : ''}`}>
+      <div className="dup-date-header">
+        <div className="dup-date-info">
+          <span className="dup-date-label">{isoToLabel(observedAt) || observedAt}</span>
+          <span className="dup-date-name" title={name}>{name}</span>
+        </div>
+        <div className="dup-date-actions">
+          {!isError ? (
+            <span className="vst-badge vst-running">⏳ {label}</span>
+          ) : (
+            <>
+              <span className="vst-badge vst-failed">✗ {label}</span>
+              <button className="dup-icon-btn" onClick={() => onDismiss(tempId)} title="닫기">✕</button>
+            </>
+          )}
+        </div>
+      </div>
+      {!isError && (
+        <div
+          className="dup-upload-progress-track"
+          style={{
+            height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.12)',
+            margin: '0 12px 10px', overflow: 'hidden',
+          }}
+        >
+          <div
+            className="dup-upload-progress-fill"
+            style={{
+              width: `${Math.max(4, pct ?? 0)}%`, height: '100%',
+              background: 'var(--accent, #5af)', transition: 'width 0.3s ease',
+            }}
+          />
         </div>
       )}
     </div>
@@ -1170,6 +1219,9 @@ export default function DataUploadPage({
   onCancelVoxel,
   onComputeVoxel,
   computingId,
+  uploadingDateInfo,
+  onUploadObservation,
+  onDismissUpload,
 }) {
   if (!site) return null
 
@@ -1249,6 +1301,16 @@ export default function DataUploadPage({
 
           <div className="dup-list-col">
             <div className="dup-list">
+              {uploadingDateInfo && uploadingDateInfo.size > 0 && (
+                [...uploadingDateInfo.entries()].map(([tempId, info]) => (
+                  <UploadingDateCard
+                    key={tempId}
+                    tempId={tempId}
+                    info={info}
+                    onDismiss={onDismissUpload}
+                  />
+                ))
+              )}
               {site.dates.map(d => (
                 <DateRow
                   key={d.id}
@@ -1267,7 +1329,7 @@ export default function DataUploadPage({
                   layerPref={layerPref}
                 />
               ))}
-              <NewDateCard site={site} onCreated={onCreated} />
+              <NewDateCard site={site} onUploadObservation={onUploadObservation} />
             </div>
           </div>
 

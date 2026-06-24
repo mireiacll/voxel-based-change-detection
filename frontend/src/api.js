@@ -543,7 +543,11 @@ async function _normalizeZip(blob) {
  *   name         — observation name (YYMMDD code)
  *   observedAt   — YYYY-MM-DD string
  *   files        — File[] from a zip picker or folder drop
- *   onProgress   — optional (pct: number) => void  (0–100, zipping phase only)
+ *   onProgress   — optional ({ phase, pct }) => void
+ *                  phase: 'checking' | 'zipping' | 'uploading'
+ *                  pct:   0–100, meaningful for 'zipping' and 'uploading'
+ *                  (upload progress comes from real XHR byte counters, not
+ *                  an estimate)
  * @returns date object
  */
 export async function uploadObservation(projectId, { name, observedAt, datasetType = 'pointcloud', files, onProgress }) {
@@ -561,36 +565,58 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
      fileList[0].type === 'application/zip' ||
      fileList[0].type === 'application/x-zip-compressed')
 
+  onProgress?.({ phase: 'checking', pct: 0 })
+
   if (isSingleZip) {
     // User picked/dropped a zip directly — validate + normalise its internal
     // structure (tileset.json must end up at the zip root, alongside data/)
     console.log('[api.uploadObservation] single zip selected, validating/normalising:', fileList[0].name, fileList[0].size, 'bytes')
-    onProgress?.(0)
     zipBlob = await _normalizeZip(fileList[0])
-    onProgress?.(100)
   } else {
     // Folder drop (or multi-file selection) — bundle into a zip first
     console.log('[api.uploadObservation] building zip from', fileList.length, 'files…')
-    onProgress?.(0)
-    zipBlob = await _buildZip(fileList, onProgress)
+    zipBlob = await _buildZip(fileList, pct => onProgress?.({ phase: 'zipping', pct }))
     console.log('[api.uploadObservation] zip built:', zipBlob.size, 'bytes')
-    onProgress?.(100)
   }
 
+  onProgress?.({ phase: 'uploading', pct: 0 })
   console.log('[api.uploadObservation] →', url.toString(), { name, observedAt, zipSize: zipBlob.size })
 
   const form = new FormData()
   form.append('file', zipBlob, `${name}.zip`)
 
-  const res = await fetch(url.toString(), { method: 'POST', body: form })
-  console.log('[api.uploadObservation] ←', res.status)
-  if (!res.ok) {
-    const b = await res.json().catch(() => ({}))
-    console.error('[api.uploadObservation] ERROR', res.status, b)
-    throw new Error(b.message ?? b.detail ?? `HTTP ${res.status}`)
-  }
-  const obs = await res.json()
+  // Use XHR instead of fetch so we get real upload-progress events — fetch
+  // has no built-in way to report bytes-sent for a request body, which is
+  // exactly the gap that made big uploads look frozen with no feedback
+  // while the transfer was actually still going.
+  const obs = await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url.toString())
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return
+      onProgress?.({ phase: 'uploading', pct: Math.round((e.loaded / e.total) * 100) })
+    }
+    xhr.onload = () => {
+      console.log('[api.uploadObservation] ←', xhr.status)
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)) }
+        catch (e) { reject(new Error('Failed to parse server response')) }
+        return
+      }
+      let msg = `HTTP ${xhr.status}`
+      try {
+        const b = JSON.parse(xhr.responseText)
+        msg = b.message ?? b.detail ?? msg
+      } catch (_) { /* non-JSON error body — keep generic message */ }
+      console.error('[api.uploadObservation] ERROR', xhr.status, xhr.responseText)
+      reject(new Error(msg))
+    }
+    xhr.onerror = () => reject(new Error('네트워크 오류 — 업로드에 실패했습니다.'))
+    xhr.send(form)
+  })
+
   console.log('[api.uploadObservation] created observation', obs.id, obs.name)
+  onProgress?.({ phase: 'uploading', pct: 100 })
   return _observationToDate(obs)
 }
 
@@ -669,6 +695,9 @@ export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs 
  *   · Targets the observation directly — no need to track voxelJobId.
  *   · Returns voxelTilesetUrl in the terminal response.
  *   · Progress via jobProgress/jobMessage mirrors JobResponse fields.
+ *   · Defaults to a 5s interval (voxel jobs run for minutes, so there's no
+ *     need to hammer the endpoint every 2s — especially with several jobs
+ *     polling concurrently for large datasets).
  *
  * @param {string|number} observationId
  * @param {(s: object) => void} [onProgress]
@@ -680,7 +709,7 @@ export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs 
  *                deleted, avoiding a 404 network error in the console.
  * @returns {Promise<object>}  final ObservationVoxelStatusResponse
  */
-export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 2000, timeoutMs = 1_800_000, shouldStop } = {}) {
+export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 5000, timeoutMs = 1_800_000, shouldStop } = {}) {
   const deadline = Date.now() + timeoutMs
   while (true) {
     // Check before every fetch — catches cancellation that happened while we

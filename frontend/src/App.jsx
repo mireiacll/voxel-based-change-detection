@@ -37,6 +37,7 @@ import {
   fetchDiffById,
   createTimeSeriesDiffAndPoll,
   cancelVoxelize,
+  uploadObservation,
 } from './api'
 import NavBar             from './components/NavBar'
 import Panel              from './components/Panel'
@@ -74,6 +75,16 @@ export default function App() {
   const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
   const [voxelPollingIds, setVoxelPollingIds] = useState(new Set())
   const [diffPollingIds,  setDiffPollingIds]  = useState(new Set())
+
+  // ── In-flight upload registry ──────────────────────────────────────────
+  // Mirrors inFlightJobsRef below: each call to handleUploadObservation
+  // registers itself here immediately (keyed by a client-generated tempId)
+  // so any number of uploads can run concurrently — zipping/uploading one
+  // large dataset no longer blocks starting another. DataUploadPage reads
+  // this map to render per-row progress instead of owning upload state
+  // itself.
+  //   tempId → { name, observedAt, datasetType, phase, pct, error }
+  const [uploadingDateInfo, setUploadingDateInfo] = useState(() => new Map())
 
   const activeDateRef     = useRef(null)
   const activeSiteRef     = useRef(null)
@@ -391,6 +402,91 @@ export default function App() {
       }
     }
     addToast('데이터가 업데이트되었습니다', 'ok')
+  }
+
+  /**
+   * Upload a new observation in the background.
+   *
+   * This is fire-and-forget and concurrent by design: each call registers
+   * itself in uploadingDateInfo under its own tempId the instant it starts,
+   * so the caller (DataUploadPage / NewDateCard) doesn't need to block its
+   * own UI on the await — the user can immediately open another "새 날짜
+   * 추가" card and kick off a second upload while this one is still
+   * zipping/uploading. Large folders/zips can take a while to compress
+   * client-side, so blocking on a single in-form `loading` flag was what
+   * made it look "stuck" — now that work happens off to the side and
+   * multiple uploads can be in flight at once.
+   *
+   * On success, the new date is patched directly into `sites`/`activeSite`
+   * (same approach as _patchVoxelDate) instead of doing a full
+   * refreshSites() — avoids a heavy full re-fetch of every project + every
+   * date after each individual upload.
+   *
+   * @param {string|number} siteId
+   * @param {{ name, observedAt, datasetType, files }} params
+   * @returns {string} tempId — callers can use this to find their entry in
+   *   uploadingDateInfo if they want to render row-level progress.
+   */
+  function handleUploadObservation(siteId, { name, observedAt, datasetType, files }) {
+    const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    setUploadingDateInfo(prev => {
+      const next = new Map(prev)
+      next.set(tempId, { name, observedAt, datasetType, phase: 'checking', pct: 0, error: null })
+      return next
+    })
+
+    function patch(fields) {
+      setUploadingDateInfo(prev => {
+        if (!prev.has(tempId)) return prev
+        const next = new Map(prev)
+        next.set(tempId, { ...next.get(tempId), ...fields })
+        return next
+      })
+    }
+
+    ;(async () => {
+      try {
+        const newDate = await uploadObservation(siteId, {
+          name,
+          observedAt,
+          datasetType,
+          files,
+          onProgress: p => patch({ phase: p.phase, pct: p.pct }),
+        })
+
+        // Patch the new date straight into state — no full refreshSites().
+        setSites(prev => {
+          const next = prev.map(s => {
+            if (s.id !== siteId) return s
+            if (s.dates.some(d => d.id === newDate.id)) return s // already present, don't duplicate
+            return { ...s, dates: [...s.dates, newDate].sort((a, b) => (a.observedAt < b.observedAt ? -1 : 1)) }
+          })
+          const newSite = next.find(s => s.id === siteId)
+          if (newSite && activeSiteRef.current?.id === siteId) {
+            setActiveSite(newSite)
+            window.currentSite = newSite
+          }
+          return next
+        })
+
+        addToast(`✓ 업로드 완료: ${name}`, 'ok')
+        setUploadingDateInfo(prev => { const next = new Map(prev); next.delete(tempId); return next })
+      } catch (e) {
+        console.error('[handleUploadObservation] FAILED:', e.message, e)
+        patch({ phase: 'error', error: e.message })
+        addToast(`❌ 업로드 실패: ${name} — ${e.message}`, 'warn')
+        // Leave the failed entry in uploadingDateInfo (with error set) so the
+        // row can show the failure and offer a retry/dismiss, instead of it
+        // silently vanishing.
+      }
+    })()
+
+    return tempId
+  }
+
+  function handleDismissUpload(tempId) {
+    setUploadingDateInfo(prev => { const next = new Map(prev); next.delete(tempId); return next })
   }
 
   async function handleSiteEdited() {
@@ -1174,6 +1270,9 @@ export default function App() {
             voxelPollingIds={voxelPollingIds}
             onCancelVoxel={handleCancelVoxelForDate}
             onComputeVoxel={handleComputeVoxel}
+            uploadingDateInfo={uploadingDateInfo}
+            onUploadObservation={handleUploadObservation}
+            onDismissUpload={handleDismissUpload}
           />
         </div>
       )}

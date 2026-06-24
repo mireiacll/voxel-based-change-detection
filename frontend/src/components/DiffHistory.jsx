@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 /**
  * DiffHistory.jsx
  *
@@ -89,62 +87,20 @@ function shortRange(labelA, labelB) {
   return { a: aShort, b: bShort }
 }
 
-export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCancel, pollingIds }) {
-  // Tracks ids currently being deleted/cancelled, purely client-side.
-  // A row stays "deleting"/"cancelling" from the moment ✕ is clicked
-  // until the parent call settles. Kept as two separate sets (rather
-  // than one "busy" set) because a SUCCEEDED row can only ever be
-  // deleted and a QUEUED/RUNNING row can only ever be cancelled — never
-  // both — so there's no ambiguity, but keeping them separate makes
-  // each render branch read directly off the action it actually means.
-  const [deletingIds, setDeletingIds]   = useState(() => new Set())
-  const [cancellingIds, setCancellingIds] = useState(() => new Set())
+export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCancel, pollingIds, deletingIds, cancellingIds }) {
+  // deletingIds and cancellingIds are lifted to App.jsx so they survive
+  // unmount/remount when the user navigates between home and computing views.
 
   async function handleDeleteClick(e, id) {
     e.stopPropagation()
-    if (deletingIds.has(id)) return // already in flight — ignore repeat clicks
-    setDeletingIds(prev => new Set(prev).add(id))
-    try {
-      await onDelete(id)
-    } catch {
-      // Defensive only: as currently wired, the parent's delete handler
-      // swallows its own errors (shows a toast, then resolves normally)
-      // rather than rejecting, so this branch won't usually run. Kept
-      // in case that ever changes upstream.
-    } finally {
-      // Release the lock once onDelete settles, success or failure. On
-      // success the row disappears from `entries` on the next parent
-      // refresh anyway; on failure (reported via toast in the parent)
-      // this puts the row back to normal so the person can retry
-      // instead of it spinning forever.
-      setDeletingIds(prev => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-    }
+    if (deletingIds?.has(id)) return
+    await onDelete(id)
   }
 
-  // Same shape as handleDeleteClick, but for QUEUED/RUNNING rows. The
-  // parent's onCancel (App.jsx's handleCancelHistoryDiff) flips the
-  // entry's status to CANCELLED on success, which means it drops out
-  // of `visible` below on the next render — so same cleanup story as
-  // delete: clear the local flag once the call settles either way.
   async function handleCancelClick(e, id) {
     e.stopPropagation()
-    if (cancellingIds.has(id)) return
-    setCancellingIds(prev => new Set(prev).add(id))
-    try {
-      await onCancel(id)
-    } catch {
-      // onCancel reports its own failure toast upstream; nothing else to do here.
-    } finally {
-      setCancellingIds(prev => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-    }
+    if (cancellingIds?.has(id)) return
+    await onCancel(id)
   }
 
   const visible = entries.filter(e =>

@@ -43,6 +43,8 @@ export default function Panel({
   onLoadDiff,
   onDeleteDiff,
   onCancelDiff,
+  deletingDiffIds,
+  cancellingDiffIds,
   // new computation view props
   analysisView,         // 'home' | 'computing'
   onNewComputation,     // () => void — go to computing view
@@ -136,6 +138,8 @@ export default function Panel({
             onDelete={onDeleteDiff}
             onCancel={onCancelDiff}
             pollingIds={diffPollingIds}
+            deletingIds={deletingDiffIds}
+            cancellingIds={cancellingDiffIds}
           />
         </div>
       </>

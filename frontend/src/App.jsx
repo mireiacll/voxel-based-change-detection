@@ -106,7 +106,9 @@ export default function App() {
   const [apiSummary,        setApiSummary]        = useState(null)
   const [apiDiffTilesetUrl, setApiDiffTilesetUrl] = useState(null)
 
-  const [diffHistory,  setDiffHistory]  = useState([])
+  const [diffHistory,       setDiffHistory]       = useState([])
+  const [deletingDiffIds,   setDeletingDiffIds]   = useState(() => new Set())
+  const [cancellingDiffIds, setCancellingDiffIds] = useState(() => new Set())
   const [activeDiffId, setActiveDiffId] = useState(null)
 
   useEffect(() => { diffHistoryRef.current = diffHistory }, [diffHistory])
@@ -886,7 +888,7 @@ export default function App() {
     const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
       ?? `diff-${diffId}`
     try {
-      await pollJob(
+      const job = await pollJob(
         jobId,
         job => {
           const s = job.status === 'QUEUED' ? 'QUEUED' : 'RUNNING'
@@ -896,10 +898,34 @@ export default function App() {
         },
         { shouldStop: () => diffPollCancelledMap.current.has(String(diffId)) },
       )
-      // Job done — refresh full diff history to get the enriched SUCCEEDED entry
+
+      // CANCELLED — either shouldStop fired (e.g. someone clicked ✕ on this
+      // exact entry while we were polling) or the backend itself cancelled
+      // the job. Either way, just stamp THIS entry — do not touch any other
+      // row, and do NOT fall through to the full-history refresh below,
+      // which only returns SUCCEEDED diffs and would otherwise wipe out
+      // every other still-in-flight entry that hasn't reached SUCCEEDED yet.
+      if (job.status === 'CANCELLED') {
+        setDiffHistory(prev => prev.map(e =>
+          String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
+        ))
+        return
+      }
+
+      // Job done — refresh full diff history to get the enriched SUCCEEDED
+      // entry. Merge rather than overwrite: fetchProjectDiffs only returns
+      // SUCCEEDED diffs, so a bare setDiffHistory(entries) here would erase
+      // any OTHER diff that's still QUEUED/RUNNING/being resumed concurrently
+      // (e.g. one job finishing while a second is still in progress).
       if (activeSiteRef.current) {
         const entries = await fetchProjectDiffs(activeSiteRef.current.id)
-        setDiffHistory(entries)
+        const refreshedIds = new Set(entries.map(e => String(e.id)))
+        setDiffHistory(prev => {
+          const inFlight = prev.filter(e =>
+            (e.status === 'QUEUED' || e.status === 'RUNNING') && !refreshedIds.has(String(e.id))
+          )
+          return [...inFlight, ...entries]
+        })
       }
       addToast(`✓ "${entryName}" 분석 완료`, 'ok')
     } catch (e) {
@@ -1029,19 +1055,34 @@ export default function App() {
 
   async function handleDeleteDiff(diffId) {
     if (!activeSite) return
+    if (deletingDiffIds.has(diffId)) return
+    setDeletingDiffIds(prev => new Set(prev).add(diffId))
     try {
       await deleteDiff(diffId)
     } catch (e) {
       addToast(`Diff 삭제 실패: ${e.message}`, 'warn')
+      setDeletingDiffIds(prev => { const s = new Set(prev); s.delete(diffId); return s })
       return
     }
     if (String(activeDiffId) === String(diffId)) setActiveDiffId(null)
     try {
+      // fetchProjectDiffs only returns SUCCEEDED diffs — merge rather than
+      // overwrite, or any other QUEUED/RUNNING entry not yet SUCCEEDED would
+      // get wiped from the list even though its job is still alive.
       const entries = await fetchProjectDiffs(activeSite.id)
-      setDiffHistory(entries)
+      const refreshedIds = new Set(entries.map(e => String(e.id)))
+      setDiffHistory(prev => {
+        const inFlight = prev.filter(e =>
+          (e.status === 'QUEUED' || e.status === 'RUNNING') &&
+          String(e.id) !== String(diffId) &&
+          !refreshedIds.has(String(e.id))
+        )
+        return [...inFlight, ...entries]
+      })
     } catch (e) {
       setDiffHistory(prev => prev.filter(e => String(e.id) !== String(diffId)))
     }
+    setDeletingDiffIds(prev => { const s = new Set(prev); s.delete(diffId); return s })
     addToast('삭제되었습니다', 'ok')
   }
 
@@ -1054,25 +1095,31 @@ export default function App() {
   // wouldn't know to touch, leaving the computing-view panel stuck
   // showing "분석 중" for a job that's actually dead.
   async function handleCancelHistoryDiff(diffId) {
-    if (String(apiDiffIdRef.current) === String(diffId)) {
-      await handleApiCancel()
-      return
-    }
-    if (String(tlRecomputeDiffIdRef.current) === String(diffId)) {
-      await handleTlCancelRecompute()
-      return
-    }
-    diffPollCancelledMap.current.set(String(diffId), true)  // stop resumeDiffPoll before network cancel
+    if (cancellingDiffIds.has(diffId)) return
+    setCancellingDiffIds(prev => new Set(prev).add(diffId))
     try {
-      await cancelDiff(diffId)
-      setDiffHistory(prev => prev.map(e =>
-        String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
-      ))
-      addToast('분석이 취소되었습니다', 'ok')
-    } catch (e) {
-      addToast(`취소 실패: ${e.message}`, 'warn')
+      if (String(apiDiffIdRef.current) === String(diffId)) {
+        await handleApiCancel()
+        return
+      }
+      if (String(tlRecomputeDiffIdRef.current) === String(diffId)) {
+        await handleTlCancelRecompute()
+        return
+      }
+      diffPollCancelledMap.current.set(String(diffId), true)  // stop resumeDiffPoll before network cancel
+      try {
+        await cancelDiff(diffId)
+        setDiffHistory(prev => prev.map(e =>
+          String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
+        ))
+        addToast('분석이 취소되었습니다', 'ok')
+      } catch (e) {
+        addToast(`취소 실패: ${e.message}`, 'warn')
+      } finally {
+        setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+      }
     } finally {
-      setDiffPollingIds(prev => { const s = new Set(prev); s.delete(String(diffId)); return s })
+      setCancellingDiffIds(prev => { const s = new Set(prev); s.delete(diffId); return s })
     }
   }
 
@@ -1185,6 +1232,8 @@ export default function App() {
             onLoadDiff={handleLoadDiff}
             onDeleteDiff={handleDeleteDiff}
             onCancelDiff={handleCancelHistoryDiff}
+            deletingDiffIds={deletingDiffIds}
+            cancellingDiffIds={cancellingDiffIds}
             analysisView={analysisView}
             onNewComputation={handleNewComputation}
             onBackToHome={handleBackToHome}

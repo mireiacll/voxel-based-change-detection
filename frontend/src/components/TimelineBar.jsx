@@ -27,7 +27,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-export default function TimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPause }) {
+export default function TimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPause, showRightPanel }) {
   const trackRef = useRef(null)
 
   if (!snapshots || snapshots.length === 0) return null
@@ -87,7 +87,7 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
   const active = snapshots[activeIndex]
 
   return (
-    <div id="timeline-bar">
+    <div id="timeline-bar" className={showRightPanel ? 'tl-bar-rp-open' : ''} >
 
       {/* ── Left: play controls ── */}
       <div className="tl-left">

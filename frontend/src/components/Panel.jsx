@@ -104,7 +104,8 @@ export default function Panel({
   function renderHome() {
     return (
       <>
-        {/* Project info */}
+        {/* Fixed top — project info + new computation button */}
+        <div className="panel-fixed">
         <div className="p-section">
           <div className="p-label">선택된 프로젝트</div>
           <div className="site-info-card">
@@ -154,8 +155,11 @@ export default function Panel({
           </button>
         </div>
 
-        {/* Diff history */}
-        <div className="p-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        </div>{/* /panel-fixed */}
+
+        {/* Scrollable diff history */}
+        <div className="panel-scroll">
+        <div className="p-section" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="p-label">변화탐지 기록</div>
           <DiffHistory
             entries={diffHistory ?? []}
@@ -168,6 +172,7 @@ export default function Panel({
             cancellingIds={cancellingDiffIds}
           />
         </div>
+        </div>{/* /panel-scroll */}
       </>
     )
   }
@@ -204,6 +209,8 @@ export default function Panel({
 
     return (
       <>
+        {/* Fixed top — project info + back button */}
+        <div className="panel-fixed">
         {/* Project info card — same as home view */}
         <div className="p-section">
           <div className="p-label">선택된 프로젝트</div>
@@ -248,7 +255,10 @@ export default function Panel({
             ← 목록으로
           </button>
         </div>
+        </div>{/* /panel-fixed */}
 
+        {/* Scrollable form */}
+        <div className="panel-scroll">
         {/* Computation name */}
         <div className="p-section">
           <div className="p-label">분석 이름 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(선택)</span></div>
@@ -367,6 +377,7 @@ export default function Panel({
             </div>
           )}
         </div>
+        </div>{/* /panel-scroll */}
       </>
     )
   }

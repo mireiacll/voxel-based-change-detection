@@ -206,7 +206,15 @@ html, body {
   background: var(--surf);
   border-right: 1px solid var(--border);
   box-shadow: 4px 0 16px rgba(0,0,0,.35);
-  overflow-y: auto; z-index: 150;
+  z-index: 150;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+/* Fixed sections (project info, new-diff button, back btn) */
+.panel-fixed { flex-shrink: 0; }
+/* Scrollable area (diff history in home, form fields in computing) */
+.panel-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
 }
@@ -649,9 +657,11 @@ select {
 .bb-sep-dot { opacity: .4; margin: 0 2px; }
 
 /* ── Timeline bar ───────────────────────────────────────────── */
+/* The timeline bar only ever shows in timeline mode, when the right
+   panel is always visible — so we permanently stop at --rpw. */
 #timeline-bar {
   position: fixed;
-  bottom: var(--bbh); left: var(--pw); right: 0;
+  bottom: var(--bbh); left: var(--pw); right: var(--rpw);
   height: 72px;
   background: var(--surf); border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 12px;

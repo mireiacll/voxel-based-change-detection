@@ -1246,6 +1246,7 @@ export default function App() {
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}
             tlOnPlayPause={() => setTlPlaying(v => !v)}
+            showRightPanel={showRightPanel}
           />
         </>
       )}

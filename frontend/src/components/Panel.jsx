@@ -58,6 +58,10 @@ export default function Panel({
   drawInfo, drawBtnLabel, onDrawArea,
   // timeline recompute
   onTlRecompute,
+  // split view (compare two diff-history entries side by side)
+  splitMode, onToggleSplitMode,
+  activeDiffIdB,
+  onAssignSlot,
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
@@ -121,7 +125,7 @@ export default function Panel({
                   <button
                     className="dates-drawer-trigger"
                     onClick={() => setDrawerOpen(o => !o)}
-                    title="Survey Dates 열기"
+                    title="Observations 열기"
                   >
                     목록
                   </button>
@@ -160,16 +164,36 @@ export default function Panel({
         {/* Scrollable diff history */}
         <div className="panel-scroll">
         <div className="p-section" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="p-label">변화탐지 기록</div>
+          <div className="dh-header-row">
+            <div className="p-label" style={{ marginBottom: 0 }}>변화탐지 기록</div>
+            <button
+              className={`split-toggle-btn${splitMode ? ' active' : ''}`}
+              onClick={onToggleSplitMode}
+              title={splitMode ? '분할 비교 종료' : '두 결과를 나란히 비교'}
+            >
+              ⊟ 비교
+            </button>
+          </div>
+          {splitMode && (
+            <div className="split-hint">
+              {activeDiffId == null
+                ? '기록에서 항목을 클릭해 A에 지정하세요'
+                : activeDiffIdB == null
+                  ? '기록에서 항목을 클릭해 B에 지정하세요'
+                  : '두 결과가 비교 중입니다 — 다른 항목을 클릭하면 B가 교체됩니다'}
+            </div>
+          )}
           <DiffHistory
             entries={diffHistory ?? []}
             activeId={activeDiffId}
-            onLoad={onLoadDiff}
+            onLoad={splitMode ? onAssignSlot : onLoadDiff}
             onDelete={onDeleteDiff}
             onCancel={onCancelDiff}
             pollingIds={diffPollingIds}
             deletingIds={deletingDiffIds}
             cancellingIds={cancellingDiffIds}
+            splitMode={splitMode}
+            activeIdB={activeDiffIdB}
           />
         </div>
         </div>{/* /panel-scroll */}
@@ -227,7 +251,7 @@ export default function Panel({
                   <button
                     className="dates-drawer-trigger"
                     onClick={() => setDrawerOpen(o => !o)}
-                    title="Survey Dates 열기"
+                    title="Observations 열기"
                   >
                     목록
                   </button>
@@ -388,7 +412,7 @@ export default function Panel({
     return (
       <div className="dates-drawer">
         <div className="dates-drawer-header">
-          <span className="dates-drawer-title">Survey Dates</span>
+          <span className="dates-drawer-title">Observations</span>
           <button className="dates-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
         </div>
         <div className="dates-drawer-body">

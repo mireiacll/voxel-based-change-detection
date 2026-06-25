@@ -4,7 +4,10 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { CONFIG } from './config'
-import { initViewer, flyTo, setTerrainVisible, setBasemap } from './cesium/cesiumInit'
+import {
+  initViewer, flyTo, setTerrainVisible, setBasemap,
+  initSecondaryViewer, destroySecondaryViewer, setBasemap2,
+} from './cesium/cesiumInit'
 import {
   loadDate, syncVisibility, clearLayers, clearAllLayers,
   applyPcStyle,
@@ -13,8 +16,10 @@ import {
   setSnapshotTilesetVisibility,
   loadDiffApiTileset, clearDiffApiTileset,
   setDiffApiTilesetVisibility,
+  createLayerController,
 } from './cesium/layers'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
+import { startCameraSync } from './cesium/viewerSync'
 import { loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
 import {
   fetchProjects,
@@ -121,6 +126,61 @@ export default function App() {
   const [activeDiffId, setActiveDiffId] = useState(null)
 
   useEffect(() => { diffHistoryRef.current = diffHistory }, [diffHistory])
+
+  // ── Split view (compare two diff-history entries side by side) ─────────
+  // Slot A reuses ALL existing single-view state untouched (activeDiffId,
+  // apiSummary, apiDiffTilesetUrl, tlSnapshots, tlActiveIndex, tlPlaying) —
+  // so single-view behavior is byte-for-byte the same as before this
+  // feature existed. Slot B is new, parallel state that only gets used
+  // once splitMode is on and a second entry has been assigned to it.
+  //
+  // splitMode: false        → today's behavior, single viewport, single result
+  // splitMode: true, slotB  → second Cesium viewport + second result panel
+  const [splitMode, setSplitMode]     = useState(false)
+  const [activeDiffIdB, setActiveDiffIdB] = useState(null)
+
+  const [apiSummaryB,        setApiSummaryB]        = useState(null)
+  const [apiDiffTilesetUrlB, setApiDiffTilesetUrlB] = useState(null)
+
+  const [tlSnapshotsB,   setTlSnapshotsB]   = useState(null)
+  const [tlActiveIndexB, setTlActiveIndexB] = useState(0)
+  const [tlPlayingB,     setTlPlayingB]     = useState(false)
+  const [tlLoadingB,     setTlLoadingB]     = useState(false)
+  const tlSnapshotsBRef  = useRef(null)
+  useEffect(() => { tlSnapshotsBRef.current = tlSnapshotsB }, [tlSnapshotsB])
+
+  const [slotBType, setSlotBType] = useState(null) // 'AB' | 'TIME_SERIES' | null
+
+  const [tlVisB, setTlVisB] = useState({ ...DEFAULT_VIS })
+  const [compareApiVisB, setCompareApiVisB] = useState({ ...DEFAULT_VIS })
+
+  // The secondary viewport's own layer controller + camera-sync teardown fn.
+  // Created when split view is entered, destroyed when it's exited.
+  const layersBRef       = useRef(null)
+  const stopCameraSyncRef = useRef(null)
+  const viewer2ReadyRef   = useRef(false)
+
+  /**
+   * Loads a single-date background layer (mesh/pc/voxel) into the primary
+   * viewport exactly like loadDate always has — and, if split mode is
+   * active, ALSO loads the same date into slot B's own layer controller.
+   * Without this, picking a date from the 관측 데이터 tab only ever
+   * populated the primary (A) map, leaving B permanently blank since
+   * date-loading was never otherwise slot-aware.
+   *
+   * Every call site that used to call loadDate(...) directly now calls
+   * this instead — same signature, same primary-side behavior.
+   */
+  function loadDateBoth(site, dateObj, currentMode, opts) {
+    console.log('[DIAG][loadDateBoth] loading primary — splitMode:', splitMode, '| layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
+    loadDate(site, dateObj, currentMode, opts)
+    if (splitMode && layersBRef.current) {
+      console.log('[DIAG][loadDateBoth] also loading into slot B')
+      layersBRef.current.loadDate(site, dateObj, currentMode, opts)
+    } else if (splitMode && !layersBRef.current) {
+      console.warn('[DIAG][loadDateBoth] splitMode ON but layersBRef.current is NULL — slot B skipped (viewer2 not ready yet?)')
+    }
+  }
 
   // ── In-flight job registry ───────────────────────────────────────────
   // Replaces the old per-mode singleton tracking (apiRunning/apiDiffIdRef/
@@ -251,7 +311,83 @@ export default function App() {
     showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
 
-  // ── Re-sync compare-api diff tileset style ───────────────────────────
+  // ── Split view lifecycle ─────────────────────────────────────────────
+  // Creates the secondary Cesium viewport + its own layer controller +
+  // locked camera sync the moment splitMode turns on; tears all of it
+  // down the moment it turns off (or the component unmounts). The
+  // primary viewer/map is never touched by this — leaving split view
+  // always returns exactly to today's single-viewport behavior.
+  //
+  // initSecondaryViewer is async (it waits for the container to have
+  // real layout dimensions before constructing the Cesium.Viewer — see
+  // cesiumInit.js for why). `cancelled` guards against splitMode being
+  // toggled off again before that wait resolves, so a fast double-toggle
+  // can't leave an orphaned viewer2 that the cleanup function never sees.
+  useEffect(() => {
+    if (!splitMode) return
+    if (!viewerReady.current) return
+
+    let cancelled = false
+
+    ;(async () => {
+      console.log('[DIAG][splitMode effect] starting initSecondaryViewer')
+      const v2 = await initSecondaryViewer('cesiumContainer2')
+      if (cancelled || !v2) {
+        console.warn('[DIAG][splitMode effect] aborted — cancelled:', cancelled, '| v2:', !!v2)
+        return
+      }
+
+      console.log('[DIAG][splitMode effect] viewer2 ready, setting up layersBRef + cameraSync')
+      viewer2ReadyRef.current = true
+      layersBRef.current = createLayerController({ viewer: v2 })
+      setBasemap2(basemap)
+      if (showTerrain === false) {
+        // mirror current terrain toggle onto the fresh viewer2
+        v2.terrainProvider = new window.Cesium.EllipsoidTerrainProvider()
+      }
+
+      stopCameraSyncRef.current = startCameraSync(window.viewer, v2)
+      console.log('[DIAG][splitMode effect] cameraSync started')
+
+      // Nudge the primary to actually render a frame right now — both
+      // viewers use requestRenderMode, so without an explicit kick here,
+      // viewerSync's resize+mirror sequence has nothing to react to until
+      // the user organically moves the camera, leaving B's view stuck at
+      // its stale initial position/size in the meantime.
+      //
+      // Also force resize() on the primary: when split mode turns on,
+      // #cesiumContainer gets the split-half-left CSS class which shrinks
+      // it to ~50% width. Cesium's internal resize observer only fires on
+      // the next render tick, but with requestRenderMode+Infinity it won't
+      // render until told to — so the primary's framebuffer stays sized to
+      // the old full-width until we explicitly call resize() here, causing
+      // the "GL_INVALID_FRAMEBUFFER_OPERATION: default size is zero" spam
+      // from the primary's scene while the framebuffer is temporarily stale.
+      requestAnimationFrame(() => {
+        if (window.viewer && !window.viewer.isDestroyed()) {
+          window.viewer.resize()
+          window.viewer.scene.requestRender()
+        }
+      })
+    })()
+
+    return () => {
+      console.log('[DIAG][splitMode effect] cleanup — tearing down viewer2')
+      cancelled = true
+      stopCameraSyncRef.current?.()
+      stopCameraSyncRef.current = null
+      layersBRef.current = null
+      viewer2ReadyRef.current = false
+      destroySecondaryViewer()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitMode])
+
+  // Keep viewer2's basemap in sync with the primary's basemap selector.
+  useEffect(() => {
+    if (splitMode && viewer2ReadyRef.current) setBasemap2(basemap)
+  }, [basemap, splitMode])
+
   useEffect(() => {
     if (mode !== 'compare-api') return
     setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed, compareApiVis.unchanged)
@@ -262,6 +398,47 @@ export default function App() {
     if (mode !== 'timeline') return
     setSnapshotTilesetVisibility(tlVis.added, tlVis.removed, tlVis.unchanged)
   }, [tlVis])
+
+  // ── Split view — slot B timeline playback ────────────────────────────
+  const tlPlayTimerB = useRef(null)
+  useEffect(() => {
+    clearInterval(tlPlayTimerB.current)
+    if (tlPlayingB && tlSnapshotsB?.length) {
+      tlPlayTimerB.current = setInterval(() => {
+        setTlActiveIndexB(i => {
+          const next = i + 1
+          if (next >= tlSnapshotsB.length) { setTlPlayingB(false); return i }
+          return next
+        })
+      }, 2500)
+    }
+    return () => clearInterval(tlPlayTimerB.current)
+  }, [tlPlayingB, tlSnapshotsB])
+
+  // ── Split view — slot B snapshot switch ──────────────────────────────
+  useEffect(() => {
+    if (!splitMode) return
+    if (!tlSnapshotsB?.length) return
+    if (slotBType !== 'TIME_SERIES') return
+    const snap = tlSnapshotsB[tlActiveIndexB]
+    if (!snap || !layersBRef.current) return
+    layersBRef.current.showSnapshotTileset(snap.id)
+  }, [tlActiveIndexB, tlSnapshotsB, splitMode, slotBType])
+
+  // ── Split view — slot B tileset style resync ─────────────────────────
+  useEffect(() => {
+    if (!splitMode || !layersBRef.current) return
+    if (slotBType === 'AB') {
+      layersBRef.current.setDiffApiTilesetVisibility(compareApiVisB.added, compareApiVisB.removed, compareApiVisB.unchanged)
+    }
+  }, [compareApiVisB, splitMode, slotBType])
+
+  useEffect(() => {
+    if (!splitMode || !layersBRef.current) return
+    if (slotBType === 'TIME_SERIES') {
+      layersBRef.current.setSnapshotTilesetVisibility(tlVisB.added, tlVisB.removed, tlVisB.unchanged)
+    }
+  }, [tlVisB, splitMode, slotBType])
 
   // ── Sync side-effects ────────────────────────────────────────────────
   useEffect(() => { applyPcStyle(pcSize) },          [pcSize])
@@ -337,6 +514,8 @@ export default function App() {
     window.currentSite = site
     flownSiteIdRef.current = null
     setActiveDiffId(null)
+    setSplitMode(false)
+    handleClearSlotB()
     inFlightJobsRef.current.clear()
     bumpInFlight()
     Promise.all([
@@ -393,7 +572,7 @@ export default function App() {
           const d = updatedSite.dates.find(x => x.id === current.id)
           if (d?.originalTilesetUrl) {
             invalidateTilesetUrl(d.originalTilesetUrl)
-            loadDate(updatedSite, d, modeRef.current, {})
+            loadDateBoth(updatedSite, d, modeRef.current, {})
           }
         }
         updatedSite.dates
@@ -542,7 +721,7 @@ export default function App() {
         next.add(d.id)
         setActiveDate(d)
         setActiveDateLayerMode('pc')
-        loadDate(site, d, modeRef.current, {})
+        loadDateBoth(site, d, modeRef.current, {})
       }
       return next
     })
@@ -557,13 +736,13 @@ export default function App() {
     if (layerMode === 'vox' && d.voxelPath) {
       try {
         const resolvedUrl = await fetchVoxelTilesetUrl(dateId)
-        loadDate(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'voxel' }, modeRef.current, {})
+        loadDateBoth(activeSite, { ...d, originalTilesetUrl: resolvedUrl, datasetType: 'voxel' }, modeRef.current, {})
       } catch (e) {
         console.error('[handleLayerMode] fetchVoxelTilesetUrl failed:', e.message)
         addToast(`Voxel tileset URL 조회 실패: ${e.message}`, 'warn')
       }
     } else {
-      loadDate(activeSite, d, modeRef.current, {})
+      loadDateBoth(activeSite, d, modeRef.current, {})
     }
   }
 
@@ -608,6 +787,7 @@ export default function App() {
     setTlSnapshots(null)
     setTlActiveIndex(0)
     setActiveDiffId(null)
+    if (splitMode) handleClearSlotB()
     handleModeChange('compare-api')
   }
 
@@ -631,6 +811,7 @@ export default function App() {
     setTlSnapshots(null)
     setTlActiveIndex(0)
     setActiveDiffId(null)
+    if (splitMode) handleClearSlotB()
   }
 
   // Fires an A·B computation and returns immediately once the job is
@@ -1145,6 +1326,113 @@ export default function App() {
     }
   }
 
+  // ── Split view — slot B loader ───────────────────────────────────────
+  // Mirrors handleLoadDiff exactly, but writes into the *B state and loads
+  // tilesets into layersBRef's controller (the secondary viewport) instead
+  // of the primary. Only usable while splitMode is on.
+  async function handleLoadDiffB(entry) {
+    if (!activeSite || !layersBRef.current) return
+
+    if (activeDiffIdB != null && String(activeDiffIdB) === String(entry.id)) {
+      handleClearSlotB()
+      return
+    }
+
+    if (entry.type === 'TIME_SERIES') {
+      if (!entry.diffId) {
+        addToast('이전 버전에서 저장된 기록입니다 — 최신 결과를 표시합니다', 'warn')
+        setSlotBType('TIME_SERIES')
+        setActiveDiffIdB(entry.id)
+        return
+      }
+      try {
+        setTlLoadingB(true)
+        const snaps = await loadDiffSnapshotsByDiffId(entry.diffId, activeSite.id)
+        if (!snaps.length) { addToast('해당 시계열 결과를 불러올 수 없습니다', 'warn'); return }
+        layersBRef.current.clearAllSnapshotTilesets()
+        setTlSnapshotsB(snaps)
+        setTlActiveIndexB(0)
+        console.log('[DIAG][handleLoadDiffB TS] about to loadAllSnapshotTilesets into viewer2 — layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
+        const canvas2 = layersBRef.current?.viewer?.scene?.canvas
+        console.log('[DIAG][handleLoadDiffB TS] viewer2 canvas size at tileset load time:', canvas2?.width, 'x', canvas2?.height)
+        await layersBRef.current.loadAllSnapshotTilesets(snaps)
+        setSlotBType('TIME_SERIES')
+        layersBRef.current.showSnapshotTileset(snaps[0].id)
+        setActiveDiffIdB(entry.id)
+      } catch (e) {
+        addToast(`기록 불러오기 실패: ${e.message}`, 'warn')
+      } finally {
+        setTlLoadingB(false)
+      }
+    } else if (entry.type === 'AB') {
+      if (!entry.diffId) { addToast('이전 버전에서 저장된 기록입니다', 'warn'); return }
+      setApiSummaryB(null)
+      try {
+        const { report, tilesetUrl } = await fetchAbDiffResult(entry.diffId)
+        setApiSummaryB(report)
+        setSlotBType('AB')
+        if (tilesetUrl) {
+          setApiDiffTilesetUrlB(tilesetUrl)
+          console.log('[DIAG][handleLoadDiffB] about to loadDiffApiTileset into viewer2 — layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
+          const canvas2 = layersBRef.current?.viewer?.scene?.canvas
+          console.log('[DIAG][handleLoadDiffB] viewer2 canvas size at tileset load time:', canvas2?.width, 'x', canvas2?.height, '| clientWidth:', canvas2?.clientWidth, 'x', canvas2?.clientHeight)
+          try { await layersBRef.current.loadDiffApiTileset(tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
+        }
+        setActiveDiffIdB(entry.id)
+      } catch (e) {
+        addToast(`기록 불러오기 실패: ${e.message}`, 'warn')
+      }
+    }
+  }
+
+  /** Clears slot B's result + tileset, leaving split view itself on. */
+  function handleClearSlotB() {
+    layersBRef.current?.clearAllLayers()
+    setApiSummaryB(null)
+    setApiDiffTilesetUrlB(null)
+    setTlSnapshotsB(null)
+    setTlActiveIndexB(0)
+    setTlPlayingB(false)
+    setSlotBType(null)
+    setActiveDiffIdB(null)
+  }
+
+  /**
+   * Single entry point for the A/B assignment pill in DiffHistory.
+   * Click behavior:
+   *   · entry already in slot A → unload slot A (existing handleLoadDiff toggle)
+   *   · entry already in slot B → unload slot B
+   *   · neither slot filled, or only A filled → assign to the next empty slot
+   *   · both slots filled → replaces slot B (the most recently assigned slot)
+   *     so repeatedly clicking new rows cycles B without ever touching A.
+   */
+  function handleAssignSlot(entry) {
+    console.log('[DIAG][handleAssignSlot] entry.id:', entry.id, 'entry.type:', entry.type, '| activeDiffId:', activeDiffId, '| activeDiffIdB:', activeDiffIdB, '| layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
+    if (activeDiffId != null && String(activeDiffId) === String(entry.id)) {
+      handleLoadDiff(entry) // toggles A off
+      return
+    }
+    if (activeDiffIdB != null && String(activeDiffIdB) === String(entry.id)) {
+      handleClearSlotB()
+      return
+    }
+    if (activeDiffId == null) {
+      console.log('[DIAG][handleAssignSlot] routing to slot A (handleLoadDiff)')
+      handleLoadDiff(entry) // fills A first
+    } else {
+      console.log('[DIAG][handleAssignSlot] routing to slot B (handleLoadDiffB)')
+      handleLoadDiffB(entry) // A is taken — fill/replace B
+    }
+  }
+
+  function handleToggleSplitMode() {
+    setSplitMode(v => {
+      const next = !v
+      if (!next) handleClearSlotB() // leaving split view — drop slot B's result
+      return next
+    })
+  }
+
   async function handleDeleteDiff(diffId) {
     if (!activeSite) return
     if (deletingDiffIds.has(diffId)) return
@@ -1157,6 +1445,7 @@ export default function App() {
       return
     }
     if (String(activeDiffId) === String(diffId)) setActiveDiffId(null)
+    if (String(activeDiffIdB) === String(diffId)) handleClearSlotB()
     try {
       // fetchProjectDiffs only returns SUCCEEDED diffs — merge rather than
       // overwrite, or any other QUEUED/RUNNING entry not yet SUCCEEDED would
@@ -1242,10 +1531,15 @@ export default function App() {
   // For A/B: only when apiSummary is populated (job done).
   // For timeline: only when snapshots are loaded (job done).
   // Running state is shown in the left Panel — the right panel stays hidden during computation.
-  const showRightPanel =
-    (mode === 'compare-api' && apiSummary != null) ||
-    (mode === 'timeline'    && tlSnapshots != null)
-
+  // In split mode, the panel should stay visible as soon as EITHER slot has
+  // a loaded result, since the whole point is comparing them once both
+  // (or even just one, while picking the other) are in.
+  const showRightPanel = splitMode
+    ? (apiSummary != null || tlSnapshots != null || apiSummaryB != null || tlSnapshotsB != null)
+    : (
+        (mode === 'compare-api' && apiSummary != null) ||
+        (mode === 'timeline'    && tlSnapshots != null)
+      )
 
   const activeVis = mode === 'timeline' ? tlVis : compareApiVis
   const activeVisSetters = mode === 'timeline'
@@ -1264,8 +1558,11 @@ export default function App() {
     <>
       <div
         id="cesiumContainer"
-        className={showAnalysis ? '' : 'cesium-hidden'}
+        className={`${showAnalysis ? '' : 'cesium-hidden'}${splitMode ? ' split-half-left' : ''}`}
       />
+      {splitMode && (
+        <div id="cesiumContainer2" className={showAnalysis ? '' : 'cesium-hidden'} />
+      )}
 
       <NavBar tab={navTab} onTab={handleNavTab} activeSite={activeSite} />
 
@@ -1337,6 +1634,9 @@ export default function App() {
             apiError={apiError}
             drawInfo={drawInfo}             drawBtnLabel={drawBtnLabel} onDrawArea={togglePolygonDraw}
             onTlRecompute={handleTlRecompute}
+            splitMode={splitMode}           onToggleSplitMode={handleToggleSplitMode}
+            activeDiffIdB={activeDiffIdB}
+            onAssignSlot={handleAssignSlot}
           />
 
           <RightPanel
@@ -1350,6 +1650,20 @@ export default function App() {
             tlLoading={tlLoading}
             apiSummary={apiSummary}
             visible={showRightPanel}
+            splitMode={splitMode}
+            slotBType={slotBType}
+            apiSummaryB={apiSummaryB}
+            showAddedB={compareApiVisB.added}         onShowAddedB={v => setCompareApiVisB(s => ({ ...s, added: v }))}
+            showRemovedB={compareApiVisB.removed}     onShowRemovedB={v => setCompareApiVisB(s => ({ ...s, removed: v }))}
+            showUnchangedB={compareApiVisB.unchanged} onShowUnchangedB={v => setCompareApiVisB(s => ({ ...s, unchanged: v }))}
+            tlSnapshotsB={tlSnapshotsB}     tlActiveIndexB={tlActiveIndexB}
+            tlOnSelectB={i => setTlActiveIndexB(i)}
+            tlPlayingB={tlPlayingB}         tlOnPlayPauseB={() => setTlPlayingB(v => !v)}
+            tlLoadingB={tlLoadingB}
+            tlVisAddedB={tlVisB.added}             onTlShowAddedB={v => setTlVisB(s => ({ ...s, added: v }))}
+            tlVisRemovedB={tlVisB.removed}         onTlShowRemovedB={v => setTlVisB(s => ({ ...s, removed: v }))}
+            tlVisUnchangedB={tlVisB.unchanged}     onTlShowUnchangedB={v => setTlVisB(s => ({ ...s, unchanged: v }))}
+            onClearSlotB={handleClearSlotB}
           />
 
           <MapOverlayControls
@@ -1364,7 +1678,7 @@ export default function App() {
             statusMsg={statusMsg}   statusDone={statusDone}
             coords={coords}
             mode={mode}
-            tlSnapshots={tlSnapshots}
+            tlSnapshots={splitMode ? null : tlSnapshots}
             tlActiveIndex={tlActiveIndex}
             tlOnSelect={i => setTlActiveIndex(i)}
             tlPlaying={tlPlaying}

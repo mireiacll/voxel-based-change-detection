@@ -87,7 +87,7 @@ function shortRange(labelA, labelB) {
   return { a: aShort, b: bShort }
 }
 
-export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCancel, pollingIds, deletingIds, cancellingIds }) {
+export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCancel, pollingIds, deletingIds, cancellingIds, splitMode, activeIdB }) {
   // deletingIds and cancellingIds are lifted to App.jsx so they survive
   // unmount/remount when the user navigates between home and computing views.
 
@@ -117,6 +117,7 @@ export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCan
     <div className="dh-list">
       {visible.map(entry => {
         const isActive     = activeId != null && String(activeId) === String(entry.id)
+        const isActiveB     = splitMode && activeIdB != null && String(activeIdB) === String(entry.id)
         const isRunning    = entry.status === 'RUNNING'
         const isQueued     = entry.status === 'QUEUED'
         const isSucceeded  = entry.status === 'SUCCEEDED'
@@ -127,10 +128,21 @@ export default function DiffHistory({ entries, activeId, onLoad, onDelete, onCan
         return (
           <div
             key={entry.id}
-            className={`dh-entry${isActive ? ' dh-active' : ''}${isBusy ? ' dh-deleting' : ''}`}
+            className={`dh-entry${isActive ? ' dh-active' : ''}${isActiveB ? ' dh-active-b' : ''}${isBusy ? ' dh-deleting' : ''}`}
             onClick={() => isSucceeded && !isBusy && onLoad(entry)}
             style={{ cursor: isSucceeded && !isBusy ? 'pointer' : 'default' }}
           >
+            {/* Split-view A/B assignment pill — only shown in split mode,
+                only on rows eligible to be assigned (succeeded results).
+                Shows which slot (if any) this entry currently occupies;
+                an unassigned succeeded row shows a faint empty ring so
+                it's clear clicking the row assigns it to the next slot. */}
+            {splitMode && isSucceeded && (
+              <span className={`dh-slot-pill${isActive ? ' dh-slot-a' : isActiveB ? ' dh-slot-b' : ' dh-slot-empty'}`}>
+                {isActive ? 'A' : isActiveB ? 'B' : ''}
+              </span>
+            )}
+
             {/* Type badge */}
             <span className={`dh-type-badge ${entry.type === 'AB' ? 'dh-ab' : 'dh-ts'}`}>
               {entry.type === 'AB' ? 'A·B' : 'TS'}

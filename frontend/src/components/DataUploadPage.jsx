@@ -41,6 +41,7 @@ import {
   updateProject,
   fetchTilesetCenter,
 } from '../api'
+import { createFreshTerrainProvider } from '../cesium/cesiumInit'
 
 /** Format a YYYY-MM-DD string into a pretty label like "Jun 1, 2026". */
 function isoToLabel(iso) {
@@ -954,7 +955,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
     }
   }, [])
 
-  function ensureViewer() {
+  async function ensureViewer() {
     if (initDoneRef.current) return miniViewerRef.current
     const Cesium = window.Cesium
     const el     = containerRef.current
@@ -962,31 +963,45 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
 
     initDoneRef.current = true
     try {
+      // Fresh terrain provider, NOT window.customTerrain. A TerrainProvider
+      // lazily compiles/caches GPU resources the first time any scene
+      // renders terrain from it, bound to whichever WebGL context renders
+      // first -- reusing window.customTerrain here means this mini preview
+      // shares it with the primary viewer's context, producing the same
+      // "framebufferTexture2D: object does not belong to this context"
+      // class of errors the split-view secondary viewer originally had
+      // (see createFreshTerrainProvider in cesiumInit.js). This preview is
+      // its own independent WebGL context and needs its own terrain too.
+      const terrain = await createFreshTerrainProvider()
       const v = new Cesium.Viewer(el, {
-        terrainProvider:         window.customTerrain ?? new Cesium.EllipsoidTerrainProvider(),
+        terrainProvider:         terrain,
         animation:               false,
         baseLayerPicker:         false,
         fullscreenButton:        false,
         geocoder:                false,
         homeButton:              false,
-        infoBox:                 false,
+        infoBox:                false,
         navigationHelpButton:    false,
         sceneModePicker:         false,
         selectionIndicator:      false,
         timeline:                false,
         requestRenderMode:       true,
         maximumRenderTimeChange: Infinity,
-        msaaSamples:             4,
+        msaaSamples:             1,
+        // MUST be 1 -- same reasoning as the split-view secondary viewer:
+        // msaaSamples > 1 resolves via a ComputeEngine pass into a texture
+        // that gets compiled into whichever context renders it first.
       })
-      v.scene.globe.enableLighting          = true
+      v.scene.globe.enableLighting          = false
       v.scene.globe.depthTestAgainstTerrain = true
-      v.scene.globe.showGroundAtmosphere    = true
+      v.scene.globe.showGroundAtmosphere    = false
       v.scene.backgroundColor = Cesium.Color.fromCssColorString('#07070d')
       v.scene.highDynamicRange = false
       miniViewerRef.current = v
       return v
     } catch (e) {
       console.warn('[MiniCesiumPreview] init failed:', e)
+      initDoneRef.current = false
       return null
     }
   }
@@ -1003,34 +1018,52 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
     setCoords(null)
 
     // Use rAF so the container's display:block has taken effect and has real dimensions
+    let cancelled = false
     const raf = requestAnimationFrame(() => {
-      // Init viewer lazily — container is guaranteed visible now
-      const v = ensureViewer()
-      if (!v || v.isDestroyed()) return
-
-      // Force Cesium to re-measure the canvas after display change
-      try { v.resize() } catch (_) {}
-
-      // Clear previous tileset
-      if (tilesetRef.current) {
-        try { v.scene.primitives.remove(tilesetRef.current) } catch (_) {}
-        tilesetRef.current = null
-      }
-
-      const isVox  = preview.layer === 'vox'
-      const url    = isVox ? date.voxelTilesetUrl : date.originalTilesetUrl
-      // Voxel tilesets are mesh-format 3D Tiles and need the same modelMatrix
-      // ground-plane correction as regular mesh datasets (mirrors _loadTileset in layers.js).
-      const needsModelMatrix = isVox || date.datasetType === 'mesh'
-      if (!url) return
-
-      let cancelled = false
+      // ensureViewer is now async (it awaits a fresh per-instance terrain
+      // provider — see createFreshTerrainProvider in cesiumInit.js for why
+      // this preview can't reuse window.customTerrain). Wrap the whole load
+      // sequence in one async IIFE so `v` is resolved before anything below
+      // touches it, rather than calling ensureViewer() synchronously and
+      // getting a Promise back.
       ;(async () => {
+        const v = await ensureViewer()
+        if (cancelled || !v || v.isDestroyed()) return
+
+        // Force Cesium to re-measure the canvas after display change
+        try { v.resize() } catch (_) {}
+
+        // Clear previous tileset
+        if (tilesetRef.current) {
+          try { v.scene.primitives.remove(tilesetRef.current) } catch (_) {}
+          tilesetRef.current = null
+        }
+
+        const isVox  = preview.layer === 'vox'
+        const url    = isVox ? date.voxelTilesetUrl : date.originalTilesetUrl
+        // Voxel tilesets are mesh-format 3D Tiles and need the same modelMatrix
+        // ground-plane correction as regular mesh datasets (mirrors _loadTileset in layers.js).
+        const needsModelMatrix = isVox || date.datasetType === 'mesh'
+        if (!url) return
+
         try {
           const ts = await Cesium.Cesium3DTileset.fromUrl(url, {
             maximumScreenSpaceError: needsModelMatrix ? 8 : 2,
           })
           if (cancelled || v.isDestroyed()) { try { ts.destroy() } catch (_) {}; return }
+
+          // Disable per-tileset dynamic IBL/environment-map updates — this is
+          // the actual root cause of the cross-context WebGL errors seen in
+          // this preview (same fix as _loadTileset in layers.js). Cesium's
+          // DynamicEnvironmentMapManager queues persists:true ComputeCommands
+          // every frame during tileset update; with multiple independent
+          // viewers/contexts open in the app at once, those commands can get
+          // drained by whichever scene renders next — not necessarily this
+          // preview's own context — producing "framebufferTexture2D: object
+          // does not belong to this context". No visual loss: this preview's
+          // own PBR-ish lighting below is a hand-rolled CustomShader term, not
+          // dependent on Cesium's IBL system.
+          if (ts.environmentMapManager) ts.environmentMapManager.enabled = false
 
           v.scene.primitives.add(ts)
           ts.show = true
@@ -1124,14 +1157,17 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
           if (!cancelled) console.warn('[MiniCesiumPreview] load failed:', url, e)
         }
       })()
-
-      // Store cancel fn on ref so the cleanup below can reach it
-      tilesetRef._cancelLoad = () => { cancelled = true }
     })
 
+    // `cancelled` is shared (via closure) with the async IIFE above, so
+    // setting it here is enough to stop the in-flight load from touching
+    // a viewer/tileset after this effect has been torn down -- no need for
+    // the old tilesetRef._cancelLoad indirection now that everything lives
+    // in one async function instead of being split across a sync rAF
+    // callback and a separately-kicked-off async IIFE.
     return () => {
       cancelAnimationFrame(raf)
-      if (tilesetRef._cancelLoad) { tilesetRef._cancelLoad(); tilesetRef._cancelLoad = null }
+      cancelled = true
     }
   }, [preview?.dateId, preview?.layer])
 

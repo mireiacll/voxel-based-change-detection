@@ -67,6 +67,27 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   ${discardAdded}
   ${discardRemoved}
   ${discardUnchanged}
+  // Recolor to the exact brand hex values instead of leaving whatever
+  // shade the backend's voxelizer happened to bake. Classification above
+  // still runs off the ORIGINAL baked material.diffuse (isRed/isBlue were
+  // computed before this point), so reassigning diffuse here doesn't
+  // affect the discard logic above it.
+  if (isRed) {
+    material.diffuse = vec3(1.0, 0.302, 0.302);   // #ff4d4d -- added
+  } else if (isBlue) {
+    material.diffuse = vec3(0.302, 0.624, 1.0);   // #4d9fff -- removed
+  }
+  // Flat ambient fill light. Tiles went noticeably darker after
+  // environmentMapManager.enabled = false (the IBL fix for the
+  // cross-context WebGL crash -- see loadDiffApiTileset/_loadTileset),
+  // since IBL was the source of ambient/fill light under PBR, not just a
+  // color-accuracy nicety. Re-enabling IBL would bring the crash back, so
+  // instead we add a constant emissive term here as a cheap substitute
+  // fill light -- independent of any real light source, so it can't
+  // reintroduce the cross-context compute-command issue. Tune the 0.18
+  // constant up/down to taste; it adds flat brightness without affecting
+  // the PBR-lit diffuse/specular response from the scene's real lights.
+  material.emissive += vec3(0.12);
 }`,
   })
 }

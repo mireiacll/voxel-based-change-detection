@@ -100,7 +100,14 @@ export default function Panel({
   const lastJobEntry     = lastJobId != null
     ? (diffHistory?.find(e => String(e.id) === String(lastJobId)) ?? null)
     : null
-  const lastJobRunning    = lastJobEntry?.status === 'QUEUED' || lastJobEntry?.status === 'RUNNING'
+  // Only show the in-flight status block when the current mode matches the
+  // running job's type. Switching modes (e.g. AB job running, user goes to
+  // timeline) shows a clean fresh form for the new mode instead.
+  const lastJobModeMatch = lastJobEntry?.type === 'AB'
+    ? mode === 'compare-api'
+    : mode === 'timeline'
+  const lastJobRunning    = lastJobModeMatch &&
+    (lastJobEntry?.status === 'QUEUED' || lastJobEntry?.status === 'RUNNING')
   const lastJobCancelling = cancellingDiffIds?.has(lastJobId)
 
   // ── HOME VIEW ─────────────────────────────────────────────────────────────

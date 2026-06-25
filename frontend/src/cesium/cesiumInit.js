@@ -320,16 +320,28 @@ function _applySceneDefaults(scene) {
  * at the same camera angle as the primary, just without HDR/PBR atmosphere.
  */
 function _applySceneDefaultsSecondary(scene) {
-  // Globe render settings — keep depth test but turn off ALL lighting/atmosphere
-  scene.globe.enableLighting          = false  // ← no vertex-normal LUT compute
+  // UPDATE: the actual cross-context WebGL crash was root-caused to
+  // Cesium3DTileset.environmentMapManager (per-TILESET dynamic IBL --
+  // see DynamicEnvironmentMapManager, now disabled directly on every
+  // tileset in _loadTileset/layers.js). That fix is more precise than
+  // this function's original blanket scene-level atmosphere/sky/IBL
+  // disable, which predates that diagnosis and was broader than it
+  // needed to be -- it also killed the sky gradient on viewer2 (panel B
+  // rendered with a flat black sky instead of the blue gradient panel A
+  // and the DataUploadPage preview both show).
+  //
+  // Sky/atmosphere re-enabled below since it was never the actual source
+  // of the crash. scene.sphericalHarmonicCoefficients/specularEnvironmentMaps
+  // (SCENE-level IBL, distinct from the per-tileset one that was fixed)
+  // stay disabled for now since that mechanism hasn't been verified safe
+  // -- if viewer2 starts crashing again after this change, that's the
+  // next thing to suspect, and the simplest revert is to put
+  // scene.skyAtmosphere/skyBox back to undefined here.
+  scene.globe.enableLighting          = false  // <- no vertex-normal LUT compute
   scene.globe.depthTestAgainstTerrain = true
-  scene.globe.showGroundAtmosphere    = false  // ← no ground atmosphere compute
-  scene.globe.dynamicAtmosphereLighting          = false  // ← no dynamic atmosphere LUT
+  scene.globe.showGroundAtmosphere    = false  // <- no ground atmosphere compute
+  scene.globe.dynamicAtmosphereLighting          = false  // <- no dynamic atmosphere LUT
   scene.globe.dynamicAtmosphereLightingFromSun   = false
-
-  // Remove sky/atmosphere objects entirely so their update() never runs
-  try { scene.skyAtmosphere = undefined } catch (_) {}
-  try { scene.skyBox         = undefined } catch (_) {}
 
   // Disable IBL (image-based lighting) — these trigger specular LUT computes
   scene.sphericalHarmonicCoefficients = undefined

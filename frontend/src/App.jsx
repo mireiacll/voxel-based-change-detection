@@ -1560,8 +1560,19 @@ export default function App() {
         id="cesiumContainer"
         className={`${showAnalysis ? '' : 'cesium-hidden'}${splitMode ? ' split-half-left' : ''}`}
       />
+      {/* A/B viewport badges — only shown in split mode, so users can tell
+          which physical viewport (left/primary vs right/secondary) corresponds
+          to which result panel without having to infer it. Reuses the same
+          dh-slot-a/dh-slot-b color classes DiffHistory.jsx already uses for
+          its sidebar A/B pills, for visual consistency. */}
+      {splitMode && showAnalysis && (
+        <span className="viewport-slot-badge viewport-slot-badge-a dh-slot-a">A</span>
+      )}
       {splitMode && (
         <div id="cesiumContainer2" className={showAnalysis ? '' : 'cesium-hidden'} />
+      )}
+      {splitMode && showAnalysis && (
+        <span className="viewport-slot-badge viewport-slot-badge-b dh-slot-b">B</span>
       )}
 
       <NavBar tab={navTab} onTab={handleNavTab} activeSite={activeSite} />

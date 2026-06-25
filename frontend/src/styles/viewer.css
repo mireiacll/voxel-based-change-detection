@@ -2246,3 +2246,46 @@ kbd {
   white-space: nowrap;
 }
 .mini-tl-of { color: var(--muted); }
+
+/* A/B viewport badges -- split-view only, added so users can tell which
+   physical viewport (left/primary vs right/secondary) maps to which
+   result panel (A/B) without inferring it. Reuses dh-slot-a/dh-slot-b
+   (defined elsewhere in viewer.css) for color so it matches the sidebar
+   pills in DiffHistory.jsx. Add this block into viewer.css. */
+.viewport-slot-badge {
+  position: fixed;
+  top: calc(var(--nav-h) + 14px);
+  z-index: 20;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--mono);
+  color: #fff;
+  pointer-events: none;
+}
+
+/* Badge A: blue, matching dh-slot-a / --accent */
+.viewport-slot-badge-a {
+  left: calc(var(--pw) + 14px);
+  background: var(--accent);
+  color: #07070d;
+  box-shadow:
+    0 0 0 2px #07070d,          /* dark outline so it pops off light tiles */
+    0 0 10px 2px rgba(79,142,247,0.55); /* blue glow */
+}
+
+/* Badge B: purple, matching dh-slot-b / --accent2.
+   Left edge = the seam (same calc as split-half-left's right:) + 14px pad. */
+.viewport-slot-badge-b {
+  left: calc(var(--pw) + (100% - var(--pw) - var(--rpw)) / 2 + 14px);
+  background: var(--accent2);
+  color: #07070d;
+  box-shadow:
+    0 0 0 2px #07070d,
+    0 0 10px 2px rgba(123,108,247,0.55); /* purple glow */
+}

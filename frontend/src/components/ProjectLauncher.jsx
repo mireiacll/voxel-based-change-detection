@@ -1,22 +1,7 @@
 /**
- * ProjectLauncher.jsx
+ * ProjectLauncher.jsx — full-screen project selection page.
  *
- * Props
- * -----
- *   sites         — array from fetchProjects() + enrichProjectWithDates()
- *   onSelect      — ({ site, initialTab }) => void
- *                     initialTab is 'upload' when the site has no observations,
- *                     undefined otherwise (caller uses its own default)
- *   onNewProject  — () => void
- *   onSiteEdited  — () => void
- *   onSiteDeleted — (siteId) => void
- *   loading       — bool
- *
- * Interaction model
- * -----------------
- *   First click  → selects the card (highlighted, stays on launcher)
- *   Second click → opens the project
- *   Clicking a different card → selects that one instead
+ * First click selects a card; second click opens it. Clicking a different card selects that one instead.
  */
 
 import { useState } from 'react'

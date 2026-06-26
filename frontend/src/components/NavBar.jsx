@@ -1,16 +1,6 @@
 /**
- * NavBar.jsx
- *
- * Top navigation bar.
- * Left:   logo icon + "변화탐지 플랫폼"
- * Center: tabs — 프로젝트 | 데이터 업로드 | 변화탐지
- * Right:  active site chip
- *
- * Props
- * ─────
- *   tab        — 'projects' | 'upload' | 'analysis'
- *   onTab      — (tab) => void
- *   activeSite — site object | null
+ * NavBar.jsx — top navigation bar.
+ * Left: logo + title. Center: 프로젝트 / 데이터 업로드 / 변화탐지 tabs. Right: active site chip.
  */
 
 import { useState, useEffect } from 'react'

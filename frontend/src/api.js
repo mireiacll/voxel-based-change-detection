@@ -102,26 +102,19 @@ function _normaliseProject(p) {
   }
 }
 
-/**
- * The backend returns tileset URLs as relative paths (e.g. /data/3dtiles/…).
- * Cesium resolves relative URLs against the Vite dev-server origin (5173),
- * which knows nothing about those paths and returns an HTML page.
- * Prefix any relative URL with EXT_API (localhost:8080) so Cesium always
- * gets a fully-qualified URL pointing at the correct backend.
- */
+// Backend returns tileset URLs as relative paths (e.g. /data/3dtiles/...).
+// Cesium would resolve those against the Vite dev server (5173), which
+// doesn't know about them, so we prefix with EXT_API to get a real URL.
 export function toAbsoluteUrl(url) {
   if (!url) return null
   if (url.startsWith('http://') || url.startsWith('https://')) return url
   return `${EXT_API}${url.startsWith('/') ? '' : '/'}${url}`
 }
-// Internal alias — keeps all existing _toAbsoluteUrl(...) call sites working.
+// kept so existing _toAbsoluteUrl(...) call sites still work
 const _toAbsoluteUrl = toAbsoluteUrl
 
-/**
- * Rewrite a voxel tileset URL so it points to the visualization sub-folder.
- * Backend returns: …/voxel/tileset.json
- * Cesium needs:   …/voxel/visualization/tileset.json
- */
+// Backend gives us .../voxel/tileset.json, but Cesium needs the
+// visualization variant at .../voxel/visualization/tileset.json
 export function injectVisualizationFolder(url) {
   if (!url) return url
   return url.replace(/\/voxel\/tileset\.json$/, '/voxel/visualization/tileset.json')
@@ -129,9 +122,7 @@ export function injectVisualizationFolder(url) {
 // Internal alias — keeps all existing _injectVisualizationFolder(...) call sites working.
 const _injectVisualizationFolder = injectVisualizationFolder
 
-/**
- * Convert an observation object to a date object.
- */
+//Convert an observation object to a date object
 function _observationToDate(obs) {
   return {
     id:          String(obs.id),
@@ -150,9 +141,7 @@ function _observationToDate(obs) {
   }
 }
 
-/**
- * Format a YYYY-MM-DD string → "Mon D, YYYY" (e.g. "Jun 1, 2026").
- */
+// "YYYY-MM-DD" -> "Mon D, YYYY" (e.g. "Jun 1, 2026")
 export function formatDate(dateStr) {
   if (!dateStr) return dateStr
   const [year, month, day] = dateStr.split('-')
@@ -160,35 +149,14 @@ export function formatDate(dateStr) {
   const m = months[parseInt(month, 10) - 1] ?? month
   return `${m} ${parseInt(day, 10)}, ${year}`
 }
-// Internal alias keeps _observationToDate's existing call site working.
+// kept so _observationToDate's call site still works
 const _formatDate = formatDate
 
-/**
- * Fetch a 3D Tiles tileset.json and compute the center longitude/latitude
- * (in degrees) of its content.
- *
- * Only supports the "region" bounding volume form:
- *   region: [west, south, east, north, minHeight, maxHeight]  (radians)
- * This is what the backend's tileset generator produces. "box" / "sphere"
- * bounding volumes aren't handled — if encountered, this throws so the
- * caller can show a clear error instead of silently producing a wrong
- * coordinate.
- *
- * IMPORTANT: this does NOT just average the root node's region. On these
- * tilesets the root region is padded/inflated relative to where the actual
- * leaf content sits (observed ~0.001–0.0015° drift east/north on a real
- * mesh tileset — root region center landed at 127.00852/36.91107 while the
- * actual leaf-tile content centroid is 127.00691/36.91032, matching the
- * sibling point-cloud's center much more closely). So instead this walks
- * the tile tree, collects every LEAF tile's region (tiles with a `content`
- * but no `children`, i.e. the tiles that actually point at real geometry),
- * and computes the center of the tight bounding box around all of them.
- * Falls back to the root region if no leaves are found (e.g. a single-tile
- * tileset where root IS the only/leaf tile).
- *
- * @param {string} tilesetUrl  absolute URL to tileset.json (e.g. date.originalTilesetUrl)
- * @returns {Promise<{lon: number, lat: number}>}
- */
+// Fetches a tileset.json and computes the center lon/lat (in degrees) of its content. 
+// Note: this deliberately doesn't just average the root node's region. The
+// root region is padded relative to where the actual content sits. 
+// So instead we walk the tile tree, collect every leaf's region, 
+// and take the center of the tight bounding box around those. 
 export async function fetchTilesetCenter(tilesetUrl) {
   if (!tilesetUrl) throw new Error('tileset URL이 없습니다.')
   console.log('[api.fetchTilesetCenter] fetching', tilesetUrl)
@@ -201,10 +169,9 @@ export async function fetchTilesetCenter(tilesetUrl) {
     throw new Error('tileset.json에서 위치 정보(region)를 찾을 수 없습니다.')
   }
 
-  // Walk the tree collecting every leaf's region (a tile with `content` and
-  // no `children` is an actual data-bearing leaf — these are tight boxes
-  // around real geometry, unlike intermediate/root nodes which can be
-  // padded for LOD purposes).
+  // Walk the tree and collect every leaf's region. A tile with `content`
+  // and no `children` is an actual data-bearing leaf — tight boxes around
+  // real geometry, unlike intermediate/root nodes which get padded for LOD.
   let leafWest = Infinity, leafSouth = Infinity
   let leafEast = -Infinity, leafNorth = -Infinity
   let leafCount = 0
@@ -235,7 +202,7 @@ export async function fetchTilesetCenter(tilesetUrl) {
     west = leafWest; south = leafSouth; east = leafEast; north = leafNorth
     source = `leaf-bbox (${leafCount} leaves)`
   } else {
-    // Fallback: no leaves found (shouldn't normally happen) — use root region.
+    // no leaves found (shouldn't normally happen) — fall back to root region
     ;[west, south, east, north] = rootRegion
     source = 'root-region (fallback, no leaves found)'
   }
@@ -273,9 +240,8 @@ export async function enrichProjectWithDates(site) {
 }
 
 export async function createProject({ name, description, centerLat, centerLon, cameraHeight }) {
-  // centerLat/centerLon are optional — pass through null (don't invent a
-  // default location). They can be set later from the Data Upload page via
-  // updateProject(). cameraHeight is not user-configurable; always 600.
+  // centerLat/centerLon are optional,
+  // they can be set later via updateProject() from the Data Upload page
   const p = await _post('/api/projects', {
     name,
     description:  description ?? '',
@@ -288,8 +254,8 @@ export async function createProject({ name, description, centerLat, centerLon, c
 }
 
 export async function updateProject(id, patch) {
-  // ProjectRequest only requires 'name'. EditSiteModal always supplies all
-  // fields from its own local state, so no GET round-trip is needed.
+  // ProjectRequest only requires 'name', but EditSiteModal always passes
+  // its full local state, so we don't need to GET first.
   const p = await _put(`/api/projects/${id}`, {
     name:         patch.name         ?? '',
     description:  patch.description  ?? '',
@@ -301,11 +267,8 @@ export async function updateProject(id, patch) {
   return _normaliseProject(p)
 }
 
-/**
- * Update only the cameraHeight of a project, preserving all other fields.
- * Convenience wrapper around updateProject so callers don't have to pass
- * every project field just to change the height.
- */
+// Updates just the cameraHeight on a project, keeping everything else as-is —
+// saves callers from having to pass every field just to change the height.
 export async function updateCameraHeight(site, newHeight) {
   return updateProject(site.id, {
     name:         site.name,
@@ -325,10 +288,7 @@ export async function deleteProject(id) {
 //  OBSERVATIONS / DATES
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Convert a YYMMDD date code (e.g. "260601") to a YYYY-MM-DD string
- * required by the coworker API's observedAt field (e.g. "2026-06-01").
- */
+// "260601" -> "2026-06-01" (backend's observedAt wants full ISO dates)
 export function dateCodeToIso(code) {
   const m = code.match(/^(\d{2})(\d{2})(\d{2})$/)
   if (!m) throw new Error(`Invalid date code: ${code}`)
@@ -341,17 +301,15 @@ export async function fetchObservation(observationId) {
   return _observationToDate(obs)
 }
 
-/**
- * Fetch the resolved voxel tileset URL for an observation.
- * Uses GET /api/observations/{observationId}/tileset/voxel → TilesetUrlResponse.
- */
+//Fetch the resolved voxel tileset URL for an observation.
 export async function fetchVoxelTilesetUrl(observationId) {
   const { tilesetUrl } = await _get(`/api/observations/${observationId}/tileset/voxel`)
   return _injectVisualizationFolder(_toAbsoluteUrl(tilesetUrl))
 }
+
 export async function updateObservation(observationId, patch) {
-  // ObservationUpdateRequest requires name + observedAt — both always supplied
-  // by the caller (DataUploadPage DateRow), so no GET pre-fetch is needed.
+  // ObservationUpdateRequest requires name + observedAt — DataUploadPage's
+  // DateRow always supplies both, so no GET pre-fetch is needed.
   console.log('[api.updateObservation] PUT', observationId, patch)
   const obs = await _put(`/api/observations/${observationId}`, {
     name:       patch.name,
@@ -367,21 +325,14 @@ export async function deleteObservation(observationId) {
   console.log('[api.deleteObservation] deleted', observationId)
 }
 
-/**
- * Given a list of relative paths, return the common leading folder prefix to
- * strip so that tileset.json ends up at the zip root regardless of whether
- * the user dropped:
- *   Case A — already flat:   tileset.json, data/RR1.glb, …
- *   Case B — one subfolder:  tiles/tileset.json, tiles/data/RR1.glb, …
- *   Case C — two levels:     251106/tiles/tileset.json, …
- *
- * Strategy: find the deepest common prefix such that after stripping it,
- * at least one path is exactly "tileset.json". Falls back to stripping just
- * the first path segment (the dropped folder name) if tileset.json isn't found.
- *
- * @param {string[]} paths
- * @returns {string}  prefix to strip including trailing "/"  (may be "")
- */
+// Figures out the common leading folder to strip from a set of relative
+// paths so tileset.json ends up at the zip root, no matter how the user
+// dropped things in — already flat, one subfolder (tiles/tileset.json), or
+// two levels deep (251106/tiles/tileset.json).
+//
+// Strategy: try the deepest common prefix where stripping it leaves
+// "tileset.json" at the root. Falls back to just stripping the first path
+// segment (the dropped folder's own name) if tileset.json isn't found that way.
 function _commonPrefixToStrip(paths) {
   // Split each path into segments
   const segments = paths.map(p => p.split('/'))
@@ -411,10 +362,8 @@ function _commonPrefixToStrip(paths) {
   return ''  // already flat
 }
 
-/**
- * Lazy-load JSZip from CDN — no bundler changes required.
- * Shared by _buildZip (folder → zip) and _normalizeZip (zip → zip).
- */
+// Lazy-loads JSZip from CDN so we don't need a bundler dependency.
+// Shared by _buildZip (folder -> zip) and _normalizeZip (zip -> zip).
 async function _loadJSZip() {
   if (!window._JSZip) {
     await new Promise((resolve, reject) => {
@@ -429,14 +378,9 @@ async function _loadJSZip() {
   return window._JSZip
 }
 
-/**
- * Validate that a set of (already prefix-stripped) relative paths represents
- * a valid tileset upload: tileset.json at the root, plus a data/ folder.
- * Throws a user-facing error if either is missing — this is what rejects
- * "other formats" (random files/folders with no tileset.json + data/).
- *
- * @param {string[]} paths
- */
+// Checks that a (prefix-stripped) set of paths is a valid tileset upload —
+// tileset.json at the root plus a data/ folder. Throws a user-facing error
+// otherwise, which is what rejects random files that aren't a real tileset.
 function _validateTilesetPaths(paths) {
   if (!paths.includes('tileset.json')) {
     throw new Error('tileset.json을 찾을 수 없습니다 — 최상위에 tileset.json과 data 폴더가 있는 폴더 또는 ZIP을 선택하세요.')
@@ -446,22 +390,11 @@ function _validateTilesetPaths(paths) {
   }
 }
 
-/**
- * Build a zip blob from a File array using JSZip (loaded dynamically from CDN).
- *
- * Normalises the internal zip structure so tileset.json is always at the root
- * of the zip, regardless of whether the user dropped a flat folder or a
- * nested one (e.g. tiles/tileset.json). The backend therefore always sees:
- *   tileset.json
- *   data/
- *     RR1.glb  …
- *
- * Calls onProgress(percent 0–100) if provided.
- *
- * @param {File[]} files
- * @param {(pct: number) => void} [onProgress]
- * @returns {Promise<Blob>}  application/zip blob
- */
+// Builds a zip blob from a File array using JSZip (loaded from CDN).
+// Normalizes the internal structure so tileset.json always ends up at the
+// zip root, alongside data/, regardless of whether the user dropped a flat
+// folder or a nested one (e.g. tiles/tileset.json). Reports progress via
+// onProgress(percent) if given.
 async function _buildZip(files, onProgress) {
   const JSZip = await _loadJSZip()
   const zip   = new JSZip()
@@ -490,19 +423,11 @@ async function _buildZip(files, onProgress) {
   return blob
 }
 
-/**
- * Given a .zip File/Blob the user selected or dropped directly, make sure
- * tileset.json ends up at the root of the zip — stripping any wrapping
- * folder(s), e.g. "tiles/tileset.json" or "251106/tiles/tileset.json" — and
- * validate the result contains tileset.json + a data/ folder. Throws the
- * same error as the folder path if the structure doesn't match.
- *
- * If the zip is already flat at the root, it's returned unchanged (no
- * unnecessary re-zip).
- *
- * @param {Blob} blob
- * @returns {Promise<Blob>}  application/zip blob
- */
+// Same normalization as _buildZip, but for a .zip the user picked or dropped
+// directly — strips any wrapping folder(s) so tileset.json ends up at the
+// zip root, validates the result, and throws the same error as the folder
+// path if the structure doesn't match. Returns the blob unchanged if it was
+// already flat (no point re-zipping).
 async function _normalizeZip(blob) {
   const JSZip = await _loadJSZip()
   const zip   = await JSZip.loadAsync(blob)
@@ -528,28 +453,16 @@ async function _normalizeZip(blob) {
   return out.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } })
 }
 
-/**
- * Upload a new observation (tileset folder or zip) for a project.
- *
- * If the user selected a single .zip file, it is validated and (if needed)
- * re-packaged so tileset.json sits at the zip root alongside data/.
- * If the user dropped a folder (multiple files), they are bundled into a
- * zip in-browser via JSZip before upload — the backend only accepts zips.
- * Either way, an error is thrown if tileset.json + data/ aren't found,
- * rejecting anything that isn't a valid tileset upload.
- *
- * @param {string|number} projectId
- * @param {{ name, observedAt, files, onProgress? }} params
- *   name         — observation name (YYMMDD code)
- *   observedAt   — YYYY-MM-DD string
- *   files        — File[] from a zip picker or folder drop
- *   onProgress   — optional ({ phase, pct }) => void
- *                  phase: 'checking' | 'zipping' | 'uploading'
- *                  pct:   0–100, meaningful for 'zipping' and 'uploading'
- *                  (upload progress comes from real XHR byte counters, not
- *                  an estimate)
- * @returns date object
- */
+// Uploads a new observation (tileset folder or zip) for a project.
+//
+// A single .zip is validated and re-packaged if needed so tileset.json sits
+// at the zip root alongside data/. A folder drop (multiple files) gets
+// bundled into a zip in-browser via JSZip first, since the backend only
+// accepts zips. Either way we throw if tileset.json + data/ aren't found.
+//
+// onProgress gets called with { phase, pct } where phase is 'checking' |
+// 'zipping' | 'uploading' — pct is real upload progress from XHR byte
+// counters during 'uploading', not an estimate.
 export async function uploadObservation(projectId, { name, observedAt, datasetType = 'pointcloud', files, onProgress }) {
   const fileList = [...files]
   const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`)
@@ -557,7 +470,6 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   url.searchParams.set('observedAt', observedAt)
   url.searchParams.set('datasetType', datasetType)
 
-  // ── Determine what to send ──────────────────────────────────────────────
   let zipBlob
   const isSingleZip =
     fileList.length === 1 &&
@@ -568,12 +480,11 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   onProgress?.({ phase: 'checking', pct: 0 })
 
   if (isSingleZip) {
-    // User picked/dropped a zip directly — validate + normalise its internal
-    // structure (tileset.json must end up at the zip root, alongside data/)
+    // user picked/dropped a zip directly — validate + normalize its structure
     console.log('[api.uploadObservation] single zip selected, validating/normalising:', fileList[0].name, fileList[0].size, 'bytes')
     zipBlob = await _normalizeZip(fileList[0])
   } else {
-    // Folder drop (or multi-file selection) — bundle into a zip first
+    // folder drop (or multi-file selection) — bundle into a zip first
     console.log('[api.uploadObservation] building zip from', fileList.length, 'files…')
     zipBlob = await _buildZip(fileList, pct => onProgress?.({ phase: 'zipping', pct }))
     console.log('[api.uploadObservation] zip built:', zipBlob.size, 'bytes')
@@ -585,10 +496,9 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   const form = new FormData()
   form.append('file', zipBlob, `${name}.zip`)
 
-  // Use XHR instead of fetch so we get real upload-progress events — fetch
-  // has no built-in way to report bytes-sent for a request body, which is
-  // exactly the gap that made big uploads look frozen with no feedback
-  // while the transfer was actually still going.
+  // XHR instead of fetch so we get real upload-progress events — fetch has
+  // no way to report bytes-sent for a request body, which made big uploads
+  // look frozen even though the transfer was still going.
   const obs = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url.toString())
@@ -620,13 +530,7 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   return _observationToDate(obs)
 }
 
-/**
- * Trigger voxelization for an observation.
- * Returns the updated observation as a date object.
- *
- * @param {string|number} observationId
- * @param {{ maxLevel?, visualize?, cubeDataType?, recursive? }} options
- */
+// Triggers voxelization for an observation, returns the updated date object.
 export async function voxelizeObservation(observationId, options = {}) {
   console.log('[api.voxelizeObservation] triggering voxelization for', observationId, options)
   const obs = await _post(`/api/observations/${observationId}/voxelize`, options)
@@ -634,16 +538,9 @@ export async function voxelizeObservation(observationId, options = {}) {
   return _observationToDate(obs)
 }
 
-/**
- * Cancel an in-progress voxelization job for an observation.
- * Returns ObservationVoxelStatusResponse: { observationId, voxelStatus, voxelJobId, … }
- *
- * Used when the user wants to edit/delete an observation's date while its
- * voxelizer is still running — cancelling frees up the observation instead
- * of forcing the user to wait.
- *
- * @param {string|number} observationId
- */
+// Cancels an in-progress voxelization job. Used when the user wants to
+// edit/delete a date while its voxelizer is still running — cancelling frees
+// up the observation instead of making them wait it out.
 export async function cancelVoxelize(observationId) {
   console.log('[api.cancelVoxelize] observationId:', observationId)
   const status = await _post(`/api/observations/${observationId}/voxelize/cancel`, {})
@@ -654,20 +551,13 @@ export async function cancelVoxelize(observationId) {
 // Terminal statuses shared by job polling and voxel-status polling.
 const TERMINAL_JOB_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
 
-/**
- * Poll GET /api/jobs/{jobId} until the job reaches a terminal state.
- * Use this for diff jobs. For voxel jobs prefer pollVoxelStatus.
- *
- * @param {number|string} jobId
- * @param {(job: object) => void} [onProgress]  — called on each poll
- * @param {{ intervalMs?, timeoutMs?, shouldStop? }} [opts]
- *   shouldStop — optional () => boolean called before each fetch and after each
- *                sleep. When it returns true the loop exits immediately with a
- *                synthetic CANCELLED result so no further network request is made.
- *                Set this flag before calling cancelDiff() so the poll loop stops
- *                the moment it wakes up rather than firing one extra GET /api/jobs/…
- * @returns {Promise<object>}  final job object
- */
+// Polls GET /api/jobs/{jobId} until it reaches a terminal state. Used for
+// diff jobs — for voxel jobs use pollVoxelStatus instead.
+//
+// shouldStop, if given, is checked before every fetch and after every sleep;
+// when it returns true the loop exits right away with a synthetic CANCELLED
+// result instead of firing another request. Set this flag right before
+// calling cancelDiff() so the loop stops as soon as it wakes up.
 export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs = 300_000, shouldStop } = {}) {
   const deadline = Date.now() + timeoutMs
   while (true) {
@@ -688,32 +578,15 @@ export async function pollJob(jobId, onProgress, { intervalMs = 2000, timeoutMs 
   }
 }
 
-/**
- * Poll GET /api/observations/{observationId}/voxel-status until terminal.
- *
- * Lighter than pollJob for voxel tracking:
- *   · Targets the observation directly — no need to track voxelJobId.
- *   · Returns voxelTilesetUrl in the terminal response.
- *   · Progress via jobProgress/jobMessage mirrors JobResponse fields.
- *   · Defaults to a 5s interval (voxel jobs run for minutes, so there's no
- *     need to hammer the endpoint every 2s — especially with several jobs
- *     polling concurrently for large datasets).
- *
- * @param {string|number} observationId
- * @param {(s: object) => void} [onProgress]
- * @param {{ intervalMs?, timeoutMs?, shouldStop? }} [opts]
- *   shouldStop — optional () => boolean called before each fetch and after each
- *                sleep. When it returns true the loop exits immediately with a
- *                synthetic CANCELLED result so no further network request is made.
- *                Use this to stop polling when the observation is about to be
- *                deleted, avoiding a 404 network error in the console.
- * @returns {Promise<object>}  final ObservationVoxelStatusResponse
- */
+// Polls GET /api/observations/{observationId}/voxel-status until terminal.
+// Lighter than pollJob for voxel tracking: targets the observation directly
+
+// shouldStop works the same as in pollJob — use it to stop polling right
+// before an observation gets deleted, so we don't hit a 404 afterward.
 export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 5000, timeoutMs = 1_800_000, shouldStop } = {}) {
   const deadline = Date.now() + timeoutMs
   while (true) {
-    // Check before every fetch — catches cancellation that happened while we
-    // were sleeping or before the very first tick fires.
+    // catches cancellation that happened while sleeping, or before the first tick
     if (shouldStop?.()) {
       console.log(`[pollVoxelStatus] obsId=${observationId} — shouldStop=true, exiting loop cleanly`)
       return { voxelStatus: 'CANCELLED' }
@@ -724,9 +597,8 @@ export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 
     if (TERMINAL_JOB_STATUSES.has(s.voxelStatus)) return s
     if (Date.now() > deadline) throw new Error(`Voxel job for observation ${observationId} timed out`)
     await new Promise(r => setTimeout(r, intervalMs))
-    // Check again after the sleep — this is the most common race window:
-    // delete fires during the 2 s wait, shouldStop is set, we bail before
-    // the next GET hits the now-deleted observation.
+    // most common race: delete fires during the sleep, shouldStop gets set,
+    // we bail here before the next GET hits the now-deleted observation
     if (shouldStop?.()) {
       console.log(`[pollVoxelStatus] obsId=${observationId} — shouldStop=true after sleep, exiting loop cleanly`)
       return { voxelStatus: 'CANCELLED' }
@@ -734,36 +606,20 @@ export async function pollVoxelStatus(observationId, onProgress, { intervalMs = 
   }
 }
 
-/**
- * Fetch all currently active (non-terminal) jobs from GET /api/jobs.
- * Returns JobResponse[]: { id, jobType, targetType, targetId, status, progress, message }
- *
- *   jobType:    'VOXEL_CREATE' | 'DIFF_CREATE'
- *   targetType: 'OBSERVATION'  | 'DIFF' | 'DIFF_ITEM'
- *   targetId:   id of the observation or diff being processed
- *
- * Use on project open to discover in-progress voxel or diff jobs and resume
- * polling them without re-fetching every observation individually.
- */
+// Fetches all currently active (non-terminal) jobs. Used on project open to
+// discover in-progress voxel/diff jobs and resume polling them, instead of
+// re-fetching every observation one by one.
 export async function fetchActiveJobs() {
   const jobs = await _get('/api/jobs')
   return jobs.filter(j => !TERMINAL_JOB_STATUSES.has(j.status))
 }
 
-/**
- * Trigger voxelization for an observation and poll until complete.
- * Calls onProgress({ status, progress, message }) during the wait.
- * Resolves with the final (refreshed) date object, or throws on failure.
- *
- * @param {string|number} observationId
- * @param {(info: { status: string, progress: number, message: string }) => void} [onProgress]
- * @param {{ maxLevel?, visualize?, cubeDataType?, recursive? }} [options]
- */
+// Triggers voxelization and polls until it's done, calling
+// onProgress({ status, progress, message }) along the way. Resolves with
+// the refreshed date object, or throws on failure.
 export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
   console.log('[api.voxelizeAndPoll] start observationId:', observationId)
   await voxelizeObservation(observationId, options)
-  // pollVoxelStatus is lighter than pollJob: targets the observation directly,
-  // no voxelJobId needed, returns voxelTilesetUrl in the terminal response.
   console.log('[api.voxelizeAndPoll] polling voxel-status for obsId:', observationId)
   const status = await pollVoxelStatus(
     observationId,
@@ -772,7 +628,7 @@ export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
   if (status.voxelStatus !== 'SUCCEEDED') {
     throw new Error(`Voxelization ${status.voxelStatus.toLowerCase()}: ${status.jobMessage ?? 'no details'}`)
   }
-  // Re-fetch observation for the full date-shaped object (voxelPath, etc.)
+  // re-fetch for the full date-shaped object (voxelPath, etc.)
   return fetchObservation(observationId)
 }
 
@@ -780,15 +636,8 @@ export async function voxelizeAndPoll(observationId, onProgress, options = {}) {
 //  DIFFS
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Create an A/B diff job between two observations.
- * Returns DiffCreateResponse: { id, projectId, name, type, status, jobId, itemCount }
- *
- * @param {string|number} projectId
- * @param {string|number} sourceObservationId  — observation A (earlier/baseline)
- * @param {string|number} targetObservationId  — observation B (later)
- * @param {object} [opts]  — optional diff params (maxLevel, visualize, areaWkt, …)
- */
+// Creates an A/B diff job between two observations (A = earlier/baseline,
+// B = later). opts can include maxLevel, visualize, areaWkt, etc.
 export async function createAbDiff(projectId, sourceObservationId, targetObservationId, opts = {}) {
   console.log('[api.createAbDiff] projectId:', projectId, 'A:', sourceObservationId, 'B:', targetObservationId)
   const body = {
@@ -805,10 +654,7 @@ export async function createAbDiff(projectId, sourceObservationId, targetObserva
   return diff
 }
 
-/**
- * Fetch all diff items for a given diff.
- * Returns DiffItemResponse[].
- */
+//Fetch all diff items for a given diff
 export async function fetchDiffItems(diffId) {
   console.log('[api.fetchDiffItems] diffId:', diffId)
   const items = await _get(`/api/diffs/${diffId}/items`)
@@ -816,11 +662,6 @@ export async function fetchDiffItems(diffId) {
   return items
 }
 
-/**
- * Fetch the detailed report for a single diff item.
- * Returns DiffItemReportResponse: { diffItemId, sourceObservedAt, targetObservedAt,
- *   addedVolume, removedVolume, changedVolume, summaryPath }
- */
 export async function fetchDiffItemReport(diffItemId) {
   console.log('[api.fetchDiffItemReport] diffItemId:', diffItemId)
   const report = await _get(`/api/diff-items/${diffItemId}/report`)
@@ -828,46 +669,31 @@ export async function fetchDiffItemReport(diffItemId) {
   return report
 }
 
-/**
- * Fetch the tileset URL for a single diff item.
- * Returns TilesetUrlResponse: { tilesetUrl }
- */
+//Fetch the tileset URL for a single diff item.
 export async function fetchDiffItemTilesetUrl(diffItemId) {
   console.log('[api.fetchDiffItemTilesetUrl] diffItemId:', diffItemId)
   const { tilesetUrl } = await _get(`/api/diff-items/${diffItemId}/tileset`)
-  // Backend returns …/voxel/tileset.json — Cesium needs …/voxel/visualization/tileset.json
   return _injectVisualizationFolder(_toAbsoluteUrl(tilesetUrl))
 }
 
-/**
- * Cancel a diff job.
- */
+//Cancel a diff job.
 export async function cancelDiff(diffId) {
   console.log('[api.cancelDiff] diffId:', diffId)
   return _post(`/api/diffs/${diffId}/cancel`, {})
 }
 
-/**
- * Delete a diff by id.
- */
 export async function deleteDiff(diffId) {
   console.log('[api.deleteDiff] diffId:', diffId)
   await _delete(`/api/diffs/${diffId}`)
 }
 
-/**
- * Fetch a single diff by id.
- * Returns DiffResponse: { id, projectId, name, type, status, jobId, … }
- */
+//Fetch a single diff by id.
 export async function fetchDiffById(diffId) {
   return _get(`/api/diffs/${diffId}`)
 }
 
-/**
- * Fetch all in-progress (QUEUED or RUNNING) diffs for a project.
- * Returns lightweight entries shaped for DiffHistory pending display:
- *   { id, diffId, name, type, status, jobId, createdAt }
- */
+// Fetches in-progress (QUEUED or RUNNING) diffs for a project, shaped for
+// DiffHistory's pending display.
 export async function fetchProjectDiffsInProgress(projectId) {
   const [queued, running] = await Promise.all([
     _get(`/api/projects/${projectId}/diffs?status=QUEUED`).catch(() => []),
@@ -884,16 +710,8 @@ export async function fetchProjectDiffsInProgress(projectId) {
   }))
 }
 
-/**
- * Fetch all SUCCEEDED diffs for a project, enriched with date labels from items.
- * Returns entries shaped for DiffHistory:
- *   { id, type ('AB'|'TIME_SERIES'), name, createdAt, status,
- *     diffId, diffItemId, labelA, labelB, observationCount,
- *     addedVolume, removedVolume, tilesetUrl, areaWkt }
- *
- * Fetches GET /api/projects/{projectId}/diffs?status=SUCCEEDED, then for each
- * diff fetches GET /api/diffs/{diffId} to get items with date labels.
- */
+// Fetches all SUCCEEDED diffs for a project, enriched with date labels from
+// each diff's items, shaped for DiffHistory display.
 export async function fetchProjectDiffs(projectId) {
   console.log('[api.fetchProjectDiffs] projectId:', projectId)
   const list = await _get(`/api/projects/${projectId}/diffs?status=SUCCEEDED`)
@@ -958,37 +776,18 @@ export async function fetchProjectDiffs(projectId) {
     .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
 }
 
-/**
- * Given a diff item (from fetchDiffItems / list endpoints), fetch its report
- * and — if available — the fine-resolution mass-summary.json, returning a
- * normalised summary object with the best-available volumes.
- *
- * The /report endpoint alone often returns zeros for volumes; the real
- * per-level breakdown lives in mass-summary.json (served alongside the voxel
- * tileset). The LAST level in levelCounts[] is the finest resolution and
- * gives the correct human-scale volume — coarse levels dominate the totals
- * with large multi-voxel tiles.
- *
- * Used both right after a live diff run (createAbDiffAndPoll) and when
- * re-loading a past AB result from Diff History, so both paths show the
- * same fine-grained numbers instead of the coarse item-level totals.
- *
- * @param {object} item — a DiffItemResponse (has .id, .addedVolume, .removedVolume, etc.)
- * @returns {Promise<object>} summary — { diffItemId, sourceObservedAt, targetObservedAt,
- *   addedVolume, removedVolume, changedVolume, addedCount, removedCount, summaryPath }
- */
+// Given a diff item, fetches its report and (mass-summary.json)
+// use the LAST level in levelCounts[], since that's the finest resolution
 export async function fetchDiffItemFineSummary(item) {
   let report = null
   try { report = await fetchDiffItemReport(item.id) } catch (_) {}
   console.log('[fetchDiffItemFineSummary] report:', report)
 
-  // The /report endpoint returns zeros — real volumes are in mass-summary.json.
-  // summaryPath from report: /data/voxelsets/.../summary.json
-  // mass-summary served at:  /files/voxelsets/.../voxel/mass-summary.json
+  // report.summaryPath looks like /data/voxelsets/.../summary.json, but the
+  // actual mass-summary is served at /files/voxelsets/.../voxel/mass-summary.json
   let massSummary = null
   if (report?.summaryPath) {
     try {
-      // Convert /data/voxelsets/…/summary.json → /files/voxelsets/…/voxel/mass-summary.json
       const massUrl = _toAbsoluteUrl(
         report.summaryPath
           .replace(/^\/data\//, '/files/')
@@ -1036,18 +835,10 @@ export async function fetchDiffItemFineSummary(item) {
   return summary
 }
 
-/**
- * Re-fetch the fine-resolution summary + tileset URL for a past AB diff,
- * for restoring a Diff History entry. Mirrors the tail end of
- * createAbDiffAndPoll, but starting from an already-known diffId instead
- * of running a new diff job. Kept lazy (called only when an entry is
- * clicked) — same pattern as the timeline history's
- * loadDiffSnapshotsByDiffId, which also fetches its detail on demand rather
- * than upfront in fetchProjectDiffs.
- *
- * @param {string|number} diffId
- * @returns {Promise<{ report: object, tilesetUrl: string|null }>}
- */
+// Re-fetches the fine-resolution summary + tileset URL for a past AB diff,
+// for restoring a Diff History entry. Mirrors the tail end of
+// createAbDiffAndPoll but starts from an already-known diffId instead of
+// running a new job.
 export async function fetchAbDiffResult(diffId) {
   console.log('[fetchAbDiffResult] diffId:', diffId)
   const items = await fetchDiffItems(diffId)
@@ -1066,28 +857,20 @@ export async function fetchAbDiffResult(diffId) {
   return { report, tilesetUrl }
 }
 
-/**
- * Create an A/B diff and poll until the job completes.
- * Calls onStatus(msg: string) with progress updates.
- * Resolves with the first DiffItemResponse enriched with:
- *   { report: DiffItemReportResponse, tilesetUrl: string|null }
- *
- * @param {string|number} projectId
- * @param {string|number} sourceObservationId
- * @param {string|number} targetObservationId
- * @param {{ areaWkt?, maxLevel?, onStatus? }} [opts]
- */
+// Creates an A/B diff and polls until done, calling onStatus(msg) with
+// progress updates. Resolves with the first diff item enriched with
+// { report, tilesetUrl }.
 export async function createAbDiffAndPoll(projectId, sourceObservationId, targetObservationId, opts = {}) {
   const onStatus  = opts.onStatus  ?? (() => {})
-  const onDiffId  = opts.onDiffId  ?? (() => {})   // called with diffId once created
+  const onDiffId  = opts.onDiffId  ?? (() => {})   // called with diffId once created, so caller can cancel
   const onJobTick = opts.onJobTick ?? (() => {})   // called on each poll tick with the raw job object
-  const shouldStop = opts.shouldStop ?? null        // () => boolean — set before cancel call
+  const shouldStop = opts.shouldStop ?? null        // () => boolean, set before calling cancel
 
   onStatus('A/B 분석 작업 생성 중…')
   const diff = await createAbDiff(projectId, sourceObservationId, targetObservationId, opts)
 
   if (!diff.jobId) throw new Error('diff 작업 jobId가 없습니다')
-  onDiffId(diff.id)   // expose diffId to caller so they can cancel
+  onDiffId(diff.id)
 
   onStatus('분석 중… (잠시 기다려 주세요)')
   const job = await pollJob(
@@ -1121,7 +904,6 @@ export async function createAbDiffAndPoll(projectId, sourceObservationId, target
 
   let tilesetUrl = null
   if (item.resultTilesetUrl) {
-    // item already has a URL — still needs visualization injection
     tilesetUrl = _injectVisualizationFolder(_toAbsoluteUrl(item.resultTilesetUrl))
   } else {
     try { tilesetUrl = await fetchDiffItemTilesetUrl(item.id) } catch (_) {}
@@ -1135,13 +917,8 @@ export async function createAbDiffAndPoll(projectId, sourceObservationId, target
 //  TIME-SERIES DIFFS
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Create a TIME_SERIES diff job for a project (covers all consecutive obs pairs).
- * Returns DiffCreateResponse: { id, projectId, name, type, status, jobId, itemCount }
- *
- * @param {string|number} projectId
- * @param {object} [opts]  — optional diff params (maxLevel, visualize, areaWkt, …)
- */
+// Creates a TIME_SERIES diff job for a project, covering all consecutive
+// observation pairs.
 export async function createTimeSeriesDiff(projectId, opts = {}) {
   console.log('[api.createTimeSeriesDiff] projectId:', projectId)
   const body = {
@@ -1156,15 +933,9 @@ export async function createTimeSeriesDiff(projectId, opts = {}) {
   return diff
 }
 
-/**
- * Create a TIME_SERIES diff and poll until the job completes.
- * Calls onStatus(msg: string) with progress updates.
- * Calls onDiffId(diffId) once the diff is created (so caller can cancel).
- * Resolves with the DiffCreateResponse on success, or throws on failure.
- *
- * @param {string|number} projectId
- * @param {{ onStatus?, onDiffId?, areaWkt?, maxLevel? }} [opts]
- */
+// Creates a TIME_SERIES diff and polls until done, calling onStatus(msg)
+// with progress updates and onDiffId(diffId) once created. Resolves with
+// the diff on success, throws on failure.
 export async function createTimeSeriesDiffAndPoll(projectId, opts = {}) {
   const onStatus  = opts.onStatus  ?? (() => {})
   const onDiffId  = opts.onDiffId  ?? (() => {})

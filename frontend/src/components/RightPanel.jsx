@@ -1,31 +1,17 @@
-/**
- * RightPanel.jsx — RIGHT sidebar (analysis view only)
- *
- * Shows results only. Controls (date selectors, run button, draw area)
- * have moved to Panel.jsx (left sidebar).
- *
- * Visible only when there is an actual result to display:
- *   compare-api  → apiSummary is set
- *   timeline     → tlSnapshots is set (even while loading)
- *
- * ───────────────────────────────────────────────────────────────────────
- * SPLIT VIEW (compare two diff-history entries side by side)
- * ───────────────────────────────────────────────────────────────────────
- * When splitMode is on, this renders TWO self-contained result halves
- * stacked top/bottom instead of one. Each half can independently be an
- * A·B result or a timeline result — they don't have to match. The single-
- * view rendering path below (when splitMode is false) is completely
- * unchanged from before this feature existed.
- */
+// RightPanel.jsx — right sidebar (analysis view only)
+//
+// Shows results only. All controls (date selectors, run button, draw area)
+// live in Panel.jsx. This panel only appears when there's an actual result.
+//
+// Split view: renders two stacked self-contained halves (A on top, B below).
+// Each half independently shows an A·B result or a timeline result.
+// The single-view path below is unchanged from before split view existed.
 
 import { useRef } from 'react'
 import TimelinePanel from './TimelinePanel'
 
-// ── Mini inline timeline scrubber (split-view only) ───────────────────────
-//
-// Compact track+scrubber that lives inside each split-view half when that
-// slot holds a TIME_SERIES result. Mirrors the full TimelineBar at the
-// bottom but sized to fit inside the narrow panel column.
+// Compact timeline scrubber for split view. Same interaction as TimelineBar
+// but sized to fit inside the narrow panel column.
 function MiniTimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPause }) {
   const trackRef = useRef(null)
   if (!snapshots || snapshots.length === 0) return null
@@ -70,7 +56,6 @@ function MiniTimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPaus
 
   return (
     <div className="mini-tl">
-      {/* Active period label */}
       {active && (
         <div className="mini-tl-label">
           <span className="mini-tl-a">{active.date_a.label}</span>
@@ -79,7 +64,6 @@ function MiniTimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPaus
         </div>
       )}
 
-      {/* Controls row: play · prev · track · next · counter */}
       <div className="mini-tl-row">
         <button
           className={`mini-tl-btn${playing ? ' mini-tl-playing' : ''}`}
@@ -149,12 +133,8 @@ function fmtVoxSize(avgVoxVol) {
   return `${edge.toFixed(3)} m`
 }
 
-/**
- * A·B result block — stats + visibility toggles for one A·B diff result.
- * Used for both slot A (single-view, unchanged markup) and slot B (split
- * view). Identical to the original inline block, just extracted so it
- * can be rendered twice.
- */
+// Stats + visibility toggles for one A·B diff result.
+// Used for both slot A (single-view) and slot B (split view).
 function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShowRemoved, showUnchanged, onShowUnchanged }) {
   const added   = apiSummary.addedVolume   ?? 0
   const removed = apiSummary.removedVolume ?? 0
@@ -250,20 +230,17 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
 
 export default function RightPanel({
   mode,
-  // visibility toggles (slot A)
   showAdded, onShowAdded,
   showRemoved, onShowRemoved,
   showUnchanged, onShowUnchanged,
-  // timeline props (slot A)
   tlSnapshots, tlActiveIndex, tlOnSelect,
   tlPlaying, tlOnPlayPause,
   tlLoading,
-  // compare-api results (slot A)
   apiSummary,
   visible,
-  // ── split view (slot B) ──────────────────────────────────────────────
+  // split view
   splitMode,
-  slotBType,             // 'AB' | 'TIME_SERIES' | null
+  slotBType,
   apiSummaryB,
   showAddedB, onShowAddedB,
   showRemovedB, onShowRemovedB,
@@ -284,16 +261,15 @@ export default function RightPanel({
   const hasTimelineResult = inTimeline && tlSnapshots != null
   const hasSlotBResult    = slotBType === 'AB' ? apiSummaryB != null : slotBType === 'TIME_SERIES' ? tlSnapshotsB != null : false
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  SPLIT VIEW — two stacked, self-contained halves
-  // ═══════════════════════════════════════════════════════════════════
+  // ── SPLIT VIEW ────────────────────────────────────────────────────────────
+
   if (splitMode) {
     if (!hasAbResult && !hasTimelineResult && !hasSlotBResult) return null
 
     return (
       <aside id="right-panel" className="rp-split">
 
-        {/* ── Slot A half ── */}
+        {/* Slot A */}
         <div className="rp-split-half">
           <div className="p-section">
             <div className="rp-split-head">
@@ -342,7 +318,7 @@ export default function RightPanel({
 
         <div className="rp-split-divider" />
 
-        {/* ── Slot B half ── */}
+        {/* Slot B */}
         <div className="rp-split-half">
           <div className="p-section">
             <div className="rp-split-head">
@@ -396,9 +372,8 @@ export default function RightPanel({
     )
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  //  SINGLE VIEW — unchanged from before split view existed
-  // ═══════════════════════════════════════════════════════════════════
+  // ── SINGLE VIEW ───────────────────────────────────────────────────────────
+
   if (!hasAbResult && !hasTimelineResult) return null
 
   return (

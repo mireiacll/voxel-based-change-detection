@@ -1,6 +1,6 @@
-/**
- * App.jsx
- */
+// App.jsx — root component
+// All UI state lives here. The pattern throughout is:
+//   user action → setState → useEffect → imperative Cesium call
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { CONFIG } from './config'
@@ -24,9 +24,6 @@ import { loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
 import {
   fetchProjects,
   enrichProjectWithDates,
-  createProject,
-  updateProject,
-  deleteProject,
   voxelizeAndPoll,
   fetchVoxelTilesetUrl,
   fetchObservation,
@@ -39,7 +36,6 @@ import {
   deleteDiff,
   fetchProjectDiffs,
   fetchProjectDiffsInProgress,
-  fetchDiffById,
   createTimeSeriesDiffAndPoll,
   cancelVoxelize,
   uploadObservation,
@@ -57,9 +53,7 @@ import DataUploadPage     from './components/DataUploadPage'
 
 const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
 const DEFAULT_DRAW_BTN  = '✏ Draw Area'
-
-// ── Per-tab visibility defaults ───────────────────────────────────────────
-const DEFAULT_VIS = { added: true, removed: true, unchanged: true }
+const DEFAULT_VIS       = { added: true, removed: true, unchanged: true }
 
 export default function App() {
   const [navTab,         setNavTab]         = useState('projects')
@@ -71,24 +65,17 @@ export default function App() {
 
   const [mode, setMode] = useState('compare-api')
 
-  // 'home' shows project info + diff history; 'computing' shows the new-computation form
+  // 'home' = project info + diff history; 'computing' = new-computation form
   const [analysisView, setAnalysisView] = useState('home')
   const [diffName,     setDiffName]     = useState('')
 
-  const [visibleDateIds, setVisibleDateIds] = useState(new Set())
-  const [activeDate, setActiveDate]         = useState(null)
-  const [activeDateLayerMode, setActiveDateLayerMode] = useState('pc')
-  const [voxelPollingIds, setVoxelPollingIds] = useState(new Set())
-  const [diffPollingIds,  setDiffPollingIds]  = useState(new Set())
+  const [visibleDateIds,       setVisibleDateIds]       = useState(new Set())
+  const [activeDate,           setActiveDate]           = useState(null)
+  const [activeDateLayerMode,  setActiveDateLayerMode]  = useState('pc')
+  const [voxelPollingIds,      setVoxelPollingIds]      = useState(new Set())
+  const [diffPollingIds,       setDiffPollingIds]       = useState(new Set())
 
-  // ── In-flight upload registry ──────────────────────────────────────────
-  // Mirrors inFlightJobsRef below: each call to handleUploadObservation
-  // registers itself here immediately (keyed by a client-generated tempId)
-  // so any number of uploads can run concurrently — zipping/uploading one
-  // large dataset no longer blocks starting another. DataUploadPage reads
-  // this map to render per-row progress instead of owning upload state
-  // itself.
-  //   tempId → { name, observedAt, datasetType, phase, pct, error }
+  // Multiple uploads can run concurrently. Map of tempId → { name, observedAt, datasetType, phase, pct, error }.
   const [uploadingDateInfo, setUploadingDateInfo] = useState(() => new Map())
 
   const activeDateRef     = useRef(null)
@@ -123,20 +110,13 @@ export default function App() {
   const [diffHistory,       setDiffHistory]       = useState([])
   const [deletingDiffIds,   setDeletingDiffIds]   = useState(() => new Set())
   const [cancellingDiffIds, setCancellingDiffIds] = useState(() => new Set())
-  const [activeDiffId, setActiveDiffId] = useState(null)
+  const [activeDiffId,      setActiveDiffId]      = useState(null)
 
   useEffect(() => { diffHistoryRef.current = diffHistory }, [diffHistory])
 
-  // ── Split view (compare two diff-history entries side by side) ─────────
-  // Slot A reuses ALL existing single-view state untouched (activeDiffId,
-  // apiSummary, apiDiffTilesetUrl, tlSnapshots, tlActiveIndex, tlPlaying) —
-  // so single-view behavior is byte-for-byte the same as before this
-  // feature existed. Slot B is new, parallel state that only gets used
-  // once splitMode is on and a second entry has been assigned to it.
-  //
-  // splitMode: false        → today's behavior, single viewport, single result
-  // splitMode: true, slotB  → second Cesium viewport + second result panel
-  const [splitMode, setSplitMode]     = useState(false)
+  // Split view: slot A reuses all existing single-view state; slot B is parallel state
+  // only active when splitMode is on and a second diff entry has been assigned.
+  const [splitMode,     setSplitMode]     = useState(false)
   const [activeDiffIdB, setActiveDiffIdB] = useState(null)
 
   const [apiSummaryB,        setApiSummaryB]        = useState(null)
@@ -151,51 +131,28 @@ export default function App() {
 
   const [slotBType, setSlotBType] = useState(null) // 'AB' | 'TIME_SERIES' | null
 
-  const [tlVisB, setTlVisB] = useState({ ...DEFAULT_VIS })
+  const [tlVisB,         setTlVisB]         = useState({ ...DEFAULT_VIS })
   const [compareApiVisB, setCompareApiVisB] = useState({ ...DEFAULT_VIS })
 
-  // The secondary viewport's own layer controller + camera-sync teardown fn.
-  // Created when split view is entered, destroyed when it's exited.
-  const layersBRef       = useRef(null)
+  const layersBRef        = useRef(null)
   const stopCameraSyncRef = useRef(null)
   const viewer2ReadyRef   = useRef(false)
 
-  /**
-   * Loads a single-date background layer (mesh/pc/voxel) into the primary
-   * viewport exactly like loadDate always has — and, if split mode is
-   * active, ALSO loads the same date into slot B's own layer controller.
-   * Without this, picking a date from the 관측 데이터 tab only ever
-   * populated the primary (A) map, leaving B permanently blank since
-   * date-loading was never otherwise slot-aware.
-   *
-   * Every call site that used to call loadDate(...) directly now calls
-   * this instead — same signature, same primary-side behavior.
-   */
+  // Loads a date into the primary viewer, and also into slot B if split mode is active.
   function loadDateBoth(site, dateObj, currentMode, opts) {
-    console.log('[DIAG][loadDateBoth] loading primary — splitMode:', splitMode, '| layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
     loadDate(site, dateObj, currentMode, opts)
     if (splitMode && layersBRef.current) {
-      console.log('[DIAG][loadDateBoth] also loading into slot B')
       layersBRef.current.loadDate(site, dateObj, currentMode, opts)
-    } else if (splitMode && !layersBRef.current) {
-      console.warn('[DIAG][loadDateBoth] splitMode ON but layersBRef.current is NULL — slot B skipped (viewer2 not ready yet?)')
     }
   }
 
-  // ── In-flight job registry ───────────────────────────────────────────
-  // Replaces the old per-mode singleton tracking (apiRunning/apiDiffIdRef/
-  // apiCancelledRef, tlRecomputeRunning/tlRecomputeDiffIdRef/tlCancelledRef).
-  // Each call to handleApiRun/handleTlRecompute fires independently and
-  // registers itself here the instant onDiffId resolves, keyed by diffId:
-  //   diffId → { type: 'AB'|'TIME_SERIES', cancelledRef: {current:bool}, dateIds: [id,...] }
-  // This lets any number of A·B and/or timeline jobs run concurrently,
-  // each individually cancellable from the diff-history list, with
-  // blockedDateInfo derived as the union of dateIds across all entries.
-  const inFlightJobsRef = useRef(new Map())
-  const [inFlightVersion, setInFlightVersion] = useState(0) // bump to force blockedDateInfo recompute
+  // Per-diffId job registry used for cancellation and blocking date edits during analysis.
+  // Structure: diffId → { type: 'AB'|'TIME_SERIES', cancelledRef, dateIds }
+  const inFlightJobsRef   = useRef(new Map())
+  const [inFlightVersion, setInFlightVersion] = useState(0)
   const bumpInFlight = () => setInFlightVersion(v => v + 1)
 
-  const diffPollCancelledMap = useRef(new Map()) // diffId → true when history-entry poll should stop
+  const diffPollCancelledMap = useRef(new Map()) // diffId → true when poll should stop
 
   const [drawInfo,     setDrawInfo]     = useState(DEFAULT_DRAW_INFO)
   const [drawBtnLabel, setDrawBtnLabel] = useState(DEFAULT_DRAW_BTN)
@@ -219,6 +176,7 @@ export default function App() {
   const tlSnapshotsRef = useRef(null)
   useEffect(() => { tlSnapshotsRef.current = tlSnapshots }, [tlSnapshots])
 
+  // Dates that are locked because a diff job using them is in flight.
   const blockedDateInfo = useMemo(() => {
     const map = new Map()
     for (const job of inFlightJobsRef.current.values()) {
@@ -232,6 +190,7 @@ export default function App() {
   }, [inFlightVersion])
 
   // ── Helpers ───────────────────────────────────────────────────────────
+
   const addToast = useCallback((msg, type = 'ok') => {
     const id = Date.now() + Math.random()
     setToasts(prev => [...prev, { id, msg, type }])
@@ -239,20 +198,17 @@ export default function App() {
   }, [])
 
   const refreshSites = useCallback(async () => {
-    console.log('[refreshSites] start')
     try {
       const projects = await fetchProjects()
-      console.log('[refreshSites] projects fetched:', projects.length)
-      const enriched = await Promise.all(projects.map(p => enrichProjectWithDates(p)))
-      console.log('[refreshSites] enriched sites:', enriched.map(s => `${s.id}:${s.name} (${s.dates.length} dates)`))
-      return enriched
+      return await Promise.all(projects.map(p => enrichProjectWithDates(p)))
     } catch (e) {
-      console.error('[refreshSites] FAILED:', e.message, e)
+      console.error('[refreshSites] failed:', e.message)
       return []
     }
   }, [])
 
-  // ── Init ─────────────────────────────────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────
+
   useEffect(() => {
     async function setup() {
       setDrawCallbacks(
@@ -273,7 +229,8 @@ export default function App() {
     setup()
   }, [addToast, refreshSites])
 
-  // ── Timeline playback ────────────────────────────────────────────────
+  // ── Timeline playback ─────────────────────────────────────────────────
+
   useEffect(() => {
     clearInterval(tlPlayTimer.current)
     if (tlPlaying && tlSnapshots?.length) {
@@ -288,41 +245,21 @@ export default function App() {
     return () => clearInterval(tlPlayTimer.current)
   }, [tlPlaying, tlSnapshots])
 
-  // ── Timeline load ────────────────────────────────────────────────────
-  // Snapshots are ONLY loaded explicitly:
-  //   · after handleTlRecompute completes (sets tlSnapshots(null) to re-trigger)
-  //   · when the user clicks a TS entry in diff history (handleLoadDiff)
-  // We do NOT auto-fetch on entering the timeline tab so that the computing
-  // view starts blank and doesn't display stale previous results.
-  // This effect is therefore intentionally left empty — snapshot loading is
-  // handled directly in handleTlRecompute and handleLoadDiff.
-  // (kept as a no-op block so the dependency refs stay declared in order)
+  // ── Timeline snapshot switch ──────────────────────────────────────────
 
-  // ── Timeline snapshot switch ─────────────────────────────────────────
   const tlActiveIndexRef = useRef(0)
   useEffect(() => { tlActiveIndexRef.current = tlActiveIndex }, [tlActiveIndex])
 
   useEffect(() => {
     if (!tlSnapshots?.length) return
-    const currentMode = modeRef.current
+    if (modeRef.current !== 'timeline') return
     const snap = tlSnapshots[tlActiveIndex]
-    if (currentMode !== 'timeline') return
     if (!snap) return
     showSnapshotTileset(snap.id)
   }, [tlActiveIndex, tlSnapshots])
 
-  // ── Split view lifecycle ─────────────────────────────────────────────
-  // Creates the secondary Cesium viewport + its own layer controller +
-  // locked camera sync the moment splitMode turns on; tears all of it
-  // down the moment it turns off (or the component unmounts). The
-  // primary viewer/map is never touched by this — leaving split view
-  // always returns exactly to today's single-viewport behavior.
-  //
-  // initSecondaryViewer is async (it waits for the container to have
-  // real layout dimensions before constructing the Cesium.Viewer — see
-  // cesiumInit.js for why). `cancelled` guards against splitMode being
-  // toggled off again before that wait resolves, so a fast double-toggle
-  // can't leave an orphaned viewer2 that the cleanup function never sees.
+  // Split mode: create viewer2 + its layer controller + camera sync.
+  // `cancelled` guards against a fast double-toggle leaving an orphaned viewer2.
   useEffect(() => {
     if (!splitMode) return
     if (!viewerReady.current) return
@@ -330,39 +267,20 @@ export default function App() {
     let cancelled = false
 
     ;(async () => {
-      console.log('[DIAG][splitMode effect] starting initSecondaryViewer')
       const v2 = await initSecondaryViewer('cesiumContainer2')
-      if (cancelled || !v2) {
-        console.warn('[DIAG][splitMode effect] aborted — cancelled:', cancelled, '| v2:', !!v2)
-        return
-      }
+      if (cancelled || !v2) return
 
-      console.log('[DIAG][splitMode effect] viewer2 ready, setting up layersBRef + cameraSync')
       viewer2ReadyRef.current = true
       layersBRef.current = createLayerController({ viewer: v2 })
       setBasemap2(basemap)
       if (showTerrain === false) {
-        // mirror current terrain toggle onto the fresh viewer2
         v2.terrainProvider = new window.Cesium.EllipsoidTerrainProvider()
       }
 
       stopCameraSyncRef.current = startCameraSync(window.viewer, v2)
-      console.log('[DIAG][splitMode effect] cameraSync started')
 
-      // Nudge the primary to actually render a frame right now — both
-      // viewers use requestRenderMode, so without an explicit kick here,
-      // viewerSync's resize+mirror sequence has nothing to react to until
-      // the user organically moves the camera, leaving B's view stuck at
-      // its stale initial position/size in the meantime.
-      //
-      // Also force resize() on the primary: when split mode turns on,
-      // #cesiumContainer gets the split-half-left CSS class which shrinks
-      // it to ~50% width. Cesium's internal resize observer only fires on
-      // the next render tick, but with requestRenderMode+Infinity it won't
-      // render until told to — so the primary's framebuffer stays sized to
-      // the old full-width until we explicitly call resize() here, causing
-      // the "GL_INVALID_FRAMEBUFFER_OPERATION: default size is zero" spam
-      // from the primary's scene while the framebuffer is temporarily stale.
+      // Cesium won't update the primary's framebuffer until kicked after the
+      // split-half-left class shrinks it to ~50% width.
       requestAnimationFrame(() => {
         if (window.viewer && !window.viewer.isDestroyed()) {
           window.viewer.resize()
@@ -372,7 +290,6 @@ export default function App() {
     })()
 
     return () => {
-      console.log('[DIAG][splitMode effect] cleanup — tearing down viewer2')
       cancelled = true
       stopCameraSyncRef.current?.()
       stopCameraSyncRef.current = null
@@ -383,7 +300,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [splitMode])
 
-  // Keep viewer2's basemap in sync with the primary's basemap selector.
   useEffect(() => {
     if (splitMode && viewer2ReadyRef.current) setBasemap2(basemap)
   }, [basemap, splitMode])
@@ -393,13 +309,12 @@ export default function App() {
     setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed, compareApiVis.unchanged)
   }, [compareApiVis])
 
-  // ── Re-sync timeline tileset style ───────────────────────────────────
   useEffect(() => {
     if (mode !== 'timeline') return
     setSnapshotTilesetVisibility(tlVis.added, tlVis.removed, tlVis.unchanged)
   }, [tlVis])
 
-  // ── Split view — slot B timeline playback ────────────────────────────
+  // Slot B timeline playback
   const tlPlayTimerB = useRef(null)
   useEffect(() => {
     clearInterval(tlPlayTimerB.current)
@@ -415,37 +330,31 @@ export default function App() {
     return () => clearInterval(tlPlayTimerB.current)
   }, [tlPlayingB, tlSnapshotsB])
 
-  // ── Split view — slot B snapshot switch ──────────────────────────────
+  // Slot B snapshot switch
   useEffect(() => {
-    if (!splitMode) return
-    if (!tlSnapshotsB?.length) return
-    if (slotBType !== 'TIME_SERIES') return
+    if (!splitMode || !tlSnapshotsB?.length || slotBType !== 'TIME_SERIES') return
     const snap = tlSnapshotsB[tlActiveIndexB]
     if (!snap || !layersBRef.current) return
     layersBRef.current.showSnapshotTileset(snap.id)
   }, [tlActiveIndexB, tlSnapshotsB, splitMode, slotBType])
 
-  // ── Split view — slot B tileset style resync ─────────────────────────
+  // Slot B visibility resync
   useEffect(() => {
-    if (!splitMode || !layersBRef.current) return
-    if (slotBType === 'AB') {
-      layersBRef.current.setDiffApiTilesetVisibility(compareApiVisB.added, compareApiVisB.removed, compareApiVisB.unchanged)
-    }
+    if (!splitMode || !layersBRef.current || slotBType !== 'AB') return
+    layersBRef.current.setDiffApiTilesetVisibility(compareApiVisB.added, compareApiVisB.removed, compareApiVisB.unchanged)
   }, [compareApiVisB, splitMode, slotBType])
 
   useEffect(() => {
-    if (!splitMode || !layersBRef.current) return
-    if (slotBType === 'TIME_SERIES') {
-      layersBRef.current.setSnapshotTilesetVisibility(tlVisB.added, tlVisB.removed, tlVisB.unchanged)
-    }
+    if (!splitMode || !layersBRef.current || slotBType !== 'TIME_SERIES') return
+    layersBRef.current.setSnapshotTilesetVisibility(tlVisB.added, tlVisB.removed, tlVisB.unchanged)
   }, [tlVisB, splitMode, slotBType])
 
-  // ── Sync side-effects ────────────────────────────────────────────────
-  useEffect(() => { applyPcStyle(pcSize) },          [pcSize])
+  useEffect(() => { applyPcStyle(pcSize) },           [pcSize])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
-  useEffect(() => { setBasemap(basemap) },            [basemap])
+  useEffect(() => { setBasemap(basemap) },             [basemap])
 
-  // ── Keyboard shortcuts ───────────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────
+
   useEffect(() => {
     const handler = e => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return
@@ -490,10 +399,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [navTab])
 
-  // ── Handlers ─────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────
 
   function loadSiteData(site) {
-    console.log('[loadSiteData] site:', site.id, site.name, '— dates:', site.dates?.length)
     clearAllLayers()
     clearPolygon()
     setMode('compare-api')
@@ -519,10 +427,8 @@ export default function App() {
     inFlightJobsRef.current.clear()
     bumpInFlight()
     Promise.all([
-      fetchProjectDiffs(site.id)
-        .catch(e => { console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message); return [] }),
-      fetchProjectDiffsInProgress(site.id)
-        .catch(e => { console.warn('[loadSiteData] fetchProjectDiffsInProgress failed:', e.message); return [] }),
+      fetchProjectDiffs(site.id).catch(e => { console.warn('[loadSiteData] fetchProjectDiffs failed:', e.message); return [] }),
+      fetchProjectDiffsInProgress(site.id).catch(e => { console.warn('[loadSiteData] fetchProjectDiffsInProgress failed:', e.message); return [] }),
     ]).then(([succeeded, inProgress]) => {
       setDiffHistory([...inProgress, ...succeeded])
       inProgress.forEach(d => resumeDiffPoll(d.id, d.jobId))
@@ -559,7 +465,6 @@ export default function App() {
   }
 
   async function handleDataChanged() {
-    console.log('[handleDataChanged] refreshing sites')
     const updated = await refreshSites()
     setSites(updated)
     if (activeSite) {
@@ -583,29 +488,8 @@ export default function App() {
     addToast('데이터가 업데이트되었습니다', 'ok')
   }
 
-  /**
-   * Upload a new observation in the background.
-   *
-   * This is fire-and-forget and concurrent by design: each call registers
-   * itself in uploadingDateInfo under its own tempId the instant it starts,
-   * so the caller (DataUploadPage / NewDateCard) doesn't need to block its
-   * own UI on the await — the user can immediately open another "새 날짜
-   * 추가" card and kick off a second upload while this one is still
-   * zipping/uploading. Large folders/zips can take a while to compress
-   * client-side, so blocking on a single in-form `loading` flag was what
-   * made it look "stuck" — now that work happens off to the side and
-   * multiple uploads can be in flight at once.
-   *
-   * On success, the new date is patched directly into `sites`/`activeSite`
-   * (same approach as _patchVoxelDate) instead of doing a full
-   * refreshSites() — avoids a heavy full re-fetch of every project + every
-   * date after each individual upload.
-   *
-   * @param {string|number} siteId
-   * @param {{ name, observedAt, datasetType, files }} params
-   * @returns {string} tempId — callers can use this to find their entry in
-   *   uploadingDateInfo if they want to render row-level progress.
-   */
+  // Fire-and-forget upload. Returns a tempId the caller can use to track progress.
+  // Multiple uploads can run concurrently — each gets its own tempId row in uploadingDateInfo.
   function handleUploadObservation(siteId, { name, observedAt, datasetType, files }) {
     const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -627,18 +511,15 @@ export default function App() {
     ;(async () => {
       try {
         const newDate = await uploadObservation(siteId, {
-          name,
-          observedAt,
-          datasetType,
-          files,
+          name, observedAt, datasetType, files,
           onProgress: p => patch({ phase: p.phase, pct: p.pct }),
         })
 
-        // Patch the new date straight into state — no full refreshSites().
+        // Patch the new date straight into state — avoids a full refreshSites() round-trip.
         setSites(prev => {
           const next = prev.map(s => {
             if (s.id !== siteId) return s
-            if (s.dates.some(d => d.id === newDate.id)) return s // already present, don't duplicate
+            if (s.dates.some(d => d.id === newDate.id)) return s
             return { ...s, dates: [...s.dates, newDate].sort((a, b) => (a.observedAt < b.observedAt ? -1 : 1)) }
           })
           const newSite = next.find(s => s.id === siteId)
@@ -652,22 +533,15 @@ export default function App() {
         addToast(`✓ 업로드 완료: ${name}`, 'ok')
         setUploadingDateInfo(prev => { const next = new Map(prev); next.delete(tempId); return next })
 
-        // The backend auto-starts voxelization on upload — if the returned
-        // date already came back QUEUED/RUNNING, start polling it right
-        // away. Without this, the row shows whatever status this one-time
-        // response carried and then never updates again (no spinner, no
-        // poll loop) until a page reload re-discovers it via
-        // fetchActiveJobs/handleDataChanged.
+        // Backend auto-starts voxelization on upload — begin polling if it's already queued.
         if (newDate.voxelStatus === 'QUEUED' || newDate.voxelStatus === 'RUNNING') {
           resumeVoxelPoll(newDate.id, newDate.voxelJobId)
         }
       } catch (e) {
-        console.error('[handleUploadObservation] FAILED:', e.message, e)
+        console.error('[handleUploadObservation] failed:', e.message)
         patch({ phase: 'error', error: e.message })
         addToast(`❌ 업로드 실패: ${name} — ${e.message}`, 'warn')
-        // Leave the failed entry in uploadingDateInfo (with error set) so the
-        // row can show the failure and offer a retry/dismiss, instead of it
-        // silently vanishing.
+        // Leave the failed row in uploadingDateInfo so the user can see what went wrong.
       }
     })()
 
@@ -767,11 +641,24 @@ export default function App() {
         if (activeSnap) showSnapshotTileset(activeSnap.id)
       }
       setSnapshotTilesetVisibility(tlVisRef.current.added, tlVisRef.current.removed, tlVisRef.current.unchanged)
-
+      // Leaving compare-api — drop its stale result so coming back later
+      // (or switching back via the dropdown) starts from a clean form
+      // instead of re-showing the old A·B result.
+      clearDiffApiTileset()
+      setApiSummary(null)
+      setApiError(null)
+      setApiDiffTilesetUrl(null)
+      setActiveDiffId(null)
     } else if (newMode === 'compare-api') {
       swapPolygonTab(prevMode === 'timeline' ? 'timeline-hidden' : prevMode, 'compare-api', drawInfo, drawBtnLabel)
       setDrawBanner(false)
       syncVisibility('compare-api', {})
+      // Leaving timeline — same idea, drop its stale result.
+      clearAllSnapshotTilesets()
+      setTlSnapshots(null)
+      setTlActiveIndex(0)
+      setTlPlaying(false)
+      setActiveDiffId(null)
     }
   }
 
@@ -787,7 +674,7 @@ export default function App() {
     setTlSnapshots(null)
     setTlActiveIndex(0)
     setActiveDiffId(null)
-    if (splitMode) handleClearSlotB()
+    if (splitMode) handleToggleSplitMode()
     handleModeChange('compare-api')
   }
 
@@ -798,11 +685,7 @@ export default function App() {
     setDrawInfo(DEFAULT_DRAW_INFO)
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
     setDrawBanner(false)
-    // Hide all diff visuals — the viewer should be blank on the home view.
-    // Any in-flight jobs keep running in the background regardless (they're
-    // tracked in inFlightJobsRef, not view state), so the history spinner
-    // keeps going — we just don't want stale tileset results sitting in
-    // the viewport.
+    // In-flight jobs keep running — just clear visuals.
     clearDiffApiTileset()
     clearAllSnapshotTilesets()
     setApiSummary(null)
@@ -814,12 +697,8 @@ export default function App() {
     if (splitMode) handleClearSlotB()
   }
 
-  // Fires an A·B computation and returns immediately once the job is
-  // created — does NOT block on the full poll-to-completion. The caller
-  // (the run button) resets the form (name field) the instant this
-  // function returns, so the user can immediately queue another run.
-  // Multiple calls can be in flight at once, each independently tracked
-  // in inFlightJobsRef and individually cancellable from diff history.
+  // Fire-and-forget A·B diff. Multiple jobs can be in flight at once,
+  // each tracked by diffId in inFlightJobsRef.
   async function handleApiRun() {
     if (!apiDateIdA || !apiDateIdB) { setApiError('두 날짜를 먼저 선택하세요'); return }
     if (apiDateIdA === apiDateIdB)  { setApiError('서로 다른 날짜를 선택하세요'); return }
@@ -854,29 +733,19 @@ export default function App() {
             areaWkt,
             name: diffName || undefined,
             shouldStop: () => cancelledRef.current,
-            onStatus: () => {
-              // No live status display anymore — results are only ever
-              // loaded from diff history afterward, never auto-shown.
-            },
+            onStatus: () => {},
             onDiffId: id => {
               diffId = id
-              inFlightJobsRef.current.set(String(id), {
-                type: 'AB',
-                cancelledRef,
-                dateIds: [apiDateIdA, apiDateIdB],
-              })
+              inFlightJobsRef.current.set(String(id), { type: 'AB', cancelledRef, dateIds: [apiDateIdA, apiDateIdB] })
               bumpInFlight()
               setDiffPollingIds(prev => new Set([...prev, String(id)]))
               setDiffHistory(prev => [
                 {
-                  id,
-                  diffId: id,
+                  id, diffId: id,
                   name: diffName || `diff-${id}`,
-                  type: 'AB',
-                  status: 'QUEUED',
+                  type: 'AB', status: 'QUEUED',
                   createdAt: new Date().toISOString(),
-                  labelA: dA?.label,
-                  labelB: dB?.label,
+                  labelA: dA?.label, labelB: dB?.label,
                 },
                 ...prev,
               ])
@@ -892,15 +761,12 @@ export default function App() {
           },
         )
 
-        // null means the job was cancelled cleanly — nothing further to do;
-        // handleCancelHistoryDiff already stamped the history row CANCELLED.
+        // null = job was cancelled cleanly; handleCancelHistoryDiff already stamped the row.
         if (result == null) return
 
         try {
           const entries = await fetchProjectDiffs(activeSite.id)
-          // Merge: keep any optimistic in-progress entries other concurrent
-          // jobs may have added (QUEUED/RUNNING), replacing only entries that
-          // now exist in the refreshed list.
+          // Merge rather than replace — other concurrent jobs may still be QUEUED/RUNNING.
           const refreshedIds = new Set(entries.map(e => String(e.id)))
           setDiffHistory(prev => {
             const inFlight = prev.filter(e =>
@@ -913,7 +779,7 @@ export default function App() {
         }
         addToast(`✓ "${runName}" 분석 완료 — 기록에서 확인하세요`, 'ok')
       } catch (e) {
-        console.error('[handleApiRun] FAILED:', e.message, e)
+        console.error('[handleApiRun] failed:', e.message)
         const wasCancelled = /취소/.test(e.message)
         if (diffId != null) {
           setDiffHistory(prev => prev.map(en =>
@@ -931,6 +797,7 @@ export default function App() {
     })()
   }
 
+  // When user clicks "-clear" in the API comparison view
   function handleApiClear() {
     setApiSummary(null); setApiError(null); setApiDiffTilesetUrl(null)
     setActiveDiffId(null)
@@ -939,9 +806,7 @@ export default function App() {
     setDrawBtnLabel(DEFAULT_DRAW_BTN)
   }
 
-  // Fires a timeline (시계열) computation and returns immediately once the
-  // job is created — same fire-and-forget pattern as handleApiRun. Results
-  // are never auto-displayed; the user loads them from diff history.
+  // Same fire-and-forget pattern as handleApiRun but for TIME_SERIES diffs.
   const handleTlRecompute = useCallback(async () => {
     if (!activeSite) return
 
@@ -960,9 +825,7 @@ export default function App() {
     const runName = diffName || '시계열 분석'
     const cancelledRef = { current: false }
     const allDateIds = activeSite.dates.map(d => d.id)
-    const sortedDates = [...activeSite.dates].sort((a, b) =>
-      (a.observedAt ?? '').localeCompare(b.observedAt ?? '')
-    )
+    const sortedDates = [...activeSite.dates].sort((a, b) => (a.observedAt ?? '').localeCompare(b.observedAt ?? ''))
     const tlLabelA = sortedDates[0]?.label
     const tlLabelB = sortedDates[sortedDates.length - 1]?.label
 
@@ -973,28 +836,19 @@ export default function App() {
         await createTimeSeriesDiffAndPoll(activeSite.id, {
           name: diffName || undefined,
           shouldStop: () => cancelledRef.current,
-          onStatus: () => {
-            // No live status display anymore — results load from history.
-          },
+          onStatus: () => {},
           onDiffId: id => {
             diffId = id
-            inFlightJobsRef.current.set(String(id), {
-              type: 'TIME_SERIES',
-              cancelledRef,
-              dateIds: allDateIds,
-            })
+            inFlightJobsRef.current.set(String(id), { type: 'TIME_SERIES', cancelledRef, dateIds: allDateIds })
             bumpInFlight()
             setDiffPollingIds(prev => new Set([...prev, String(id)]))
             setDiffHistory(prev => [
               {
-                id,
-                diffId: id,
+                id, diffId: id,
                 name: diffName || `diff-${id}`,
-                type: 'TIME_SERIES',
-                status: 'QUEUED',
+                type: 'TIME_SERIES', status: 'QUEUED',
                 createdAt: new Date().toISOString(),
-                labelA: tlLabelA,
-                labelB: tlLabelB,
+                labelA: tlLabelA, labelB: tlLabelB,
               },
               ...prev,
             ])
@@ -1086,10 +940,7 @@ export default function App() {
           const msg = s.jobMessage ? ` — ${s.jobMessage}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${s.voxelStatus}${pct}]${msg}`)
           setStatusDone(false)
-          // Patch the live status into the date object itself so the row's
-          // VoxelStatusBadge (keyed off date.voxelStatus) reflects QUEUED →
-          // RUNNING transitions immediately instead of staying frozen at
-          // whatever status it had when polling started.
+          // Keep the row's VoxelStatusBadge in sync with QUEUED→RUNNING transitions.
           _patchVoxelDate(activeSiteRef.current?.id, dateId, {
             voxelStatus: s.voxelStatus,
             jobProgress: s.jobProgress,
@@ -1120,7 +971,7 @@ export default function App() {
         setStatusDone(true)
         return
       }
-      console.error('[resumeVoxelPoll] FAILED:', e.message, e)
+      console.error('[resumeVoxelPoll] failed:', e.message)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
     }
   }
@@ -1130,17 +981,11 @@ export default function App() {
     diffPollCancelledMap.current.delete(String(diffId))
     setDiffPollingIds(prev => new Set([...prev, String(diffId)]))
 
-    // Register in the in-flight registry too, so blockedDateInfo correctly
-    // blocks edit/delete on the relevant dates for jobs resumed after a
-    // page reload — not just freshly-started ones. The cancelledRef here
-    // mirrors diffPollCancelledMap (the pre-existing mechanism for resumed
-    // jobs) so handleCancelHistoryDiff's cancelDiff() call still works via
-    // its existing diffPollCancelledMap path; this registration only adds
-    // date-blocking, it doesn't change cancellation flow for resumed jobs.
+    // Register in inFlightJobsRef so date blocking works for resumed jobs too.
     const entry = diffHistoryRef.current.find(e => String(e.id) === String(diffId))
     const dateIds = entry?.type === 'TIME_SERIES'
       ? (activeSiteRef.current?.dates ?? []).map(d => d.id)
-      : [] // AB date IDs aren't known for resumed entries without extra lookups; skip blocking for those
+      : [] // AB date IDs aren't reliably available on resume without extra lookups
     if (dateIds.length > 0) {
       inFlightJobsRef.current.set(String(diffId), {
         type: entry?.type === 'TIME_SERIES' ? 'TIME_SERIES' : 'AB',
@@ -1150,9 +995,6 @@ export default function App() {
       bumpInFlight()
     }
 
-    // Do NOT force RUNNING here — let pollJob's first tick set the real
-    // status (QUEUED or RUNNING) from the backend, so multiple in-progress
-    // entries each show their true state rather than all showing 생성 중.
     const entryName = entry?.name ?? `diff-${diffId}`
     try {
       const job = await pollJob(
@@ -1166,12 +1008,6 @@ export default function App() {
         { shouldStop: () => diffPollCancelledMap.current.has(String(diffId)) },
       )
 
-      // CANCELLED — either shouldStop fired (e.g. someone clicked ✕ on this
-      // exact entry while we were polling) or the backend itself cancelled
-      // the job. Either way, just stamp THIS entry — do not touch any other
-      // row, and do NOT fall through to the full-history refresh below,
-      // which only returns SUCCEEDED diffs and would otherwise wipe out
-      // every other still-in-flight entry that hasn't reached SUCCEEDED yet.
       if (job.status === 'CANCELLED') {
         setDiffHistory(prev => prev.map(e =>
           String(e.id) === String(diffId) ? { ...e, status: 'CANCELLED' } : e
@@ -1179,11 +1015,7 @@ export default function App() {
         return
       }
 
-      // Job done — refresh full diff history to get the enriched SUCCEEDED
-      // entry. Merge rather than overwrite: fetchProjectDiffs only returns
-      // SUCCEEDED diffs, so a bare setDiffHistory(entries) here would erase
-      // any OTHER diff that's still QUEUED/RUNNING/being resumed concurrently
-      // (e.g. one job finishing while a second is still in progress).
+      // fetchProjectDiffs only returns SUCCEEDED — merge to preserve any other in-flight entries.
       if (activeSiteRef.current) {
         const entries = await fetchProjectDiffs(activeSiteRef.current.id)
         const refreshedIds = new Set(entries.map(e => String(e.id)))
@@ -1196,7 +1028,7 @@ export default function App() {
       }
       addToast(`✓ "${entryName}" 분석 완료`, 'ok')
     } catch (e) {
-      console.error('[resumeDiffPoll] FAILED:', e.message)
+      console.error('[resumeDiffPoll] failed:', e.message)
       const wasCancelled = /취소/.test(e.message)
       setDiffHistory(prev => prev.map(en =>
         String(en.id) === String(diffId) ? { ...en, status: wasCancelled ? 'CANCELLED' : 'FAILED' } : en
@@ -1226,11 +1058,7 @@ export default function App() {
           const msg = message ? ` — ${message}` : ''
           setStatusMsg(`Voxel 생성 중: ${dateLabel} [${status}${pct}]${msg}`)
           setStatusDone(false)
-          _patchVoxelDate(siteId, dateId, {
-            voxelStatus: status,
-            jobProgress: progress,
-            jobMessage:  message,
-          })
+          _patchVoxelDate(siteId, dateId, { voxelStatus: status, jobProgress: progress, jobMessage: message })
         }
       )
       _patchVoxelDate(siteId, dateId, updatedDate)
@@ -1245,7 +1073,7 @@ export default function App() {
         setStatusDone(true)
         return
       }
-      console.error('[handleComputeVoxel] FAILED:', e.message, e)
+      console.error('[handleComputeVoxel] failed:', e.message)
       setStatusMsg(`Voxel 실패: ${e.message}`, true)
       setStatusDone(true)
       addToast(`❌ Voxel 실패: ${e.message}`, 'warn')
@@ -1256,13 +1084,13 @@ export default function App() {
   async function handleCancelVoxelForDate(dateId) {
     deletingObsIdsRef.current.add(dateId)
     try {
-      const status = await cancelVoxelize(dateId)
+      await cancelVoxelize(dateId)
       setVoxelPollingIds(prev => { const s = new Set(prev); s.delete(dateId); return s })
       const updatedDate = await fetchObservation(dateId)
       if (activeSite) _patchVoxelDate(activeSite.id, dateId, updatedDate)
       addToast('Voxel 작업이 취소되었습니다', 'ok')
     } catch (e) {
-      console.error('[handleCancelVoxelForDate] FAILED:', e.message, e)
+      console.error('[handleCancelVoxelForDate] failed:', e.message)
       addToast(`Voxel 취소 실패: ${e.message}`, 'warn')
       deletingObsIdsRef.current.delete(dateId)
     }
@@ -1271,6 +1099,7 @@ export default function App() {
   async function handleLoadDiff(entry) {
     if (!activeSite) return
 
+    // Clicking the active entry toggles it off
     if (activeDiffId != null && String(activeDiffId) === String(entry.id)) {
       if (entry.type === 'TIME_SERIES') {
         clearAllSnapshotTilesets()
@@ -1326,10 +1155,7 @@ export default function App() {
     }
   }
 
-  // ── Split view — slot B loader ───────────────────────────────────────
-  // Mirrors handleLoadDiff exactly, but writes into the *B state and loads
-  // tilesets into layersBRef's controller (the secondary viewport) instead
-  // of the primary. Only usable while splitMode is on.
+  // Mirrors handleLoadDiff but writes into slot B state and loads into viewer2.
   async function handleLoadDiffB(entry) {
     if (!activeSite || !layersBRef.current) return
 
@@ -1352,9 +1178,6 @@ export default function App() {
         layersBRef.current.clearAllSnapshotTilesets()
         setTlSnapshotsB(snaps)
         setTlActiveIndexB(0)
-        console.log('[DIAG][handleLoadDiffB TS] about to loadAllSnapshotTilesets into viewer2 — layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
-        const canvas2 = layersBRef.current?.viewer?.scene?.canvas
-        console.log('[DIAG][handleLoadDiffB TS] viewer2 canvas size at tileset load time:', canvas2?.width, 'x', canvas2?.height)
         await layersBRef.current.loadAllSnapshotTilesets(snaps)
         setSlotBType('TIME_SERIES')
         layersBRef.current.showSnapshotTileset(snaps[0].id)
@@ -1373,9 +1196,6 @@ export default function App() {
         setSlotBType('AB')
         if (tilesetUrl) {
           setApiDiffTilesetUrlB(tilesetUrl)
-          console.log('[DIAG][handleLoadDiffB] about to loadDiffApiTileset into viewer2 — layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
-          const canvas2 = layersBRef.current?.viewer?.scene?.canvas
-          console.log('[DIAG][handleLoadDiffB] viewer2 canvas size at tileset load time:', canvas2?.width, 'x', canvas2?.height, '| clientWidth:', canvas2?.clientWidth, 'x', canvas2?.clientHeight)
           try { await layersBRef.current.loadDiffApiTileset(tilesetUrl) } catch (e) { addToast(`Tileset 로드 실패: ${e.message}`, 'warn') }
         }
         setActiveDiffIdB(entry.id)
@@ -1385,7 +1205,6 @@ export default function App() {
     }
   }
 
-  /** Clears slot B's result + tileset, leaving split view itself on. */
   function handleClearSlotB() {
     layersBRef.current?.clearAllLayers()
     setApiSummaryB(null)
@@ -1397,19 +1216,11 @@ export default function App() {
     setActiveDiffIdB(null)
   }
 
-  /**
-   * Single entry point for the A/B assignment pill in DiffHistory.
-   * Click behavior:
-   *   · entry already in slot A → unload slot A (existing handleLoadDiff toggle)
-   *   · entry already in slot B → unload slot B
-   *   · neither slot filled, or only A filled → assign to the next empty slot
-   *   · both slots filled → replaces slot B (the most recently assigned slot)
-   *     so repeatedly clicking new rows cycles B without ever touching A.
-   */
+  // Click in split mode: toggles A off if already assigned, toggles B off if in B,
+  // fills A first, then B. Repeated clicks on a new row replace B.
   function handleAssignSlot(entry) {
-    console.log('[DIAG][handleAssignSlot] entry.id:', entry.id, 'entry.type:', entry.type, '| activeDiffId:', activeDiffId, '| activeDiffIdB:', activeDiffIdB, '| layersBRef.current:', !!layersBRef.current, '| viewer2ReadyRef:', viewer2ReadyRef.current)
     if (activeDiffId != null && String(activeDiffId) === String(entry.id)) {
-      handleLoadDiff(entry) // toggles A off
+      handleLoadDiff(entry)
       return
     }
     if (activeDiffIdB != null && String(activeDiffIdB) === String(entry.id)) {
@@ -1417,18 +1228,16 @@ export default function App() {
       return
     }
     if (activeDiffId == null) {
-      console.log('[DIAG][handleAssignSlot] routing to slot A (handleLoadDiff)')
-      handleLoadDiff(entry) // fills A first
+      handleLoadDiff(entry)
     } else {
-      console.log('[DIAG][handleAssignSlot] routing to slot B (handleLoadDiffB)')
-      handleLoadDiffB(entry) // A is taken — fill/replace B
+      handleLoadDiffB(entry)
     }
   }
 
   function handleToggleSplitMode() {
     setSplitMode(v => {
       const next = !v
-      if (!next) handleClearSlotB() // leaving split view — drop slot B's result
+      if (!next) handleClearSlotB()
       return next
     })
   }
@@ -1447,9 +1256,6 @@ export default function App() {
     if (String(activeDiffId) === String(diffId)) setActiveDiffId(null)
     if (String(activeDiffIdB) === String(diffId)) handleClearSlotB()
     try {
-      // fetchProjectDiffs only returns SUCCEEDED diffs — merge rather than
-      // overwrite, or any other QUEUED/RUNNING entry not yet SUCCEEDED would
-      // get wiped from the list even though its job is still alive.
       const entries = await fetchProjectDiffs(activeSite.id)
       const refreshedIds = new Set(entries.map(e => String(e.id)))
       setDiffHistory(prev => {
@@ -1467,21 +1273,16 @@ export default function App() {
     addToast('삭제되었습니다', 'ok')
   }
 
-  // Cancels a QUEUED/RUNNING diff job directly from the history list.
-  // Works uniformly for any in-flight job — freshly started (tracked in
-  // inFlightJobsRef) or resumed after a page reload (tracked in
-  // diffPollCancelledMap) — since there's no more single "computing view's
-  // job" to special-case; every job is already individually tracked by
-  // diffId the instant it's created.
+  // Works for both freshly started jobs (inFlightJobsRef) and
+  // jobs resumed after a page reload (diffPollCancelledMap).
   async function handleCancelHistoryDiff(diffId) {
     if (cancellingDiffIds.has(diffId)) return
     setCancellingDiffIds(prev => new Set(prev).add(diffId))
-    const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name
-      ?? `diff-${diffId}`
+    const entryName = diffHistoryRef.current.find(e => String(e.id) === String(diffId))?.name ?? `diff-${diffId}`
     try {
       const job = inFlightJobsRef.current.get(String(diffId))
-      if (job) job.cancelledRef.current = true   // stop pollJob before the network cancel round-trip
-      diffPollCancelledMap.current.set(String(diffId), true)  // stop resumeDiffPoll before network cancel
+      if (job) job.cancelledRef.current = true
+      diffPollCancelledMap.current.set(String(diffId), true)
       try {
         await cancelDiff(diffId)
         setDiffHistory(prev => prev.map(e =>
@@ -1522,18 +1323,8 @@ export default function App() {
     setNavTab(tab)
   }
 
-  const showAnalysis = navTab === 'analysis'
-  const showPcSlider = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
-
-  // Mirror RightPanel's own visibility logic so DrawBanner + MapOverlayControls
-  // can correctly offset themselves left when the right panel is actually visible.
-  // Right panel only appears when there are actual results to show.
-  // For A/B: only when apiSummary is populated (job done).
-  // For timeline: only when snapshots are loaded (job done).
-  // Running state is shown in the left Panel — the right panel stays hidden during computation.
-  // In split mode, the panel should stay visible as soon as EITHER slot has
-  // a loaded result, since the whole point is comparing them once both
-  // (or even just one, while picking the other) are in.
+  const showAnalysis   = navTab === 'analysis'
+  const showPcSlider   = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
   const showRightPanel = splitMode
     ? (apiSummary != null || tlSnapshots != null || apiSummaryB != null || tlSnapshotsB != null)
     : (
@@ -1560,11 +1351,6 @@ export default function App() {
         id="cesiumContainer"
         className={`${showAnalysis ? '' : 'cesium-hidden'}${splitMode ? ' split-half-left' : ''}`}
       />
-      {/* A/B viewport badges — only shown in split mode, so users can tell
-          which physical viewport (left/primary vs right/secondary) corresponds
-          to which result panel without having to infer it. Reuses the same
-          dh-slot-a/dh-slot-b color classes DiffHistory.jsx already uses for
-          its sidebar A/B pills, for visual consistency. */}
       {splitMode && showAnalysis && (
         <span className="viewport-slot-badge viewport-slot-badge-a dh-slot-a">A</span>
       )}

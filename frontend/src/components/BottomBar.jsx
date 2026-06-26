@@ -1,9 +1,8 @@
 /**
  * BottomBar.jsx
  *
- * Fixed bottom strip — always visible (legend + shortcuts + coords).
- * When in timeline mode with data, TimelineBar renders as a strip
- * ABOVE this bar (not replacing it).
+ * Fixed bottom strip — always visible (status, legend, shortcuts, coords).
+ * In timeline mode, TimelineBar renders just above it.
  */
 
 import TimelineBar from './TimelineBar'
@@ -14,6 +13,7 @@ export default function BottomBar({
   mode,
   tlSnapshots, tlActiveIndex, tlOnSelect,
   tlPlaying, tlOnPlayPause,
+  showRightPanel,
 }) {
   const showTimeline = mode === 'timeline' && tlSnapshots?.length > 0
 
@@ -27,6 +27,7 @@ export default function BottomBar({
           onSelect={tlOnSelect}
           playing={tlPlaying}
           onPlayPause={tlOnPlayPause}
+          showRightPanel={showRightPanel}
         />
       )}
 
@@ -35,12 +36,11 @@ export default function BottomBar({
 
         {/* Status */}
         <div className="bb-status">
-          {!statusDone && (
-            <div id="status-dots"><span /><span /><span /></div>
-          )}
+          {!statusDone && <div id="status-dots"><span /><span /><span /></div>}
           <span id="status-text">{statusMsg}</span>
         </div>
 
+        {/* Separator */}
         <div className="bb-sep" />
 
         {/* 범례 — 3-column grid (2 rows each) */}
@@ -67,7 +67,7 @@ export default function BottomBar({
               <span className="bb-swatch-tag ltag-purple">PC</span>
               <span>Point Cloud</span>
             </div>
-            <div /> {/* empty cell */}
+            <div />
             <div className="bb-legend-item">
               <span className="bb-swatch" style={{ background: 'var(--removed)' }} />
               <span>감소</span>

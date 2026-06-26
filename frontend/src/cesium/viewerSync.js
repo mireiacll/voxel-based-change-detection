@@ -1,25 +1,15 @@
 /**
  * viewerSync.js
  *
- * Keeps two Cesium viewers' cameras locked together while BOTH remain
- * independently interactive — move/zoom/rotate either one and the other
- * follows, rather than one being a fixed "master" and the other a
- * passive, uncontrollable "follower".
+ * Keeps two Cesium viewers' cameras synched together while both are enabled to move.
  *
- * Re-entrancy guard
- * ──────────────────
- * Both viewers listen to each other's scene.postRender to push their own
- * camera over. Without a guard this is an infinite ping-pong: A renders →
- * pushes to B → B's setView triggers B to render → B's listener fires →
- * pushes back to A → forever. `syncing` is a single shared flag set right
- * before we push a camera update to the OTHER viewer; that other viewer's
- * own listener checks the flag first and bails immediately if it's set,
- * since the render it's reacting to was caused by us, not by the user
- * interacting with that viewer directly.
+ * Re-entrancy guard: both viewers listen to each other's postRender.
+ * Without a guard this would be an infinite ping-pong (A renders → pushes to B → B renders → pushes to A → ...)
+ * The `syncing` flag is set before the camera update so the other viewer's listener knows to skip it
  *
  * Usage:
  *   const stop = startCameraSync(window.viewer, viewer2)
- *   // ...later, when leaving split view or destroying viewer2:
+ *   // later, when leaving split view:
  *   stop()
  */
 
@@ -32,11 +22,7 @@ export function startCameraSync(primary, secondary) {
     const cam = from.camera
     to.camera.setView({
       destination: cam.positionWC.clone(),
-      orientation: {
-        heading: cam.heading,
-        pitch:   cam.pitch,
-        roll:    cam.roll,
-      },
+      orientation: { heading: cam.heading, pitch: cam.pitch, roll: cam.roll },
     })
   }
 
@@ -45,18 +31,9 @@ export function startCameraSync(primary, secondary) {
     if (!secondary || secondary.isDestroyed?.()) return
     syncing = true
     copyCamera(primary, secondary)
-    // Deferred, not synchronous: requesting secondary's render from INSIDE
-    // primary's own postRender (i.e. still inside primary's Scene.render()
-    // call stack) can let the two scenes' render passes interleave on the
-    // same tick. Cesium's per-tile-content systems that queue `persists:
-    // true` ComputeCommands (e.g. DynamicEnvironmentMapManager / IBL for
-    // glTF/3D Tiles content) aren't guaranteed to bind their queued command
-    // to the context of the scene that *queued* it — they get drained by
-    // whichever scene's executeComputeCommands runs next. If that's the
-    // OTHER viewer's render, mid-stack, you get
-    // "framebufferTexture2D: object does not belong to this context".
-    // requestAnimationFrame makes secondary's render its own top-level
-    // tick, after primary's render call stack has fully unwound.
+    // Defer secondary's render to its own animation frame 
+    // If we requested from inside primary's postRender, two scenes' render passes can be interleaved on the same tick, 
+    // which causes WebGL errors ("object does not belong to this context") 
     requestAnimationFrame(() => {
       if (!secondary || secondary.isDestroyed?.()) return
       secondary.scene.requestRender()
@@ -76,19 +53,11 @@ export function startCameraSync(primary, secondary) {
     syncing = false
   }
 
-  // postRender fires every frame a scene actually renders — since both
-  // viewers use requestRenderMode, this only runs on real camera
-  // movement / tile loads, not a busy 60fps loop either direction.
+  // postRender fires every frame a scene actually renders 
   primary.scene.postRender.addEventListener(onPrimaryRender)
   secondary.scene.postRender.addEventListener(onSecondaryRender)
 
-  // Both viewers' canvases may still be mid-resize right when split view
-  // opens (primary: 100% → split width; secondary: just mounted) and the
-  // browser may not have painted that layout yet. Forcing resize() on
-  // both before the initial sync — and once more a frame later — means
-  // the camera math runs against each canvas's FINAL aspect ratio instead
-  // of a stale one, which is what caused A/B to look "shifted" relative
-  // to each other right after entering split view.
+  // Both canvases may still be mid-resize when split view opens, so force a resize and sync
   function resizeAndSync() {
     if (primary && !primary.isDestroyed?.())     primary.resize()
     if (secondary && !secondary.isDestroyed?.()) secondary.resize()

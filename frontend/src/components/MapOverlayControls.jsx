@@ -1,20 +1,9 @@
 /**
- * MapOverlayControls.jsx
+ * MapOverlayControls.jsx — floating basemap picker, terrain toggle, zoom, and site camera.
  *
- * Basemap sources (all confirmed in your Cesium ion account):
- *   Ion asset IDs:
- *     2        Bing Maps Aerial
- *     3        Bing Maps Aerial with Labels
- *     4        Bing Maps Road
- *     3830182  Google Maps 2D Satellite
- *     3830183  Google Maps 2D Satellite with Labels
- *     3830184  Google Maps 2D Roadmap
- *     3830185  Google Maps 2D Labels Only
- *     3830186  Google Maps 2D Contour
- *   No-ion:
- *     osm      OpenStreetMap (tile.openstreetmap.org)
- *     dark     OSM darkened (brightness 0.3)
- *     none     Globe only (no imagery)
+ * Ion asset IDs: 2 Bing Aerial, 3 Bing Aerial+Labels, 4 Bing Roads,
+ *   3830182–3830186 Google Maps variants (Satellite, Sat+Labels, Roadmap, Labels Only, Contour)
+ * No-ion: osm, dark (brightness 0.3), none (globe only)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -139,8 +128,7 @@ const SECTIONS = ['Bing Maps', 'Google Maps', 'Other']
 
 // ── Zoom helpers ──────────────────────────────────────────────────────────
 
-// Amount to move the camera forward/backward per click (in metres).
-// Scales with current altitude so it feels proportional at any zoom level.
+// Zoom amount scales with current altitude (~15% of height) for proportional feel.
 function getCameraZoomAmount() {
   const viewer = window.viewer
   if (!viewer) return 500

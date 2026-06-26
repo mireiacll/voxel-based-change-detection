@@ -1,17 +1,10 @@
 /**
  * TimelinePanel.jsx
  *
- * Left-panel section shown when mode === 'timeline'.
- * Shows:
- *  · Loading state while snapshots fetch
- *  · "No diffs yet" empty state
- *  · Mini bar chart of added/removed per snapshot
- *  · Visibility toggles (added / removed / unchanged)
- *  · Stats for the active snapshot (volumes from mass-summary last level)
- *  · Playback controls
+ * Right-panel content for timeline mode. Shows a mini bar chart,
+ * stats for the active snapshot, visibility toggles, and playback controls.
  *
- * Props
- * ─────
+ * Props:
  *   snapshots       — Snapshot[] | null
  *   activeIndex     — number
  *   onSelect        — (i) => void
@@ -29,8 +22,7 @@
 function Toggle({ id, checked, onChange }) {
   return (
     <label className="sw">
-      <input type="checkbox" id={id} checked={checked}
-             onChange={e => onChange(e.target.checked)} />
+      <input type="checkbox" id={id} checked={checked} onChange={e => onChange(e.target.checked)} />
       <span />
     </label>
   )
@@ -40,7 +32,7 @@ function fmtVol(m3) {
   if (m3 == null || isNaN(m3)) return '—'
   const abs = Math.abs(m3)
   if (abs >= 1_000_000) return `${(m3 / 1_000_000).toFixed(3)} Mm³`
-  if (abs >= 1_000)    return `${(m3 / 1_000).toFixed(2)}k m³`
+  if (abs >= 1_000)     return `${(m3 / 1_000).toFixed(2)}k m³`
   return `${m3.toFixed(1)} m³`
 }
 
@@ -52,10 +44,7 @@ function fmtCount(n) {
 }
 
 function fmtVoxSize(voxSize, avgVoxVol) {
-  if (avgVoxVol != null && avgVoxVol > 0) {
-    const edge = Math.cbrt(avgVoxVol)
-    return `${edge.toFixed(3)} m`
-  }
+  if (avgVoxVol != null && avgVoxVol > 0) return `${Math.cbrt(avgVoxVol).toFixed(3)} m`
   if (voxSize != null) return `${voxSize} m`
   return '—'
 }
@@ -88,9 +77,7 @@ function MiniChart({ snapshots, activeIndex, onSelect }) {
               <div className="tl-bar tl-bar-rem" style={{ height: `${remH}%` }} />
               <div className="tl-bar tl-bar-add" style={{ height: `${addH}%` }} />
             </div>
-            <div className="tl-bar-lbl">
-              {s.date_b.label.replace(/, \d{4}/, '')}
-            </div>
+            <div className="tl-bar-lbl">{s.date_b.label.replace(/, \d{4}/, '')}</div>
           </button>
         )
       })}
@@ -125,9 +112,7 @@ export default function TimelinePanel({
       {!loading && snapshots?.length === 0 && (
         <div className="p-section">
           <div className="p-label">시계열 변화탐지</div>
-          <div className="tl-empty">
-            사전 계산된 변화 데이터가 없습니다.
-          </div>
+          <div className="tl-empty">사전 계산된 변화 데이터가 없습니다.</div>
         </div>
       )}
 
@@ -215,9 +200,7 @@ export default function TimelinePanel({
                 <span className="tl-period-arrow">→</span>
                 <span style={{ color: 'var(--text)' }}>{active.date_b.label}</span>
               </div>
-              <div className="tl-data-note" style={{ marginTop: 6 }}>
-                통계 없음 — 사전 계산된 타일셋
-              </div>
+              <div className="tl-data-note" style={{ marginTop: 6 }}>통계 없음 — 사전 계산된 타일셋</div>
             </div>
           )}
 
@@ -254,22 +237,12 @@ export default function TimelinePanel({
           <div className="p-section">
             <div className="p-label">Playback</div>
             <div className="btn-row">
-              <button className="pbtn" onClick={() => onSelect(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>
-                ‹ Prev
-              </button>
-              <button className={`pbtn${playing ? ' active' : ''}`} onClick={onPlayPause}>
-                {playing ? '⏸ Pause' : '▶ Play'}
-              </button>
-              <button className="pbtn" onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))} disabled={activeIndex === snapshots.length - 1}>
-                Next ›
-              </button>
+              <button className="pbtn" onClick={() => onSelect(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>‹ Prev</button>
+              <button className={`pbtn${playing ? ' active' : ''}`} onClick={onPlayPause}>{playing ? '⏸ Pause' : '▶ Play'}</button>
+              <button className="pbtn" onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))} disabled={activeIndex === snapshots.length - 1}>Next ›</button>
             </div>
-            <div className="tl-play-hint">
-              단축키: ← → 이동 · Space 재생/정지
-            </div>
+            <div className="tl-play-hint">단축키: ← → 이동 · Space 재생/정지</div>
           </div>
-
-
         </>
       )}
     </>

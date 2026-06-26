@@ -1,16 +1,6 @@
 /**
- * AddDateModal.jsx
- *
- * Modal for adding a new survey date to an existing site.
- * File upload is required — the coworker API creates observation + uploads
- * in a single step (POST /api/projects/{projectId}/observations).
- *
- * Props
- * -----
- *   open      — bool
- *   site      — site object  (must be set when open)
- *   onClose   — () => void
- *   onCreated — (date) => void
+ * AddDateModal.jsx — add a new survey date to a site.
+ * Upload is required; the API creates the observation and uploads in one step.
  */
 
 import { useState, useEffect, useRef } from 'react'

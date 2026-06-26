@@ -1,14 +1,8 @@
 import { toast, requestRender } from './cesiumInit'
 
-// ── Per-tab polygon state ─────────────────────────────────────────────────
-//
-// Instead of one shared _poly + parked slots (which caused aliasing bugs when
-// swapping), each tab owns its own independent state object at all times.
-// Only the ACTIVE tab's entities are visible; others are hidden.
-//
-// Tab key: 'compare-api'  (the only remaining compare mode)
-// Timeline never has a polygon so it is not a key here.
-// The old 'compare' (simple) mode has been removed — see RightPanel.jsx.
+// Per-tab polygon state — each tab owns an independent state object.
+// Only the active tab's entities are visible; others are hidden.
+// Currently only 'compare-api' uses a polygon (timeline never does).
 
 function _emptyState() {
   return {
@@ -29,8 +23,6 @@ const _tabs = {
 
 // Which tab is currently active (visible).
 let _activeTab = 'compare-api'
-
-// Shorthand for the active tab's state
 function _s() { return _tabs[_activeTab] }
 
 let _onDrawBanner   = () => {}
@@ -66,9 +58,7 @@ function _syncUI(s) {
 
 // ── Public API ────────────────────────────────────────────────────────────
 
-/**
- * Call on project switch — wipes ALL tabs completely.
- */
+// Call on project switch — wipes all tabs.
 export function clearPolygon() {
   Object.keys(_tabs).forEach(tab => {
     const s = _tabs[tab]
@@ -84,21 +74,17 @@ export function clearPolygon() {
 }
 
 /**
- * Switch active tab.
- * Hides the departing tab's entities, shows the arriving tab's entities,
- * and updates the UI labels to match the arriving tab.
+ * Switch active tab. Hides the departing tab's entities, shows the arriving
+ * tab's entities, and syncs the UI labels.
  *
- * @param {string} fromTab  'compare-api' | 'timeline-hidden'
- * @param {string} toTab    'compare-api' | 'timeline-hidden'
- * @param {string} currentDrawInfo   current UI drawInfo (saved into departing tab)
- * @param {string} currentDrawBtn    current UI drawBtn  (saved into departing tab)
+ * Pass 'timeline-hidden' as toTab when entering timeline mode — there's no
+ * polygon there, so we just hide everything.
  */
 export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) {
-  // ── 1. Deactivate the departing tab ──────────────────────────────────────
   const from = _tabs[fromTab]
   if (from) {
-    // If mid-draw, cancel cleanly
     if (from.drawing) {
+      // Cancel a mid-draw cleanly
       if (from.handler) { from.handler.destroy(); from.handler = null }
       _removeEntities(from.entities)
       if (window.viewer) window.viewer.scene.canvas.style.cursor = ''
@@ -112,19 +98,12 @@ export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) 
     }
   }
 
-  // ── 2. Activate the arriving tab ─────────────────────────────────────────
-  // timeline-hidden is not a real tab slot — arriving from timeline means
-  // just showing whichever compare tab we're going to (already handled below).
   if (toTab !== 'timeline-hidden') {
     _activeTab = toTab
     const to = _tabs[toTab]
-    // Show its entities
     _showEntities(to.entities, true)
-    // Sync UI to arriving tab's saved labels
     _syncUI(to)
   } else {
-    // Going INTO timeline — nothing to activate, just hide everything
-    // _activeTab stays as-is; timeline has no polygon tab
     Object.keys(_tabs).forEach(tab => _showEntities(_tabs[tab].entities, false))
     _onDrawBanner(false)
     _onDrawInfo('No area selected — diff runs on full extent')
@@ -134,10 +113,7 @@ export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) 
   if (window.viewer) requestRender()
 }
 
-/**
- * Toggle polygon drawing on/off for the active tab.
- * Called by the Draw Area button and 'd' shortcut.
- */
+// Toggle drawing on/off. Called by the Draw Area button and the D shortcut.
 export function togglePolygonDraw() {
   const s = _s()
   if (s.drawing || s.closed) {
@@ -154,7 +130,7 @@ export function togglePolygonDraw() {
 // ── Internal draw logic ───────────────────────────────────────────────────
 
 function _startDraw() {
-  _clearActivePoly()   // wipe any stale state on this tab first
+  _clearActivePoly()
   const s = _s()
   s.drawing = true
 
@@ -175,7 +151,7 @@ function _startDraw() {
 
   const Cesium = window.Cesium
 
-  // Polygon fill (live callback reads from this tab's pts)
+  // Polygon fill — live callback reads from this tab's pts array
   s.entities.push(window.viewer.entities.add({
     polygon: {
       hierarchy: new Cesium.CallbackProperty(
@@ -188,7 +164,7 @@ function _startDraw() {
     },
   }))
 
-  // Outline polyline
+  // Dashed outline
   s.entities.push(window.viewer.entities.add({
     polyline: {
       positions: new Cesium.CallbackProperty(
@@ -265,9 +241,7 @@ function _closePoly(s) {
   requestRender()
 }
 
-/**
- * Clear ONLY the active tab's polygon (removes its Cesium entities).
- */
+// Clear the active tab's polygon (removes its Cesium entities).
 function _clearActivePoly() {
   const s = _s()
   s.drawing = false; s.closed = false
@@ -282,10 +256,7 @@ function _clearActivePoly() {
 
 // ── Getters ───────────────────────────────────────────────────────────────
 
-/**
- * Returns a WKT POLYGON string from the active tab's closed polygon, or null.
- * Format: POLYGON((lon1 lat1, lon2 lat2, ..., lon1 lat1))
- */
+// Returns a WKT POLYGON string from the active tab's closed polygon, or null.
 export function getPolygonWkt() {
   const s = _s()
   if (!s.closed || s.geo.length < 3) return null

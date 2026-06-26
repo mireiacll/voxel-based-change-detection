@@ -1,12 +1,10 @@
-/**
- * Panel.jsx — LEFT sidebar (analysis tab)
- *
- * Two views:
- *   'home'      — project info + "새 변화탐지" button + diff history
- *   'computing' — name input + mode selector + date/area/run controls
- *
- * Point size slider lives in the floating dates drawer.
- */
+// Panel.jsx — left sidebar (analysis tab)
+//
+// Two views:
+//   'home'      — project info, diff history, "새 변화탐지" button
+//   'computing' — name/mode/date selectors, draw area, run button
+//
+// The dates drawer (floating overlay) is shared between both views.
 
 import { useState, useEffect, useRef } from 'react'
 import { formatDate } from '../api'
@@ -26,7 +24,6 @@ function TypeTag({ type }) {
   )
 }
 
-
 const ANALYSIS_MODES = [
   { value: 'compare-api', label: 'A vs B 비교' },
   { value: 'timeline',    label: '시계열 변화탐지' },
@@ -45,20 +42,15 @@ export default function Panel({
   onCancelDiff,
   deletingDiffIds,
   cancellingDiffIds,
-  // new computation view props
   analysisView,         // 'home' | 'computing'
-  onNewComputation,     // () => void — go to computing view
-  onBackToHome,         // () => void — go back to home view
-  diffName, onDiffName, // name input
-  // compare-api props (now in left panel)
+  onNewComputation,
+  onBackToHome,
+  diffName, onDiffName,
   apiDateIdA, onApiDateIdA,
   apiDateIdB, onApiDateIdB,
   onApiRun, apiError,
-  // draw area
   drawInfo, drawBtnLabel, onDrawArea,
-  // timeline recompute
   onTlRecompute,
-  // split view (compare two diff-history entries side by side)
   splitMode, onToggleSplitMode,
   activeDiffIdB,
   onAssignSlot,
@@ -71,12 +63,11 @@ export default function Panel({
 
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  // ── Last-submitted job tracking (computing view) ───────────────────────────
-  // When the user clicks 분석 실행, we flip `pendingCapture` so the next
-  // diffHistory update can capture the newly-added QUEUED entry's id.
-  // `lastJobId` holds that id for the duration of the computing session;
-  // it resets when the user goes back to home or fires a brand-new run.
-  const [lastJobId,    setLastJobId]    = useState(null)
+  // Track the most recently submitted job in the computing view.
+  // When the user clicks 분석 실행 we flip pendingCapture so the next
+  // diffHistory update can grab the new QUEUED entry's id. lastJobId
+  // stays set for the session; resets when going back to home.
+  const [lastJobId, setLastJobId] = useState(null)
   const pendingCapture = useRef(false)
 
   useEffect(() => {
@@ -96,13 +87,12 @@ export default function Panel({
     }
   }, [analysisView])
 
-  // Derive last-job status from diffHistory so the UI stays in sync
-  const lastJobEntry     = lastJobId != null
+  const lastJobEntry = lastJobId != null
     ? (diffHistory?.find(e => String(e.id) === String(lastJobId)) ?? null)
     : null
-  // Only show the in-flight status block when the current mode matches the
-  // running job's type. Switching modes (e.g. AB job running, user goes to
-  // timeline) shows a clean fresh form for the new mode instead.
+
+  // Only show the in-flight block when the current mode matches the running job.
+  // If you switch modes while a job runs, you get a clean form for the new mode.
   const lastJobModeMatch = lastJobEntry?.type === 'AB'
     ? mode === 'compare-api'
     : mode === 'timeline'
@@ -117,102 +107,100 @@ export default function Panel({
       <>
         {/* Fixed top — project info + new computation button */}
         <div className="panel-fixed">
-        <div className="p-section">
-          <div className="p-label">선택된 프로젝트</div>
-          <div className="site-info-card">
-            <div className="site-info-row">
-              <span className="site-info-k">프로젝트명</span>
-              <span className="site-info-v">{activeSite.name}</span>
-            </div>
-            <div className="site-info-row">
-              <span className="site-info-k">관측 데이터</span>
-              <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {dates.length}건
-                {dates.length > 0 && (
-                  <button
-                    className="dates-drawer-trigger"
-                    onClick={() => setDrawerOpen(o => !o)}
-                    title="Observations 열기"
-                  >
-                    목록
-                  </button>
-                )}
-              </span>
-            </div>
-            {dates.length > 0 && (
+          <div className="p-section">
+            <div className="p-label">선택된 프로젝트</div>
+            <div className="site-info-card">
               <div className="site-info-row">
-                <span className="site-info-k">기간</span>
-                <span className="site-info-v site-info-mono">{dateRange}</span>
+                <span className="site-info-k">프로젝트명</span>
+                <span className="site-info-v">{activeSite.name}</span>
               </div>
-            )}
-            <div className="site-info-row">
-              <span className="site-info-k">상태</span>
-              <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
-                {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
-              </span>
+              <div className="site-info-row">
+                <span className="site-info-k">관측 데이터</span>
+                <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {dates.length}건
+                  {dates.length > 0 && (
+                    <button
+                      className="dates-drawer-trigger"
+                      onClick={() => setDrawerOpen(o => !o)}
+                      title="Observations 열기"
+                    >
+                      목록
+                    </button>
+                  )}
+                </span>
+              </div>
+              {dates.length > 0 && (
+                <div className="site-info-row">
+                  <span className="site-info-k">기간</span>
+                  <span className="site-info-v site-info-mono">{dateRange}</span>
+                </div>
+              )}
+              <div className="site-info-row">
+                <span className="site-info-k">상태</span>
+                <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
+                  {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* New computation button */}
-        <div className="p-section">
-          <button
-            className="new-diff-btn"
-            onClick={onNewComputation}
-            disabled={voxelizedCount < 2}
-            title={voxelizedCount < 2 ? 'Voxel이 완료된 날짜가 2개 이상 필요합니다' : undefined}
-          >
-            ＋ 새 변화탐지
-          </button>
+          <div className="p-section">
+            <button
+              className="new-diff-btn"
+              onClick={onNewComputation}
+              disabled={voxelizedCount < 2}
+              title={voxelizedCount < 2 ? 'Voxel이 완료된 날짜가 2개 이상 필요합니다' : undefined}
+            >
+              ＋ 새 변화탐지
+            </button>
+          </div>
         </div>
-
-        </div>{/* /panel-fixed */}
 
         {/* Scrollable diff history */}
         <div className="panel-scroll">
-        <div className="p-section" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="dh-header-row">
-            <div className="p-label" style={{ marginBottom: 0 }}>변화탐지 기록</div>
-            <button
-              className={`split-toggle-btn${splitMode ? ' active' : ''}`}
-              onClick={onToggleSplitMode}
-              title={splitMode ? '분할 비교 종료' : '두 결과를 나란히 비교'}
-            >
-              ⊟ 비교
-            </button>
-          </div>
-          {splitMode && (
-            <div className="split-hint">
-              {activeDiffId == null
-                ? '기록에서 항목을 클릭해 A에 지정하세요'
-                : activeDiffIdB == null
-                  ? '기록에서 항목을 클릭해 B에 지정하세요'
-                  : '두 결과가 비교 중입니다 — 다른 항목을 클릭하면 B가 교체됩니다'}
+          <div className="p-section" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="dh-header-row">
+              <div className="p-label" style={{ marginBottom: 0 }}>변화탐지 기록</div>
+              <button
+                className={`split-toggle-btn${splitMode ? ' active' : ''}`}
+                onClick={onToggleSplitMode}
+                title={splitMode ? '분할 비교 종료' : '두 결과를 나란히 비교'}
+              >
+                ⊟ 비교
+              </button>
             </div>
-          )}
-          <DiffHistory
-            entries={diffHistory ?? []}
-            activeId={activeDiffId}
-            onLoad={splitMode ? onAssignSlot : onLoadDiff}
-            onDelete={onDeleteDiff}
-            onCancel={onCancelDiff}
-            pollingIds={diffPollingIds}
-            deletingIds={deletingDiffIds}
-            cancellingIds={cancellingDiffIds}
-            splitMode={splitMode}
-            activeIdB={activeDiffIdB}
-          />
+            {splitMode && (
+              <div className="split-hint">
+                {activeDiffId == null
+                  ? '기록에서 항목을 클릭해 A에 지정하세요'
+                  : activeDiffIdB == null
+                    ? '기록에서 항목을 클릭해 B에 지정하세요'
+                    : '두 결과가 비교 중입니다 — 다른 항목을 클릭하면 B가 교체됩니다'}
+              </div>
+            )}
+            <DiffHistory
+              entries={diffHistory ?? []}
+              activeId={activeDiffId}
+              onLoad={splitMode ? onAssignSlot : onLoadDiff}
+              onDelete={onDeleteDiff}
+              onCancel={onCancelDiff}
+              pollingIds={diffPollingIds}
+              deletingIds={deletingDiffIds}
+              cancellingIds={cancellingDiffIds}
+              splitMode={splitMode}
+              activeIdB={activeDiffIdB}
+            />
+          </div>
         </div>
-        </div>{/* /panel-scroll */}
       </>
     )
   }
 
   // ── COMPUTING VIEW ────────────────────────────────────────────────────────
-  // Clicking 분석 실행 fires the job in the background. The run button is
-  // replaced by a status row (spinner + cancel) until the job finishes or
-  // the user clicks "새 변화탐지" to start fresh without cancelling the current job.
-  // Results are only ever loaded by clicking the entry in 변화탐지 기록.
+  // After clicking 분석 실행, the run button is replaced by a status row
+  // (spinner + cancel) until the job finishes. The user can start another run
+  // without cancelling the current one via "＋ 새 변화탐지". Results only load
+  // when you click the entry in 변화탐지 기록.
 
   function renderComputing() {
     const isAbMode = mode === 'compare-api'
@@ -225,14 +213,12 @@ export default function Panel({
 
     function handleRun() {
       if (isAbMode) onApiRun(); else onTlRecompute()
-      // Flag that we're waiting to capture the incoming diffHistory entry
       pendingCapture.current = true
     }
 
     function handleNewRun() {
-      // Queue another run without cancelling the current one.
-      // Clears the captured job id so the status bar disappears and the
-      // form is fresh, but leaves the previous job running in the background.
+      // Start another job without cancelling the current one. The status bar
+      // disappears and the form resets, but the old job keeps running in the background.
       setLastJobId(null)
       pendingCapture.current = false
       onDiffName('')
@@ -242,178 +228,168 @@ export default function Panel({
       <>
         {/* Fixed top — project info + back button */}
         <div className="panel-fixed">
-        {/* Project info card — same as home view */}
-        <div className="p-section">
-          <div className="p-label">선택된 프로젝트</div>
-          <div className="site-info-card">
-            <div className="site-info-row">
-              <span className="site-info-k">프로젝트명</span>
-              <span className="site-info-v">{activeSite.name}</span>
-            </div>
-            <div className="site-info-row">
-              <span className="site-info-k">관측 데이터</span>
-              <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {dates.length}건
-                {dates.length > 0 && (
-                  <button
-                    className="dates-drawer-trigger"
-                    onClick={() => setDrawerOpen(o => !o)}
-                    title="Observations 열기"
-                  >
-                    목록
-                  </button>
-                )}
-              </span>
-            </div>
-            {dates.length > 0 && (
+          {/* Same project info card as home view */}
+          <div className="p-section">
+            <div className="p-label">선택된 프로젝트</div>
+            <div className="site-info-card">
               <div className="site-info-row">
-                <span className="site-info-k">기간</span>
-                <span className="site-info-v site-info-mono">{dateRange}</span>
+                <span className="site-info-k">프로젝트명</span>
+                <span className="site-info-v">{activeSite.name}</span>
               </div>
-            )}
-            <div className="site-info-row">
-              <span className="site-info-k">상태</span>
-              <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
-                {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
-              </span>
+              <div className="site-info-row">
+                <span className="site-info-k">관측 데이터</span>
+                <span className="site-info-v" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {dates.length}건
+                  {dates.length > 0 && (
+                    <button
+                      className="dates-drawer-trigger"
+                      onClick={() => setDrawerOpen(o => !o)}
+                      title="Observations 열기"
+                    >
+                      목록
+                    </button>
+                  )}
+                </span>
+              </div>
+              {dates.length > 0 && (
+                <div className="site-info-row">
+                  <span className="site-info-k">기간</span>
+                  <span className="site-info-v site-info-mono">{dateRange}</span>
+                </div>
+              )}
+              <div className="site-info-row">
+                <span className="site-info-k">상태</span>
+                <span className={`site-status-badge ${voxelizedCount >= 2 ? 'status-ok' : 'status-warn'}`}>
+                  {voxelizedCount >= 2 ? '분석 가능' : '데이터 필요'}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Back + title */}
-        <div className="p-section" style={{ paddingBottom: 0 }}>
-          <button className="back-btn" onClick={onBackToHome}>
-            ← 목록으로
-          </button>
+          <div className="p-section" style={{ paddingBottom: 0 }}>
+            <button className="back-btn" onClick={onBackToHome}>
+              ← 목록으로
+            </button>
+          </div>
         </div>
-        </div>{/* /panel-fixed */}
 
         {/* Scrollable form */}
         <div className="panel-scroll">
-        {/* Computation name */}
-        <div className="p-section">
-          <div className="p-label">분석 이름 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(선택)</span></div>
-          <input
-            className="diff-name-input"
-            type="text"
-            placeholder="예: 2024년 변화탐지"
-            value={diffName}
-            onChange={e => onDiffName(e.target.value)}
-          />
-        </div>
-
-        {/* Analysis mode */}
-        <div className="p-section">
-          <div className="p-label">분석 방법</div>
-          <select
-            className="mode-select"
-            value={mode ?? 'compare-api'}
-            onChange={e => onMode?.(e.target.value)}
-          >
-            {ANALYSIS_MODES.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* A vs B date selectors */}
-        {isAbMode && (
           <div className="p-section">
-            <div className="p-label">비교 날짜</div>
-            <div className="compare-pair">
-              <div className="compare-row">
-                <span className="compare-ab-lbl">A</span>
-                <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)}>
-                  <option value="">— 날짜 선택 —</option>
-                  {dates.map(d => {
-                    const hasVoxel = d.voxelStatus === 'SUCCEEDED'
-                    return (
-                      <option key={d.id} value={d.id} disabled={!hasVoxel}>
-                        {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-              <div className="compare-row" style={{ marginTop: 6 }}>
-                <span className="compare-ab-lbl">B</span>
-                <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)}>
-                  <option value="">— 날짜 선택 —</option>
-                  {dates.map(d => {
-                    const hasVoxel = d.voxelStatus === 'SUCCEEDED'
-                    return (
-                      <option key={d.id} value={d.id} disabled={!hasVoxel}>
-                        {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-              {dates.some(d => d.voxelStatus !== 'SUCCEEDED') && (
-                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
-                  ⚠ voxel 없음 날짜는 관측 데이터 탭에서 먼저 계산하세요
+            <div className="p-label">분석 이름 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(선택)</span></div>
+            <input
+              className="diff-name-input"
+              type="text"
+              placeholder="예: 2024년 변화탐지"
+              value={diffName}
+              onChange={e => onDiffName(e.target.value)}
+            />
+          </div>
+
+          <div className="p-section">
+            <div className="p-label">분석 방법</div>
+            <select
+              className="mode-select"
+              value={mode ?? 'compare-api'}
+              onChange={e => onMode?.(e.target.value)}
+            >
+              {ANALYSIS_MODES.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {isAbMode && (
+            <div className="p-section">
+              <div className="p-label">비교 날짜</div>
+              <div className="compare-pair">
+                <div className="compare-row">
+                  <span className="compare-ab-lbl">A</span>
+                  <select value={apiDateIdA} onChange={e => onApiDateIdA(e.target.value)}>
+                    <option value="">— 날짜 선택 —</option>
+                    {dates.map(d => {
+                      const hasVoxel = d.voxelStatus === 'SUCCEEDED'
+                      return (
+                        <option key={d.id} value={d.id} disabled={!hasVoxel}>
+                          {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
                 </div>
-              )}
+                <div className="compare-row" style={{ marginTop: 6 }}>
+                  <span className="compare-ab-lbl">B</span>
+                  <select value={apiDateIdB} onChange={e => onApiDateIdB(e.target.value)}>
+                    <option value="">— 날짜 선택 —</option>
+                    {dates.map(d => {
+                      const hasVoxel = d.voxelStatus === 'SUCCEEDED'
+                      return (
+                        <option key={d.id} value={d.id} disabled={!hasVoxel}>
+                          {d.label}{!hasVoxel ? ' ⚠ voxel 없음' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+                {dates.some(d => d.voxelStatus !== 'SUCCEEDED') && (
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+                    ⚠ voxel 없음 날짜는 관측 데이터 탭에서 먼저 계산하세요
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Draw area — A vs B only */}
-        {isAbMode && (
+          {isAbMode && (
+            <div className="p-section">
+              <div className="p-label">분석 영역</div>
+              <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
+              <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
+            </div>
+          )}
+
           <div className="p-section">
-            <div className="p-label">분석 영역</div>
-            <button id="btn-draw-area" onClick={onDrawArea}>{drawBtnLabel}</button>
-            <div id="draw-info" style={{ marginTop: 4 }}>{drawInfo}</div>
-          </div>
-        )}
-
-        {/* Run */}
-        <div className="p-section">
-          {lastJobRunning ? (
-            /* A job from this session is in flight — show status row */
-            <div className="computing-status-block">
-              <div className="computing-status-row">
-                <span className="vst-spinner" />
-                <span className="computing-status-label">
-                  {lastJobEntry?.status === 'QUEUED' ? '대기 중…' : '분석 중…'}
-                </span>
-                <button
-                  className="computing-cancel-btn"
-                  onClick={() => onCancelDiff(lastJobId)}
-                  disabled={lastJobCancelling}
-                >
-                  {lastJobCancelling ? '취소 중' : '취소'}
+            {lastJobRunning ? (
+              <div className="computing-status-block">
+                <div className="computing-status-row">
+                  <span className="vst-spinner" />
+                  <span className="computing-status-label">
+                    {lastJobEntry?.status === 'QUEUED' ? '대기 중…' : '분석 중…'}
+                  </span>
+                  <button
+                    className="computing-cancel-btn"
+                    onClick={() => onCancelDiff(lastJobId)}
+                    disabled={lastJobCancelling}
+                  >
+                    {lastJobCancelling ? '취소 중' : '취소'}
+                  </button>
+                </div>
+                <button className="new-run-btn" onClick={handleNewRun}>
+                  ＋ 새 변화탐지
                 </button>
               </div>
+            ) : (
               <button
-                className="new-run-btn"
-                onClick={handleNewRun}
+                id="btn-run-diff"
+                className="run-diff-btn"
+                disabled={!canRun}
+                onClick={handleRun}
               >
-                ＋ 새 변화탐지
+                ⚡ 분석 실행
               </button>
-            </div>
-          ) : (
-            <button
-              id="btn-run-diff"
-              className="run-diff-btn"
-              disabled={!canRun}
-              onClick={handleRun}
-            >
-              ⚡ 분석 실행
-            </button>
-          )}
-          {apiError && (
-            <div id="diff-status" data-state="error" style={{ color: 'var(--removed)', marginTop: 6 }}>
-              {apiError}
-            </div>
-          )}
+            )}
+            {apiError && (
+              <div id="diff-status" data-state="error" style={{ color: 'var(--removed)', marginTop: 6 }}>
+                {apiError}
+              </div>
+            )}
+          </div>
         </div>
-        </div>{/* /panel-scroll */}
       </>
     )
   }
 
-  // ── DATES DRAWER (shared between both views) ───────────────────────────────
+  // ── DATES DRAWER ──────────────────────────────────────────────────────────
 
   function renderDatesDrawer() {
     return (

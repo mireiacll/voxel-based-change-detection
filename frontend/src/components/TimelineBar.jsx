@@ -1,31 +1,20 @@
 /**
  * TimelineBar.jsx
  *
- * Fixed bottom bar shown only in time-series mode.
- * Replaces the status bar — sits at the same bottom position.
+ * Fixed bottom strip shown in time-series mode.
+ * Markers are equally spaced regardless of real timestamps.
  *
- * Features:
- *  · Equally-spaced date markers (independent of real timestamps)
- *  · Draggable scrubber that snaps to the nearest snapshot
- *  · Play / pause button that auto-advances every `playInterval` ms
- *  · Keyboard: ← → to step, Space to play/pause
- *
- * Props
- * ─────
- *   snapshots      — Snapshot[]   ordered array from timelineDiffs.js
- *   activeIndex    — number       currently displayed snapshot index
- *   onSelect       — (index) => void
- *   playing        — bool
- *   onPlayPause    — () => void
+ * Props:
+ *   snapshots   — Snapshot[] ordered from TimelineDiffs.js
+ *   activeIndex — currently displayed snapshot index
+ *   onSelect    — (index) => void
+ *   playing     — bool
+ *   onPlayPause — () => void
  */
 
 import { useRef } from 'react'
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
-
-// ── Component ─────────────────────────────────────────────────────────────
 
 export default function TimelineBar({ snapshots, activeIndex, onSelect, playing, onPlayPause, showRightPanel }) {
   const trackRef = useRef(null)
@@ -33,13 +22,9 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
   if (!snapshots || snapshots.length === 0) return null
 
   const n = snapshots.length
-
-  // Equally space markers: with n snapshots, divide [0, 1] into n+1 segments
-  // so markers sit at 1/(n+1), 2/(n+1), … n/(n+1) — never touching the edges.
+  // Space markers at 1/(n+1), 2/(n+1) … so they never touch the edges
   const markerFracs = snapshots.map((_, i) => (i + 1) / (n + 1))
-
-  // The scrubber sits at the active snapshot's marker
-  const scrubFrac = markerFracs[activeIndex] ?? 0
+  const scrubFrac   = markerFracs[activeIndex] ?? 0
 
   // ── Drag handling ─────────────────────────────────────────────────────
   function fracToNearest(frac) {
@@ -79,17 +64,16 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
   function handleTouchMove(e) {
     const rect = trackRef.current?.getBoundingClientRect()
     if (!rect) return
-    const touch = e.touches[0]
-    const frac  = clamp((touch.clientX - rect.left) / rect.width, 0, 1)
+    const frac = clamp((e.touches[0].clientX - rect.left) / rect.width, 0, 1)
     onSelect(fracToNearest(frac))
   }
 
   const active = snapshots[activeIndex]
 
   return (
-    <div id="timeline-bar" className={showRightPanel ? 'tl-bar-rp-open' : ''} >
+    <div id="timeline-bar" className={showRightPanel ? 'tl-bar-rp-open' : ''}>
 
-      {/* ── Left: play controls ── */}
+      {/* ── Left: playback controls ── */}
       <div className="tl-left">
         <button
           className={`tl-play-btn${playing ? ' tl-playing' : ''}`}
@@ -101,20 +85,8 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
             : <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="1,1 9,5 1,9"/></svg>
           }
         </button>
-
-        <button
-          className="tl-step-btn"
-          onClick={() => onSelect(Math.max(0, activeIndex - 1))}
-          disabled={activeIndex === 0}
-          title="Previous (←)"
-        >‹</button>
-
-        <button
-          className="tl-step-btn"
-          onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))}
-          disabled={activeIndex === snapshots.length - 1}
-          title="Next (→)"
-        >›</button>
+        <button className="tl-step-btn" onClick={() => onSelect(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0} title="Previous (←)">‹</button>
+        <button className="tl-step-btn" onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))} disabled={activeIndex === snapshots.length - 1} title="Next (→)">›</button>
       </div>
 
       {/* ── Centre: track ── */}
@@ -133,18 +105,8 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
           </div>
         )}
 
-        {/* The track itself */}
-        <div
-          className="tl-track"
-          ref={trackRef}
-          onClick={handleTrackClick}
-          onTouchMove={handleTouchMove}
-        >
-          {/* Filled progress bar up to active marker */}
-          <div
-            className="tl-fill"
-            style={{ width: `${scrubFrac * 100}%` }}
-          />
+        <div className="tl-track" ref={trackRef} onClick={handleTrackClick} onTouchMove={handleTouchMove}>
+          <div className="tl-fill" style={{ width: `${scrubFrac * 100}%` }} />
 
           {/* Snapshot markers */}
           {snapshots.map((s, i) => {
@@ -166,19 +128,16 @@ export default function TimelineBar({ snapshots, activeIndex, onSelect, playing,
             )
           })}
 
-          {/* Date labels below track (at marker positions) */}
-          {snapshots.map((s, i) => {
-            const frac = markerFracs[i]
-            return (
-              <span
-                key={`lbl-${s.id}`}
-                className={`tl-date-lbl${i === activeIndex ? ' tl-date-lbl-active' : ''}`}
-                style={{ left: `${frac * 100}%` }}
-              >
-                {s.date_a.label.replace(/, \d{4}/, '')}–{s.date_b.label.replace(/, \d{4}/, '')}
-              </span>
-            )
-          })}
+          {/* Date labels */}
+          {snapshots.map((s, i) => (
+            <span
+              key={`lbl-${s.id}`}
+              className={`tl-date-lbl${i === activeIndex ? ' tl-date-lbl-active' : ''}`}
+              style={{ left: `${markerFracs[i] * 100}%` }}
+            >
+              {s.date_a.label.replace(/, \d{4}/, '')}–{s.date_b.label.replace(/, \d{4}/, '')}
+            </span>
+          ))}
 
           {/* Scrubber handle */}
           <div

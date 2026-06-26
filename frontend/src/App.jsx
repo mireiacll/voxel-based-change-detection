@@ -641,24 +641,10 @@ export default function App() {
         if (activeSnap) showSnapshotTileset(activeSnap.id)
       }
       setSnapshotTilesetVisibility(tlVisRef.current.added, tlVisRef.current.removed, tlVisRef.current.unchanged)
-      // Leaving compare-api — drop its stale result so coming back later
-      // (or switching back via the dropdown) starts from a clean form
-      // instead of re-showing the old A·B result.
-      clearDiffApiTileset()
-      setApiSummary(null)
-      setApiError(null)
-      setApiDiffTilesetUrl(null)
-      setActiveDiffId(null)
     } else if (newMode === 'compare-api') {
       swapPolygonTab(prevMode === 'timeline' ? 'timeline-hidden' : prevMode, 'compare-api', drawInfo, drawBtnLabel)
       setDrawBanner(false)
       syncVisibility('compare-api', {})
-      // Leaving timeline — same idea, drop its stale result.
-      clearAllSnapshotTilesets()
-      setTlSnapshots(null)
-      setTlActiveIndex(0)
-      setTlPlaying(false)
-      setActiveDiffId(null)
     }
   }
 

@@ -35,7 +35,7 @@
 ### 🗂️ Project management
 - **Project Launcher** — full-screen project selection page
 - **New Project modal** — create a site (name, camera position) via the external API
-- **Data Upload tab** — list all dates per site, upload tilesets, trigger voxelization jobs
+- **Observations tab** — list all dates per site, upload tilesets, trigger voxelization jobs
 
 ### 🔄 Change detection (core feature)
 - **A vs B compare mode** — select two dates, run a server-side voxel diff job, visualise added/removed volumes as coloured 3D voxels via a tileset
@@ -168,7 +168,7 @@ Google Maps assets may require terms acceptance in the ion dashboard on first us
 | Tab | Content |
 |---|---|
 | 프로젝트 | `ProjectLauncher` — full-screen site selection |
-| 데이터 업로드 | `DataUploadPage` — manage dates and uploads |
+| 관측 데이터 | `DataUploadPage` — manage dates and uploads |
 | 변화탐지 | Analysis view — Cesium map + panels |
 
 The map is hidden (`cesium-hidden`) while the Projects or Upload tab is active.
@@ -298,55 +298,7 @@ Drawing a polygon restricts the diff computation to a specific geographic area.
 
 ## 8. Voxel diff algorithm
 
-The diff runs server-side. The browser only loads the resulting 3D Tiles tileset.
-
-### Step 1 — Parse point clouds
-
-`glb_parser.py` reads every `.glb` tile in `tileset.json`. Each tile is parsed with NumPy:
-
-1. Read `POSITION` accessor — `uint16`, normalised (÷ 65535), stride 8 bytes
-2. Apply `PointCloudNode` matrix (4×4 column-major) → local glTF world space
-3. Add `RootNode` translation → glTF scene space (Y-up)
-4. Swap axes for ECEF Z-up: `ecef = (gx, −gz, gy)`
-5. Convert ECEF → geodetic `(lon°, lat°, h m)` via Bowring iterative method
-
-> Only point cloud GLB files (mago3d-tiler output) are supported. Mesh tilesets cannot yet be used as diff input.
-
-### Step 2 — Build sparse surface maps
-
-`build_surface()` bins every geodetic point into a voxel grid:
-
-```
-iLon = floor(lon / lonStep)
-iLat = floor(lat / latStep)
-iH   = floor(h   / hStep)
-```
-
-Grid steps are computed from the average latitude so each voxel is approximately cubic in metres. Points outside the polygon are discarded before binning.
-
-### Step 3 — Solidify columns
-
-Point clouds only capture surfaces. `solidify()` fills each column into a solid volume:
-
-For each `(iLon, iLat)` column:
-- Find `minH` and `maxH`
-- `colFloor = min(minH_A, minH_B)` — per-column floor to avoid global outliers
-- Fill every voxel from `colFloor` to `maxH`
-
-### Step 4 — Compute diff
-
-```python
-added   = keys in solid_B but not in solid_A
-removed = keys in solid_A but not in solid_B
-```
-
-### Volume statistics
-
-```
-Added volume   = count_added   × voxSize³  m³
-Removed volume = count_removed × voxSize³  m³
-Net change     = added − removed
-```
+The differences run in the backend, connected through the API calls. The browser only loads the resulting 3D Tiles tileset.
 
 The frontend reads actual volumes from `mass-summary.json` (finest `levelCounts` entry) rather than computing them client-side.
 
@@ -414,19 +366,3 @@ Create `.env.local` in the frontend root:
 ```
 VITE_EXTERNAL_API_URL=http://localhost:8080
 ```
-
----
-
-## 11. Known limitations and future work
-
-### Current limitations
-
-**Mixed-type diff** — both datasets must be point clouds. Mesh vs point cloud or mesh vs mesh is not yet supported.
-
-**Voxel accuracy** — column-fill solidification over-estimates volume for concave or overhanging shapes (e.g. a pile with a hollow underneath).
-
-**Single-threaded diff per request** — large point clouds at fine voxel sizes (< 0.3 m) can take several minutes.
-
-**WebGL context sharing** — the shared terrain provider instance can produce `framebufferTexture2D: object does not belong to this context` and `GL_INVALID_FRAMEBUFFER_OPERATION` warnings when two Cesium viewers are active. The current workaround defers secondary renders via `requestAnimationFrame` in `viewerSync.js`. A permanent fix would give each viewer its own terrain provider instance.
-
-**Debug logging** — `cesiumInit.js`, `viewerSync.js`, and `layers.js` contain `[DBG]`-prefixed `console.log` calls added during split-view WebGL debugging. These can be stripped once the context-sharing issues are confirmed resolved.

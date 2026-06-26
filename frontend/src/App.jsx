@@ -86,6 +86,8 @@ export default function App() {
   const deletingObsIdsRef = useRef(new Set())
   const flownSiteIdRef    = useRef(null)
   const diffHistoryRef    = useRef([])
+  const splitModeRef      = useRef(false)
+  const slotBTypeRef      = useRef(null)
 
   useEffect(() => { activeDateRef.current   = activeDate },     [activeDate])
   useEffect(() => { activeSiteRef.current   = activeSite },     [activeSite])
@@ -119,6 +121,8 @@ export default function App() {
   const [splitMode,     setSplitMode]     = useState(false)
   const [activeDiffIdB, setActiveDiffIdB] = useState(null)
 
+  useEffect(() => { splitModeRef.current = splitMode }, [splitMode])
+
   const [apiSummaryB,        setApiSummaryB]        = useState(null)
   const [apiDiffTilesetUrlB, setApiDiffTilesetUrlB] = useState(null)
 
@@ -130,6 +134,7 @@ export default function App() {
   useEffect(() => { tlSnapshotsBRef.current = tlSnapshotsB }, [tlSnapshotsB])
 
   const [slotBType, setSlotBType] = useState(null) // 'AB' | 'TIME_SERIES' | null
+  useEffect(() => { slotBTypeRef.current = slotBType }, [slotBType])
 
   const [tlVisB,         setTlVisB]         = useState({ ...DEFAULT_VIS })
   const [compareApiVisB, setCompareApiVisB] = useState({ ...DEFAULT_VIS })
@@ -357,36 +362,43 @@ export default function App() {
 
   useEffect(() => {
     const handler = e => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return
+      const tag = e.target.tagName
+      const isCheckbox = tag === 'INPUT' && e.target.type === 'checkbox'
+      if ((tag === 'INPUT' && !isCheckbox) || tag === 'SELECT') return
       if (navTab !== 'analysis') return
-
-      if (e.key === 'm' || e.key === 'M') {
-        const site = activeSiteRef.current
-        if (!site) return
-        const current = activeDateRef.current
-        const ids     = visibleIdsRef.current
-        if (current) {
-          handleToggleDateById(site, current, ids)
-        } else if (site.dates?.length > 0) {
-          handleToggleDateById(site, site.dates[0], ids)
-        }
-        return
-      }
 
       if (e.key === 'a') {
         const m = modeRef.current
-        if (m === 'compare-api') setCompareApiVis(v => ({ ...v, added: !v.added }))
-        else if (m === 'timeline') setTlVis(v => ({ ...v, added: !v.added }))
+        let target
+        if (m === 'compare-api') { target = !compareApiVisRef.current.added; setCompareApiVis(v => ({ ...v, added: target })) }
+        else if (m === 'timeline') { target = !tlVisRef.current.added; setTlVis(v => ({ ...v, added: target })) }
+        if (splitModeRef.current && target !== undefined) {
+          if (slotBTypeRef.current === 'AB')           setCompareApiVisB(v => ({ ...v, added: target }))
+          else if (slotBTypeRef.current === 'TIME_SERIES') setTlVisB(v => ({ ...v, added: target }))
+        }
       }
       if (e.key === 'r') {
         const m = modeRef.current
-        if (m === 'compare-api') setCompareApiVis(v => ({ ...v, removed: !v.removed }))
-        else if (m === 'timeline') setTlVis(v => ({ ...v, removed: !v.removed }))
+        let target
+        if (m === 'compare-api') { target = !compareApiVisRef.current.removed; setCompareApiVis(v => ({ ...v, removed: target })) }
+        else if (m === 'timeline') { target = !tlVisRef.current.removed; setTlVis(v => ({ ...v, removed: target })) }
+        if (splitModeRef.current && target !== undefined) {
+          if (slotBTypeRef.current === 'AB')           setCompareApiVisB(v => ({ ...v, removed: target }))
+          else if (slotBTypeRef.current === 'TIME_SERIES') setTlVisB(v => ({ ...v, removed: target }))
+        }
+      }
+      if (e.key === 'u') {
+        const m = modeRef.current
+        let target
+        if (m === 'compare-api') { target = !compareApiVisRef.current.unchanged; setCompareApiVis(v => ({ ...v, unchanged: target })) }
+        else if (m === 'timeline') { target = !tlVisRef.current.unchanged; setTlVis(v => ({ ...v, unchanged: target })) }
+        if (splitModeRef.current && target !== undefined) {
+          if (slotBTypeRef.current === 'AB')           setCompareApiVisB(v => ({ ...v, unchanged: target }))
+          else if (slotBTypeRef.current === 'TIME_SERIES') setTlVisB(v => ({ ...v, unchanged: target }))
+        }
       }
 
-      if (e.key === 'd') togglePolygonDraw()
-      if (e.key === '1') handleCameraSite()
-      if (e.key === '2') handleCameraTop()
+      if (e.key === '1') handleCameraTop()
 
       if (modeRef.current === 'timeline') {
         const snaps = tlSnapshotsRef.current
@@ -1467,6 +1479,7 @@ export default function App() {
             tlPlaying={tlPlaying}
             tlOnPlayPause={() => setTlPlaying(v => !v)}
             showRightPanel={showRightPanel}
+            splitMode={splitMode}
           />
         </>
       )}

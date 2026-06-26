@@ -28,7 +28,7 @@
   --rpw:   280px;   /* right panel width */
   --nav-h: 44px;
   --mshh:  38px;    /* map sub-header height */
-  --bbh:   64px;    /* bottom bar height */
+  --bbh:   48px;    /* bottom bar height */
   /* Type */
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'IBM Plex Sans', sans-serif;
@@ -599,42 +599,21 @@ select {
 }
 
 .bb-sep {
-  width: 1px; height: 32px;
+  width: 1px; height: 24px;
   background: var(--border);
   margin: 0 15px; flex-shrink: 0;
 }
 
-/* Legend block — vertical */
-.bb-legend-block {
-  display: flex; flex-direction: column; gap: 5px;
-  flex-shrink: 0;
-}
 .bb-section-label {
   font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .08em;
-  color: var(--muted); margin-bottom: 1px;
-}
-.bb-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; }
-.bb-swatch {
-  width: 9px; height: 9px;
-  border-radius: 2px; flex-shrink: 0;
-}
-.bb-swatch-tag {
-  font-size: 8px; font-weight: 700; letter-spacing: .04em;
-  padding: 1px 4px; border-radius: 3px; flex-shrink: 0;
-  font-family: var(--mono);
+  color: var(--muted); margin-right: 4px;
 }
 
-/* Shortcuts block — two rows */
+/* Shortcuts — single row */
 .bb-shortcuts-block {
-  display: flex; flex-direction: column; gap: 3px;
+  display: flex; align-items: center; gap: 14px;
   flex-shrink: 0;
-}
-.bb-shortcuts-cols {
-  display: flex; flex-direction: column; gap: 3px;
-}
-.bb-shortcuts-row {
-  display: flex; align-items: center; gap: 10px;
 }
 .bb-key-item {
   display: flex; align-items: center; gap: 4px;
@@ -646,6 +625,10 @@ select {
   background: var(--surf2); border: 1px solid var(--border2);
   border-radius: 3px; font-family: var(--mono); color: var(--text);
   white-space: nowrap;
+}
+.bb-key-hint {
+  font-size: 9px; color: var(--accent);
+  white-space: nowrap; margin-left: -6px;
 }
 
 /* Coords */

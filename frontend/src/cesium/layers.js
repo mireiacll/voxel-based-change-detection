@@ -20,36 +20,65 @@ import { setStatus, toast, requestRender as requestRenderPrimary } from './cesiu
 
 // ── Voxel shader ──────────────────────────────────────────────────────────
 //
-// Classifies voxels by their baked diffuse colour (red dominant = added, blue dominant = removed)
-// Also adds a small emissive term as ambient fill  to compensate teh lighting for the IBL disabled (WebGL errors) 
+// Classifies voxels by their baked diffuse colour using absolute-channel
+// thresholds (r > 0.7 = added/red, b > 0.7 = removed/blue, all channels
+// > 0.5 = unchanged/gray union). Each category is independently toggleable
+// via discard. Recolors surviving fragments to exact brand values; stays
+// in PBR lighting (not UNLIT) so faces still shade by angle/light for a
+// 3D depth effect, with an emissive boost layered on top to keep the
+// color vibrant rather than dull (IBL is disabled on these tilesets, so
+// PBR diffuse alone reads dim with only weak ambient/direct light to
+// shade with). colorBlendMode is set to REPLACE on the tileset (in
+// _applyVoxelShader) so the shader's diffuse fully overrides the baked
+// vertex color instead of blending with it.
 
 function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
-  const IS_RED  = '(material.diffuse.r > material.diffuse.b * 1.2 && material.diffuse.r > material.diffuse.g * 1.2)'
-  const IS_BLUE = '(material.diffuse.b > material.diffuse.r * 1.2 && material.diffuse.b > material.diffuse.g * 1.2)'
-
-  const discardAdded     = !showAdded     ? 'if (isRed)             { discard; }' : ''
-  const discardRemoved   = !showRemoved   ? 'if (isBlue)            { discard; }' : ''
-  const discardUnchanged = !showUnchanged ? 'if (!isRed && !isBlue) { discard; }' : ''
+  // Absolute-channel classification (matches the reference snippet):
+  //   gray/union  → all channels > 0.5
+  //   red/added   → r > 0.7
+  //   blue/removed→ b > 0.7
+  const discardAdded     = !showAdded     ? 'if (isRed)   { discard; }' : ''
+  const discardRemoved   = !showRemoved   ? 'if (isBlue)  { discard; }' : ''
+  const discardUnchanged = !showUnchanged ? 'if (isUnion) { discard; }' : ''
 
   return new window.Cesium.CustomShader({
     lightingModel: window.Cesium.LightingModel.PBR,
+    translucencyMode: window.Cesium.CustomShaderTranslucencyMode.TRANSLUCENT,
     fragmentShaderText: `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-  bool isRed  = ${IS_RED};
-  bool isBlue = ${IS_BLUE};
+  bool isUnion = material.diffuse.r > 0.5 && material.diffuse.g > 0.5 && material.diffuse.b > 0.5;
+  bool isRed   = material.diffuse.r > 0.7;
+  bool isBlue  = material.diffuse.b > 0.7;
+
+  ${discardUnchanged}
   ${discardAdded}
   ${discardRemoved}
-  ${discardUnchanged}
-  // Recolor to exact brand values. Classification ran off the original
-  // baked colour above so reassigning diffuse here doesn't affect discards.
+
+  // Recolor to near-pure saturated red/blue, then push a strong emissive
+  // glow on top — emissive isn't clamped to 0–1 like diffuse, so a big
+  // push here reads as an actual glow rather than just "bright color",
+  // closer to a neon/eye-catching intensity than the brand-muted hex.
   if (isRed) {
-    material.diffuse = vec3(1.0, 0.302, 0.302);   // #ff4d4d — added
+    material.diffuse  = vec3(1.0, 0.05, 0.05);
+    material.emissive = vec3(1.4, 0.05, 0.05);
   } else if (isBlue) {
-    material.diffuse = vec3(0.302, 0.624, 1.0);   // #4d9fff — removed
+    material.diffuse  = vec3(0.05, 0.3, 1.0);
+    material.emissive = vec3(0.05, 0.5, 1.4);
+  } else if (isUnion) {
+    material.diffuse  = vec3(0.75, 0.75, 0.78);   // unchanged — lighter gray
+    material.emissive = vec3(0.22);
   }
-  material.emissive += vec3(0.12);  // flat ambient fill (replaces IBL)
+  material.alpha = 1.0;
 }`,
   })
+}
+
+// colorBlendMode lives on the tileset (not the shader) — must be set on the
+// tileset alongside customShader for the REPLACE blend to actually apply.
+function _applyVoxelShader(ts, showAdded, showRemoved, showUnchanged) {
+  if (!ts) return
+  ts.colorBlendMode = window.Cesium.Cesium3DTileColorBlendMode.REPLACE
+  ts.customShader = _buildCustomShader(showAdded, showRemoved, showUnchanged) ?? undefined
 }
 
 // ── Shared URL version cache (across all controller instances) ────────────
@@ -160,7 +189,7 @@ export function createLayerController({ viewer } = {}) {
         state.pc = result.value
         setPointSize(state.pc, _pointSize)
         if (dateObj.datasetType === 'voxel') {
-          state.pc.customShader = _buildCustomShader(true, true, true)
+          _applyVoxelShader(state.pc, true, true, true)
         }
         toast('✓ 포인트 클라우드 로드됨', 'ok')
       }
@@ -241,7 +270,7 @@ export function createLayerController({ viewer } = {}) {
   function _applyDiffApiStyle() {
     const ts = state.diffApiTs
     if (!ts) return
-    ts.customShader = _buildCustomShader(_diffApiVis.added, _diffApiVis.removed, _diffApiVis.unchanged) ?? undefined
+    _applyVoxelShader(ts, _diffApiVis.added, _diffApiVis.removed, _diffApiVis.unchanged)
     requestAnimationFrame(() => _requestRender())
   }
 
@@ -308,7 +337,7 @@ export function createLayerController({ viewer } = {}) {
   function _applySnapshotStyle(snapshotId) {
     const ts = snapshotId ? state.timeseriesTsMap[snapshotId] : null
     if (!ts) return
-    ts.customShader = _buildCustomShader(_tlVis.added, _tlVis.removed, _tlVis.unchanged) ?? undefined
+    _applyVoxelShader(ts, _tlVis.added, _tlVis.removed, _tlVis.unchanged)
     requestAnimationFrame(() => _requestRender())
   }
 

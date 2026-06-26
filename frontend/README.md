@@ -23,12 +23,6 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 ```
 3d-change-detection/
 └── frontend/
-    ├── public/
-    │   └── data/                      ← 3D Tiles served statically by Vite
-    │       └── <site_id>/
-    │           └── <date_code>/
-    │               └── tiles/
-    │
     └── src/
         ├── components/
         │   ├── NavBar.jsx             ← top nav: tabs + active site chip
@@ -72,6 +66,7 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
 ```bash
 npm install
 npm install --save-dev vite-plugin-static-copy
+npm install jszip
 npm run dev
 # → http://localhost:5173
 ```

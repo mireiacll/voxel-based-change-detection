@@ -138,6 +138,86 @@ export default function App() {
 
   const [tlVisB,         setTlVisB]         = useState({ ...DEFAULT_VIS })
   const [compareApiVisB, setCompareApiVisB] = useState({ ...DEFAULT_VIS })
+  const tlVisBRef         = useRef({ ...DEFAULT_VIS })
+  const compareApiVisBRef = useRef({ ...DEFAULT_VIS })
+  useEffect(() => { tlVisBRef.current         = tlVisB },         [tlVisB])
+  useEffect(() => { compareApiVisBRef.current = compareApiVisB }, [compareApiVisB])
+
+  // ── Blink mode ──────────────────────────────────────────────────────────
+  // While on: forces 유지 (unchanged) off (slot A always, slot B too whenever
+  // a B slot is occupied), disables the U toggle/shortcut, and flickers
+  // whatever added/removed tiles are currently visible. Underlying
+  // added/removed state is untouched, so toggling/syncing those independently
+  // still works — blink just additionally ANDs a flicker phase onto them at
+  // the point visibility is applied.
+  const [blinkMode, setBlinkMode] = useState(false)
+  const [blinkOn,   setBlinkOn]   = useState(true)
+  const blinkModeRef   = useRef(false)
+  const blinkTimerRef  = useRef(null)
+  const unchangedSnapshotRef = useRef({ a: null, b: null })
+  useEffect(() => { blinkModeRef.current = blinkMode }, [blinkMode])
+
+  function handleToggleBlinkMode() {
+    setBlinkMode(prev => {
+      const next = !prev
+      if (next) {
+        setBlinkOn(true)
+        clearInterval(blinkTimerRef.current)
+        blinkTimerRef.current = setInterval(() => setBlinkOn(v => !v), 250)
+      } else {
+        // Turning OFF — stop flicker, restore 유지 values that were snapshotted.
+        clearInterval(blinkTimerRef.current)
+        setBlinkOn(true)
+        const { a, b } = unchangedSnapshotRef.current
+        if (a != null) {
+          if (modeRef.current === 'timeline') setTlVis(v => ({ ...v, unchanged: a }))
+          else                                setCompareApiVis(v => ({ ...v, unchanged: a }))
+        }
+        if (b != null) {
+          if (slotBTypeRef.current === 'AB')           setCompareApiVisB(v => ({ ...v, unchanged: b }))
+          else if (slotBTypeRef.current === 'TIME_SERIES') setTlVisB(v => ({ ...v, unchanged: b }))
+        }
+        unchangedSnapshotRef.current = { a: null, b: null }
+      }
+      return next
+    })
+  }
+
+  // Re-applies the "force 유지 off" whenever blink is on and slot A's mode,
+  // split mode, or slot B's assigned type changes — this is what makes blink
+  // correctly catch a B slot that gets assigned/replaced *after* blink was
+  // already toggled on, not just at the moment of the click.
+  useEffect(() => {
+    if (!blinkMode) return
+
+    if (modeRef.current === 'timeline') {
+      if (unchangedSnapshotRef.current.a == null) unchangedSnapshotRef.current.a = tlVisRef.current.unchanged
+      if (tlVisRef.current.unchanged !== false) setTlVis(v => ({ ...v, unchanged: false }))
+    } else {
+      if (unchangedSnapshotRef.current.a == null) unchangedSnapshotRef.current.a = compareApiVisRef.current.unchanged
+      if (compareApiVisRef.current.unchanged !== false) setCompareApiVis(v => ({ ...v, unchanged: false }))
+    }
+
+    if (splitMode) {
+      if (slotBType === 'AB') {
+        if (unchangedSnapshotRef.current.b == null) unchangedSnapshotRef.current.b = compareApiVisBRef.current.unchanged
+        if (compareApiVisBRef.current.unchanged !== false) setCompareApiVisB(v => ({ ...v, unchanged: false }))
+      } else if (slotBType === 'TIME_SERIES') {
+        if (unchangedSnapshotRef.current.b == null) unchangedSnapshotRef.current.b = tlVisBRef.current.unchanged
+        if (tlVisBRef.current.unchanged !== false) setTlVisB(v => ({ ...v, unchanged: false }))
+      } else {
+        unchangedSnapshotRef.current.b = null
+      }
+    } else {
+      unchangedSnapshotRef.current.b = null
+    }
+  }, [blinkMode, mode, splitMode, slotBType])
+
+  // Safety: if split mode turns off (or component unmounts) while blink is
+  // running, stop the timer so it doesn't leak.
+  useEffect(() => {
+    return () => clearInterval(blinkTimerRef.current)
+  }, [])
 
   const layersBRef        = useRef(null)
   const stopCameraSyncRef = useRef(null)
@@ -311,13 +391,21 @@ export default function App() {
 
   useEffect(() => {
     if (mode !== 'compare-api') return
-    setDiffApiTilesetVisibility(compareApiVis.added, compareApiVis.removed, compareApiVis.unchanged)
-  }, [compareApiVis])
+    setDiffApiTilesetVisibility(
+      compareApiVis.added   && blinkOn,
+      compareApiVis.removed && blinkOn,
+      compareApiVis.unchanged
+    )
+  }, [compareApiVis, blinkOn])
 
   useEffect(() => {
     if (mode !== 'timeline') return
-    setSnapshotTilesetVisibility(tlVis.added, tlVis.removed, tlVis.unchanged)
-  }, [tlVis])
+    setSnapshotTilesetVisibility(
+      tlVis.added   && blinkOn,
+      tlVis.removed && blinkOn,
+      tlVis.unchanged
+    )
+  }, [tlVis, blinkOn])
 
   // Slot B timeline playback
   const tlPlayTimerB = useRef(null)
@@ -346,13 +434,21 @@ export default function App() {
   // Slot B visibility resync
   useEffect(() => {
     if (!splitMode || !layersBRef.current || slotBType !== 'AB') return
-    layersBRef.current.setDiffApiTilesetVisibility(compareApiVisB.added, compareApiVisB.removed, compareApiVisB.unchanged)
-  }, [compareApiVisB, splitMode, slotBType])
+    layersBRef.current.setDiffApiTilesetVisibility(
+      compareApiVisB.added   && blinkOn,
+      compareApiVisB.removed && blinkOn,
+      compareApiVisB.unchanged
+    )
+  }, [compareApiVisB, splitMode, slotBType, blinkOn])
 
   useEffect(() => {
     if (!splitMode || !layersBRef.current || slotBType !== 'TIME_SERIES') return
-    layersBRef.current.setSnapshotTilesetVisibility(tlVisB.added, tlVisB.removed, tlVisB.unchanged)
-  }, [tlVisB, splitMode, slotBType])
+    layersBRef.current.setSnapshotTilesetVisibility(
+      tlVisB.added   && blinkOn,
+      tlVisB.removed && blinkOn,
+      tlVisB.unchanged
+    )
+  }, [tlVisB, splitMode, slotBType, blinkOn])
 
   useEffect(() => { applyPcStyle(pcSize) },           [pcSize])
   useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
@@ -387,7 +483,7 @@ export default function App() {
           else if (slotBTypeRef.current === 'TIME_SERIES') setTlVisB(v => ({ ...v, removed: target }))
         }
       }
-      if (e.key === 'u') {
+      if (e.key === 'u' && !blinkModeRef.current) {
         const m = modeRef.current
         let target
         if (m === 'compare-api') { target = !compareApiVisRef.current.unchanged; setCompareApiVis(v => ({ ...v, unchanged: target })) }
@@ -1212,6 +1308,7 @@ export default function App() {
     setTlPlayingB(false)
     setSlotBType(null)
     setActiveDiffIdB(null)
+    unchangedSnapshotRef.current.b = null
   }
 
   // Click in split mode: toggles A off if already assigned, toggles B off if in B,
@@ -1335,12 +1432,12 @@ export default function App() {
     ? {
         onShowAdded:     v => setTlVis(s => ({ ...s, added: v })),
         onShowRemoved:   v => setTlVis(s => ({ ...s, removed: v })),
-        onShowUnchanged: v => setTlVis(s => ({ ...s, unchanged: v })),
+        onShowUnchanged: v => { if (!blinkMode) setTlVis(s => ({ ...s, unchanged: v })) },
       }
     : {
         onShowAdded:     v => setCompareApiVis(s => ({ ...s, added: v })),
         onShowRemoved:   v => setCompareApiVis(s => ({ ...s, removed: v })),
-        onShowUnchanged: v => setCompareApiVis(s => ({ ...s, unchanged: v })),
+        onShowUnchanged: v => { if (!blinkMode) setCompareApiVis(s => ({ ...s, unchanged: v })) },
       }
 
   return (
@@ -1432,6 +1529,7 @@ export default function App() {
             splitMode={splitMode}           onToggleSplitMode={handleToggleSplitMode}
             activeDiffIdB={activeDiffIdB}
             onAssignSlot={handleAssignSlot}
+            blinkMode={blinkMode}           onToggleBlinkMode={handleToggleBlinkMode}
           />
 
           <RightPanel
@@ -1450,14 +1548,14 @@ export default function App() {
             apiSummaryB={apiSummaryB}
             showAddedB={compareApiVisB.added}         onShowAddedB={v => setCompareApiVisB(s => ({ ...s, added: v }))}
             showRemovedB={compareApiVisB.removed}     onShowRemovedB={v => setCompareApiVisB(s => ({ ...s, removed: v }))}
-            showUnchangedB={compareApiVisB.unchanged} onShowUnchangedB={v => setCompareApiVisB(s => ({ ...s, unchanged: v }))}
+            showUnchangedB={compareApiVisB.unchanged} onShowUnchangedB={v => { if (!blinkMode) setCompareApiVisB(s => ({ ...s, unchanged: v })) }}
             tlSnapshotsB={tlSnapshotsB}     tlActiveIndexB={tlActiveIndexB}
             tlOnSelectB={i => setTlActiveIndexB(i)}
             tlPlayingB={tlPlayingB}         tlOnPlayPauseB={() => setTlPlayingB(v => !v)}
             tlLoadingB={tlLoadingB}
             tlVisAddedB={tlVisB.added}             onTlShowAddedB={v => setTlVisB(s => ({ ...s, added: v }))}
             tlVisRemovedB={tlVisB.removed}         onTlShowRemovedB={v => setTlVisB(s => ({ ...s, removed: v }))}
-            tlVisUnchangedB={tlVisB.unchanged}     onTlShowUnchangedB={v => setTlVisB(s => ({ ...s, unchanged: v }))}
+            tlVisUnchangedB={tlVisB.unchanged}     onTlShowUnchangedB={v => { if (!blinkMode) setTlVisB(s => ({ ...s, unchanged: v })) }}
             onClearSlotB={handleClearSlotB}
           />
 

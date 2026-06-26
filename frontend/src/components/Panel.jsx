@@ -54,6 +54,7 @@ export default function Panel({
   splitMode, onToggleSplitMode,
   activeDiffIdB,
   onAssignSlot,
+  blinkMode, onToggleBlinkMode,
 }) {
   const dates          = activeSite?.dates ?? []
   const voxelizedCount = dates.filter(d => d.voxelStatus === 'SUCCEEDED').length
@@ -161,13 +162,22 @@ export default function Panel({
           <div className="p-section" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="dh-header-row">
               <div className="p-label" style={{ marginBottom: 0 }}>변화탐지 기록</div>
-              <button
-                className={`split-toggle-btn${splitMode ? ' active' : ''}`}
-                onClick={onToggleSplitMode}
-                title={splitMode ? '분할 비교 종료' : '두 결과를 나란히 비교'}
-              >
-                ⊟ 비교
-              </button>
+              <div className="dh-header-btns">
+                <button
+                  className={`split-toggle-btn blink-toggle-btn${blinkMode ? ' active' : ''}`}
+                  onClick={onToggleBlinkMode}
+                  title={blinkMode ? '점멸 종료' : '추가/제거된 부분을 점멸 표시 (유지 영역 숨김)'}
+                >
+                  점멸
+                </button>
+                <button
+                  className={`split-toggle-btn${splitMode ? ' active' : ''}`}
+                  onClick={onToggleSplitMode}
+                  title={splitMode ? '분할 비교 종료' : '두 결과를 나란히 비교'}
+                >
+                  ◫ 비교
+                </button>
+              </div>
             </div>
             {splitMode && (
               <div className="split-hint">

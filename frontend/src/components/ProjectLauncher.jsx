@@ -8,8 +8,9 @@ import { useState } from 'react'
 import { updateProject, deleteProject } from '../api'
 
 export default function ProjectLauncher({ sites, onSelect, onPreload, onNewProject, onSiteEdited, onSiteDeleted, loading }) {
-  const recent  = sites.slice(0, 3)
-  const theRest = sites.slice(3)
+  const sortedSites = [...sites].sort((a, b) =>
+    new Date(b.updatedAt ?? b.createdAt) - new Date(a.updatedAt ?? a.createdAt)
+  )
 
   const [selectedId, setSelectedId] = useState(null)
 
@@ -58,11 +59,12 @@ export default function ProjectLauncher({ sites, onSelect, onPreload, onNewProje
           </div>
         </div>
 
-        <div className="launcher-section-label">Recent projects</div>
+        <div className="launcher-section-label">Projects</div>
         <div className="launcher-cards">
+          <NewProjectCard onNewProject={onNewProject} />
           {loading
             ? [0, 1, 2].map(i => <div key={i} className="lcard lcard-skeleton" />)
-            : recent.map(site => (
+            : sortedSites.map(site => (
                 <SiteCard
                   key={site.id}
                   site={site}
@@ -73,28 +75,7 @@ export default function ProjectLauncher({ sites, onSelect, onPreload, onNewProje
                 />
               ))
           }
-          <NewProjectCard onNewProject={onNewProject} />
         </div>
-
-        {!loading && theRest.length > 0 && (
-          <>
-            <div className="launcher-section-label" style={{ marginTop: 28 }}>
-              All projects
-            </div>
-            <div className="launcher-list">
-              {theRest.map(site => (
-                <SiteListRow
-                  key={site.id}
-                  site={site}
-                  selected={selectedId === site.id}
-                  onClick={handleCardClick}
-                  onEdited={onSiteEdited}
-                  onDeleted={onSiteDeleted}
-                />
-              ))}
-            </div>
-          </>
-        )}
 
       </div>
     </div>
@@ -313,61 +294,5 @@ function NewProjectCard({ onNewProject }) {
         </span>
       </div>
     </button>
-  )
-}
-
-// ── Compact list row ───────────────────────────────────────────────────────
-function SiteListRow({ site, selected, onClick, onEdited, onDeleted }) {
-  const [menuOpen,   setMenuOpen]   = useState(false)
-  const [showEdit,   setShowEdit]   = useState(false)
-  const [showDelete, setShowDelete] = useState(false)
-
-  const dateCount = site.dates?.length ?? 0
-
-  return (
-    <>
-      <div className="llist-row-wrap">
-        <button
-          className={`llist-row${selected ? ' llist-selected' : ''}`}
-          onClick={() => onClick(site)}
-        >
-          <div className={`llist-dot${selected ? ' llist-dot-selected' : ''}`} />
-          <div className="llist-name">{site.name}</div>
-          <div className="llist-meta">{dateCount} survey{dateCount !== 1 ? 's' : ''}</div>
-          <div className="llist-arrow">{selected ? '↵' : '→'}</div>
-        </button>
-
-        <div className="llist-menu-wrap">
-          <button
-            className="lcard-menu-btn"
-            onClick={() => setMenuOpen(v => !v)}
-            title="More options"
-          >
-            ⋯
-          </button>
-          {menuOpen && (
-            <div className="lcard-menu-dropdown" onMouseLeave={() => setMenuOpen(false)}>
-              <button onClick={() => { setMenuOpen(false); setShowEdit(true) }}>✎ Edit</button>
-              <button className="lcard-menu-danger" onClick={() => { setMenuOpen(false); setShowDelete(true) }}>🗑 Delete</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {showEdit && (
-        <EditSiteModal
-          site={site}
-          onClose={() => setShowEdit(false)}
-          onSaved={() => { setShowEdit(false); onEdited?.() }}
-        />
-      )}
-      {showDelete && (
-        <DeleteConfirmModal
-          site={site}
-          onClose={() => setShowDelete(false)}
-          onDeleted={id => { setShowDelete(false); onDeleted?.(id) }}
-        />
-      )}
-    </>
   )
 }

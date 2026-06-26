@@ -224,6 +224,14 @@ export default function Panel({
       onDiffName('')
     }
 
+    // Switching analysis method should look the same as starting a fresh
+    // computation — no stale "대기 중…" from the mode you're leaving.
+    function handleModeSelect(newMode) {
+      setLastJobId(null)
+      pendingCapture.current = false
+      onMode?.(newMode)
+    }
+
     return (
       <>
         {/* Fixed top — project info + back button */}
@@ -291,7 +299,7 @@ export default function Panel({
             <select
               className="mode-select"
               value={mode ?? 'compare-api'}
-              onChange={e => onMode?.(e.target.value)}
+              onChange={e => handleModeSelect(e.target.value)}
             >
               {ANALYSIS_MODES.map(m => (
                 <option key={m.value} value={m.value}>{m.label}</option>

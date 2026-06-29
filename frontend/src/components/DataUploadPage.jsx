@@ -183,9 +183,6 @@ function DateTextInput({ value, onChange, disabled, autoFocus }) {
 }
 
 // ── Set location modal — derives coords from the tileset itself ──────────
-// Instead of manual lat/lon entry, this fetches the date's tileset.json,
-// computes the center of its root bounding region, and asks the user to
-// confirm before saving it as the project's centerLon/centerLat.
 
 function SetLocationModal({ site, date, onSaved, onClose }) {
   const [phase,  setPhase]  = useState('loading')   // 'loading' | 'confirm' | 'saving' | 'error'
@@ -286,11 +283,6 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
 }
 
 // ── Manual location modal — type in lon/lat directly ─────────────────────
-// Alternative to SetLocationModal for when the desired coordinates don't
-// come from any uploaded tileset. Saving here clears the
-// `center-from-date-${site.id}` flag, since the coordinates no longer
-// originate from a specific date's data — this re-enables the "위치로 지정"
-// button on every date row/preview (none of them is "already set" anymore).
 
 function ManualLocationModal({ site, onSaved, onClose }) {
   const [lon,     setLon]     = useState(site.centerLon != null ? String(site.centerLon) : '')
@@ -692,11 +684,8 @@ function NewDateCard({ site, onUploadObservation }) {
     if (!name.trim())                              return setError('이름(설명)은 필수입니다.')
     if (!files.length)                             return setError('파일을 선택하세요 — 데이터 파일이 필요합니다.')
 
-    // Hand off to the background upload registry (App.jsx) and reset the
-    // form immediately — uploading is no longer something this form waits
-    // on, so the card closes right away and the user is free to open
-    // "새 날짜 추가" again to start another upload in parallel. Progress for
-    // this upload is tracked separately and shown as its own row in the
+    // Hand off to the background upload registry (App.jsx) and reset the form immediately  
+    // Progress for this upload is tracked separately and shown as its own row in the
     // list (see UploadingDateCard) until it succeeds or fails.
     onUploadObservation(site.id, {
       name:        name.trim(),
@@ -863,11 +852,9 @@ function NewDateCard({ site, onUploadObservation }) {
 
 // ── In-progress upload row ────────────────────────────────────────────────
 //
-// Renders one row per entry in uploadingDateInfo (App.jsx's background
-// upload registry). Several of these can be visible simultaneously since
-// uploads now run concurrently — each tracks its own phase/pct/error
-// independently. A failed upload stays visible (with its error) until
-// dismissed, rather than silently disappearing.
+// Renders one row per entry in uploadingDateInfo. 
+// Several of these can be visible simultaneously 
+// A failed upload stays visible (with its error) until dismissed
 
 function UploadingDateCard({ tempId, info, onDismiss }) {
   const { name, observedAt, phase, pct, error } = info
@@ -924,10 +911,6 @@ function UploadingDateCard({ tempId, info, onDismiss }) {
 // Creates its own Cesium.Viewer in a div inside the preview pane.
 // Uses window.Cesium (set by cesiumInit.js) and window.customTerrain.
 // Completely independent from the main window.viewer.
-//
-// IMPORTANT: The container div is ALWAYS in the DOM (even in empty state).
-// Cesium.Viewer needs a real sized element — we init lazily on first preview
-// click so the div has had at least one paint cycle to get its dimensions.
 
 function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
   const containerRef  = useRef(null)
@@ -963,15 +946,9 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
 
     initDoneRef.current = true
     try {
-      // Fresh terrain provider, NOT window.customTerrain. A TerrainProvider
-      // lazily compiles/caches GPU resources the first time any scene
-      // renders terrain from it, bound to whichever WebGL context renders
-      // first -- reusing window.customTerrain here means this mini preview
-      // shares it with the primary viewer's context, producing the same
+      // Fresh terrain provider, NOT window.customTerrain.
+      // otherwise WebGL reuses window.customTerrain making error
       // "framebufferTexture2D: object does not belong to this context"
-      // class of errors the split-view secondary viewer originally had
-      // (see createFreshTerrainProvider in cesiumInit.js). This preview is
-      // its own independent WebGL context and needs its own terrain too.
       const terrain = await createFreshTerrainProvider()
       const v = new Cesium.Viewer(el, {
         terrainProvider:         terrain,
@@ -1020,12 +997,9 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
     // Use rAF so the container's display:block has taken effect and has real dimensions
     let cancelled = false
     const raf = requestAnimationFrame(() => {
-      // ensureViewer is now async (it awaits a fresh per-instance terrain
+      // ensureViewer is async (it awaits a fresh per-instance terrain
       // provider — see createFreshTerrainProvider in cesiumInit.js for why
-      // this preview can't reuse window.customTerrain). Wrap the whole load
-      // sequence in one async IIFE so `v` is resolved before anything below
-      // touches it, rather than calling ensureViewer() synchronously and
-      // getting a Promise back.
+      // this preview can't reuse window.customTerrain). 
       ;(async () => {
         const v = await ensureViewer()
         if (cancelled || !v || v.isDestroyed()) return
@@ -1052,17 +1026,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
           })
           if (cancelled || v.isDestroyed()) { try { ts.destroy() } catch (_) {}; return }
 
-          // Disable per-tileset dynamic IBL/environment-map updates — this is
-          // the actual root cause of the cross-context WebGL errors seen in
-          // this preview (same fix as _loadTileset in layers.js). Cesium's
-          // DynamicEnvironmentMapManager queues persists:true ComputeCommands
-          // every frame during tileset update; with multiple independent
-          // viewers/contexts open in the app at once, those commands can get
-          // drained by whichever scene renders next — not necessarily this
-          // preview's own context — producing "framebufferTexture2D: object
-          // does not belong to this context". No visual loss: this preview's
-          // own PBR-ish lighting below is a hand-rolled CustomShader term, not
-          // dependent on Cesium's IBL system.
+          // Disable per-tileset dynamic IBL/environment-map updates (cause of the cross-context WebGL errors) 
           if (ts.environmentMapManager) ts.environmentMapManager.enabled = false
 
           v.scene.primitives.add(ts)
@@ -1075,8 +1039,7 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
           }
 
           // Mirror the same modelMatrix correction used in _loadTileset (layers.js):
-          // translates the tileset so its bounding-sphere center sits at the correct
-          // geodetic position on the ellipsoid.
+          // translates the tileset so its bounding-sphere center sits at the correct geodetic position on the ellipsoid.
           if (needsModelMatrix) {
             const c  = ts.boundingSphere.center
             const ca = Cesium.Cartographic.fromCartesian(c)
@@ -1086,7 +1049,6 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
             )
 
             // PBR lighting pass for mesh/voxel tiles in the preview window.
-            // Adds a simple Lambertian-ish term on top of Cesium's PBR pipeline
             // so meshes/voxels don't look flat under the preview's lighting.
             ts.customShader = new Cesium.CustomShader({
               lightingModel: Cesium.LightingModel.PBR,
@@ -1106,21 +1068,9 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
 
           tilesetRef.current = ts
 
-          // Read camera position from the tileset that has a TRUSTWORTHY region.
-          // Originally this always read date.originalTilesetUrl (the PC tileset), even
-          // when previewing a mesh — that part of the original bug is fixed by reading
-          // from `url` (whatever was actually loaded into `ts`) for PC and mesh previews.
-          //
-          // Voxel tileset.json files are the exception: their root region has been
-          // observed to be a placeholder/degenerate value (e.g. lon 126 / lat 36 —
-          // suspiciously round numbers nowhere near the actual site, producing a
-          // bounding-sphere height in the hundreds-of-km range). That's a backend
-          // generation issue, not something to fix from camera code. So for voxel
-          // previews specifically, borrow the camera center from the same
-          // observation's original PC/mesh tileset instead of trusting the voxel's
-          // own (unreliable) region — this matches the voxel's own modelMatrix
-          // correction above, which already aligns the voxel geometry with the
-          // PC/mesh footprint on the ground.
+          // Read camera position from the tileset
+          // Voxel tileset.json files are the exception: their root region has a placeholder/degenerate value (e.g. lon 126 / lat 36)
+          // for voxel previews borrow the camera center from the observation's original PC/mesh tileset 
           const cameraSourceUrl = (isVox && date.originalTilesetUrl) ? date.originalTilesetUrl : url
           const { lon, lat } = await fetchTilesetCenter(cameraSourceUrl)
           if (!cancelled) setCoords({ lon, lat })
@@ -1159,12 +1109,8 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
       })()
     })
 
-    // `cancelled` is shared (via closure) with the async IIFE above, so
-    // setting it here is enough to stop the in-flight load from touching
-    // a viewer/tileset after this effect has been torn down -- no need for
-    // the old tilesetRef._cancelLoad indirection now that everything lives
-    // in one async function instead of being split across a sync rAF
-    // callback and a separately-kicked-off async IIFE.
+    // `cancelled` is shared (via closure) with the async IIFE above -> setting it here is enough to stop the in-flight load from touching
+    // a viewer/tileset after this effect has been torn down (no need tilesetRef._cancelLoad)
     return () => {
       cancelAnimationFrame(raf)
       cancelled = true

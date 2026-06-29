@@ -26,14 +26,14 @@ Drone surveys produce 3D meshes and point clouds that are converted to 3D Tiles 
     └── src/
         ├── components/
         │   ├── NavBar.jsx             ← top nav: tabs + active site chip
-        │   ├── Panel.jsx              ← left sidebar: site info, diff history, compute controls
+        │   ├── Panel.jsx              ← left sidebar: site info, diff history, blink/split toggles, compute controls
         │   ├── RightPanel.jsx         ← right sidebar: results + stats (A/B and timeline)
         │   ├── MapOverlayControls.jsx ← floating basemap picker + terrain toggle
         │   ├── BottomBar.jsx          ← status + legend + shortcuts + coords
         │   ├── TimelineBar.jsx        ← full-width timeline scrubber (hidden in split mode)
         │   ├── TimelinePanel.jsx      ← timeline stats + inline MiniTimelineBar scrubber
-        │   ├── ProjectLauncher.jsx    ← full-screen project selection page
-        │   ├── DataUploadPage.jsx     ← upload tab (date list + upload per date + voxelize)
+        │   ├── ProjectLauncher.jsx    ← full-screen project selection page (with per-card edit/delete)
+        │   ├── DataUploadPage.jsx     ← upload tab (date list + live preview pane + voxelize)
         │   ├── NewProjectModal.jsx    ← create new site form
         │   ├── DiffHistory.jsx        ← past + in-progress diff list
         │   ├── DrawBanner.jsx         ← polygon drawing overlay banner
@@ -117,6 +117,8 @@ The frontend maps the external API's terminology to its own internal names:
 
 Each site has multiple survey dates. Each date can have a point cloud tileset and/or a voxelized representation (computed server-side and polled for completion).
 
+A site's map location (camera lon/lat/height) can be set by deriving it from any uploaded date's tileset, or entered manually — both available from the 관측 데이터 (Observations) tab.
+
 ---
 
 ## UI overview
@@ -153,6 +155,8 @@ Each site has multiple survey dates. Each date can have a point cloud tileset an
 - **A vs B 비교** — select two dates, trigger a voxel diff job, visualise added/removed volumes
 - **시계열 변화탐지** — scrub through pre-computed TIME_SERIES diff snapshots with a timeline bar
 - **Split view** — load two diff history entries side by side with synced cameras
+- **점멸 (Blink mode)** — flickers added/removed voxels and hides the unchanged layer, in single or split view
+- Multiple A·B / time-series diff jobs can run concurrently, each independently cancellable
 
 ---
 
@@ -162,9 +166,7 @@ Each site has multiple survey dates. Each date can have a point cloud tileset an
 |---|---|
 | `A` | Toggle added voxels |
 | `R` | Toggle removed voxels |
-| `D` | Draw polygon area (compare mode) |
-| `M` | Toggle active date layer |
-| `1` | Site camera |
-| `2` | Top-down camera |
+| `U` | Toggle unchanged voxels |
+| `1` | Top-down camera |
 | `← →` | Step through timeline |
 | `Space` | Play / pause timeline |

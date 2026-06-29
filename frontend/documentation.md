@@ -33,16 +33,20 @@
 - Each date can have a point cloud tileset and/or a voxelized representation
 
 ### 🗂️ Project management
-- **Project Launcher** — full-screen project selection page
+- **Project Launcher** — full-screen project selection page; card grid with hover menu for edit/delete per site
 - **New Project modal** — create a site (name, camera position) via the external API
-- **Observations tab** — list all dates per site, upload tilesets, trigger voxelization jobs
+- **Edit Project modal** — update name, description, and camera lon/lat/height for an existing site
+- **Delete Project modal** — confirms before deleting a site and all its dates/data
+- **Observations tab** — list all dates per site, upload tilesets, trigger voxelization jobs, set project location (from tileset or manual entry), edit camera height
 
 ### 🔄 Change detection (core feature)
 - **A vs B compare mode** — select two dates, run a server-side voxel diff job, visualise added/removed volumes as coloured 3D voxels via a tileset
 - **Timeline mode** — scrub through pre-computed TIME_SERIES diff snapshots across all consecutive date pairs
 - **Split view** — load two diff history entries side by side with synced cameras
+- **Blink mode (점멸)** — flickers added/removed voxels on/off and hides the unchanged layer, in both single and split view
 - Area polygon filter — restrict computation to a drawn geographic region
 - Results: volume in m³, voxel count, net change
+- Multiple A·B / time-series diff jobs can run concurrently, each independently cancellable
 
 ### ⌨️ Keyboard shortcuts
 | Key | Action |
@@ -102,24 +106,24 @@ Cesium is entirely imperative — it owns the `<div id="cesiumContainer">` and R
 
 | File | Responsibility |
 |---|---|
-| `App.jsx` | All UI state, event handlers, orchestrates everything |
+| `App.jsx` | All UI state, event handlers, orchestrates everything; tracks in-flight diff jobs (`inFlightJobsRef`) for concurrent cancellation and blocking edits to dates in use |
 | `api.js` | Adapter to external REST API — maps project↔site, observation↔date |
 | `config.js` | Ion token, visual defaults, terrain settings |
 | `TimelineDiffs.js` | Loads and caches TIME_SERIES diff snapshots per site |
-| `cesium/cesiumInit.js` | Creates the Cesium viewer; flyTo, basemap, terrain, secondary viewer for split mode |
+| `cesium/cesiumInit.js` | Creates the Cesium viewer; flyTo, basemap, terrain, secondary viewer for split mode; `createFreshTerrainProvider()` gives each viewer (primary, split secondary, upload-tab preview) its own terrain instance |
 | `cesium/layers.js` | Loads tilesets, syncs visibility, renders voxel shader; exports `createLayerController` for split-view slot B |
 | `cesium/polygonDraw.js` | Interactive polygon drawing; per-tab state so compare/timeline don't bleed into each other |
 | `cesium/viewerSync.js` | Bidirectional camera sync between the two split-view viewports |
 | `components/NavBar.jsx` | Top nav: tabs + active site chip |
-| `components/Panel.jsx` | Left sidebar: site info, diff history, new computation form (date selectors, draw area, run button) |
+| `components/Panel.jsx` | Left sidebar: site info, diff history, blink/split toggles, new computation form (date selectors, draw area, run button) |
 | `components/RightPanel.jsx` | Right sidebar: results + stats for A/B or timeline; stacks two halves in split view |
 | `components/MapOverlayControls.jsx` | Floating basemap picker grid + terrain toggle |
 | `components/BottomBar.jsx` | Fixed bottom: status, legend, shortcuts, coords; hosts TimelineBar |
 | `components/TimelineBar.jsx` | Full-width timeline scrubber (hidden in split mode) |
 | `components/TimelinePanel.jsx` | Timeline stats: mini chart, snapshot stats, visibility toggles, inline `MiniTimelineBar` scrubber |
 | `components/DiffHistory.jsx` | List of past and in-progress diff jobs; click to load, ✕ to delete/cancel |
-| `components/ProjectLauncher.jsx` | Full-screen project selection page |
-| `components/DataUploadPage.jsx` | Upload tab: date list, per-date upload, voxelize trigger |
+| `components/ProjectLauncher.jsx` | Full-screen project selection page; per-card edit/delete via `EditSiteModal` / `DeleteConfirmModal` |
+| `components/DataUploadPage.jsx` | Upload tab: date list + live preview pane, voxelize trigger, project location (tileset-derived or manual) and camera height editing |
 | `components/NewProjectModal.jsx` | Modal for creating a new site |
 | `components/DrawBanner.jsx` | Banner overlay shown while drawing a polygon |
 | `components/Toasts.jsx` | Auto-dismissing toast stack |
@@ -175,17 +179,24 @@ The map is hidden (`cesium-hidden`) while the Projects or Upload tab is active.
 
 ### ProjectLauncher
 
-- Displays all sites as cards (survey count, date range, status)
+- Displays all sites as cards (survey count, latest survey date)
+- First click selects a card; second click opens it (clicking a different card selects that one instead)
+- Each card has a **⋯** menu for **✎ Edit** (name, description, camera lon/lat/height) and **🗑 Delete** (with confirmation, deletes all dates/data)
 - **+ 새 프로젝트** opens `NewProjectModal`
-- Clicking a card calls `handleOpenProject(site)` — clears the scene, resets state, switches to Analysis
+- Opening a site calls `handleOpenProject(site)` — clears the scene, resets state, switches to Analysis. If the site has no dates, or has dates but no camera coordinates set, it routes to the Upload tab instead.
 
 ### DataUploadPage
 
-Lists all survey dates for the active site. Each date row has:
-- Edit name/date, delete, set as camera location (reads coords from the tileset's bounding region)
-- Per-date **PC / Mesh / VOX** preview buttons — clicking one loads that representation directly into `window.viewer` (no separate Cesium instance). VOX is only enabled when `voxelStatus === 'SUCCEEDED'`.
-- Upload a new tileset (drag-drop folder or `.zip`)
-- Trigger / cancel voxelization (needed before running a diff)
+Two-column layout: a scrollable date list on the left, a live Cesium preview pane on the right.
+
+- **Date list (left)** — each date row has:
+  - Edit name/date, delete (cancels any running voxel job first — "중지 후 삭제")
+  - Per-date **PC/Mesh** and **VOX** preview pills — clicking one loads that representation into the shared preview pane on the right. VOX is only enabled when `voxelStatus === 'SUCCEEDED'`.
+  - Trigger / cancel voxelization (needed before running a diff)
+- **Preview pane (right)** — `MiniCesiumPreview`, an independent `Cesium.Viewer` (own fresh terrain provider, never shares `window.customTerrain`) that loads whichever date/layer is selected, flies to its center, and shows live lon/lat. Voxel tilesets borrow their camera center from the date's original PC/mesh tileset, since voxel `tileset.json` root regions are placeholder values.
+- **위치로 지정** (in the preview pane) — saves the currently-previewed tileset's center as the project's camera position
+- **✎ 좌표 직접 입력** — manual lon/lat entry modal, for setting project location without relying on any tileset
+- **↕ 카메라 높이** — modal to directly edit the project's initial camera height (metres), independent of lon/lat
 
 **+ 새 날짜 추가** creates a new date and optionally uploads its dataset immediately.
 
@@ -199,11 +210,11 @@ The user selects two survey dates (A = before, B = after) and runs a volumetric 
 
 ### Left panel — new computation view
 
-- Date A / Date B selectors
+- Analysis name (optional), analysis mode selector, Date A / Date B selectors (only voxelized dates are selectable)
 - Draw Area button
-- Voxel size input + diff name
-- **⚡ 차이 계산** — triggers a diff job, polls for completion, then loads the result tileset
+- **⚡ 분석 실행** — triggers a diff job and shows a status row (spinner + cancel) in place of the run button while it's in flight
 - Running jobs appear immediately in Diff History with a spinner
+- **＋ 새 변화탐지** is available even while a job is running, so multiple A·B and/or time-series jobs can be queued and tracked concurrently, each with independent cancellation (`inFlightJobsRef` in `App.jsx`)
 
 ### Right panel — results
 
@@ -270,6 +281,14 @@ Split view renders two independent Cesium viewports side by side, each showing a
 ### Camera sync details (`viewerSync.js`)
 
 Both viewers listen to each other's `scene.postRender`. A `syncing` flag prevents infinite ping-pong. Sync is deferred via `requestAnimationFrame` to avoid interleaving render passes from different WebGL contexts (which would cause "object does not belong to this context" errors).
+
+### Blink mode (점멸)
+
+Toggled from the **점멸** button in `Panel.jsx`'s diff-history header (works in both single and split view). While on:
+- The unchanged ("유지") layer is forced off for slot A, and for slot B whenever a B slot is occupied — the U toggle and its `u` keyboard shortcut are disabled while blink is active.
+- A 250ms interval (`blinkOn` state) flickers whichever added/removed voxels are currently visible by ANDing the flicker phase onto their visibility at apply-time. The underlying added/removed toggle state itself is untouched, so those toggles keep working independently while blink runs.
+- Turning blink off restores whatever "유지" values were in effect right before it was turned on (snapshotted per-slot in `unchangedSnapshotRef`).
+- A `useEffect` re-applies the "force unchanged off" rule whenever blink is on and the active mode, split mode, or slot B's assigned type changes — so a B slot assigned *after* blink was already toggled on is still caught correctly.
 
 ---
 

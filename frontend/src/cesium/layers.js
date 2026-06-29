@@ -21,16 +21,9 @@ import { setStatus, toast, requestRender as requestRenderPrimary } from './cesiu
 // ── Voxel shader ──────────────────────────────────────────────────────────
 //
 // Classifies voxels by their baked diffuse colour using absolute-channel
-// thresholds (r > 0.7 = added/red, b > 0.7 = removed/blue, all channels
-// > 0.5 = unchanged/gray union). Each category is independently toggleable
-// via discard. Recolors surviving fragments to exact brand values; stays
-// in PBR lighting (not UNLIT) so faces still shade by angle/light for a
-// 3D depth effect, with an emissive boost layered on top to keep the
-// color vibrant rather than dull (IBL is disabled on these tilesets, so
-// PBR diffuse alone reads dim with only weak ambient/direct light to
-// shade with). colorBlendMode is set to REPLACE on the tileset (in
-// _applyVoxelShader) so the shader's diffuse fully overrides the baked
-// vertex color instead of blending with it.
+// (r > 0.7 = added/red, b > 0.7 = removed/blue, all channels > 0.5 = unchanged/gray union) 
+// Each category is independently toggleable
+// Recolors surviving fragments to exact brand values
 
 function _buildCustomShader(showAdded, showRemoved, showUnchanged) {
   // Absolute-channel classification (matches the reference snippet):

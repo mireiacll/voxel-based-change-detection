@@ -37,7 +37,12 @@ export default function BottomBar({
 
         {/* Status */}
         <div className="bb-status">
-          {!statusDone && <div id="status-dots"><span /><span /><span /></div>}
+          {!statusDone
+            ? <div id="status-dots"><span /><span /><span /></div>
+            : statusMsg.startsWith('⚙')
+              ? <div id="status-dots"><span /><span /><span /></div>
+              : <div className="bb-status-dot" />
+          }
           <span id="status-text">{statusMsg}</span>
         </div>
 

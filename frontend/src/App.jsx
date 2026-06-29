@@ -1420,6 +1420,12 @@ export default function App() {
 
   const showAnalysis   = navTab === 'analysis'
   const showPcSlider   = activeDate?.datasetType === 'pointcloud' && activeDateLayerMode === 'pc'
+
+  // After init, statusMsg stays as 'Initialising viewer…' forever because cesiumInit
+  const typeLabel = activeDate?.datasetType === 'pointcloud' ? '포인트클라우드' : activeDate?.datasetType === 'mesh' ? '메쉬' : ''
+  const displayStatus = statusDone
+    ? (activeDate ? `${activeDate.label ?? activeDate.id}${typeLabel ? ' · ' + typeLabel : ''}` : '로드된 날짜 데이터 없음')
+    : statusMsg
   const showRightPanel = splitMode
     ? (apiSummary != null || tlSnapshots != null || apiSummaryB != null || tlSnapshotsB != null)
     : (
@@ -1568,7 +1574,7 @@ export default function App() {
           />
 
           <BottomBar
-            statusMsg={statusMsg}   statusDone={statusDone}
+            statusMsg={displayStatus}   statusDone={statusDone}
             coords={coords}
             mode={mode}
             tlSnapshots={splitMode ? null : tlSnapshots}
@@ -1583,7 +1589,7 @@ export default function App() {
       )}
 
       {showAnalysis && !activeSite && (
-        <BottomBar statusMsg={statusMsg} statusDone={statusDone} mode="compare-api" />
+        <BottomBar statusMsg={displayStatus} statusDone={statusDone} mode="compare-api" />
       )}
 
       <Toasts items={toasts} showRightPanel={showRightPanel} />

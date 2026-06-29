@@ -154,6 +154,8 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
   _onStatus = onStatus || _onStatus
   _onToast  = onToast  || _onToast
 
+  _onStatus('뷰어 초기화 중…', false)
+
   Cesium.Ion.defaultAccessToken = CONFIG.ION_TOKEN
 
   // ── Terrain ──────────────────────────────────────────────────────────────
@@ -194,6 +196,7 @@ export async function initViewer({ onReady, onStatus, onToast, onCoords }) {
       requestRender()
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 
+  _onStatus('준비 완료', true)
   onReady?.()
 }
 

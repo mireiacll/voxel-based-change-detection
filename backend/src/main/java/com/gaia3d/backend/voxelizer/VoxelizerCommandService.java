@@ -23,6 +23,8 @@ public class VoxelizerCommandService {
             boolean visualize,
             String visualizeColor,
             String cubeDataType,
+            Path regionGpkgPath,
+            boolean invertRegionFilter,
             boolean recursive) {
         return toDisplayCommand(createVoxelCommandArgs(
                 inputTilesetDir,
@@ -32,6 +34,8 @@ public class VoxelizerCommandService {
                 visualize,
                 visualizeColor,
                 cubeDataType,
+                regionGpkgPath,
+                invertRegionFilter,
                 recursive));
     }
 
@@ -43,6 +47,8 @@ public class VoxelizerCommandService {
             boolean visualize,
             String visualizeColor,
             String cubeDataType,
+            Path regionGpkgPath,
+            boolean invertRegionFilter,
             boolean recursive) {
         List<String> command = new ArrayList<>(List.of(
                 "java",
@@ -64,6 +70,13 @@ public class VoxelizerCommandService {
         }
         command.add("--cubeDataType");
         command.add(cubeDataType);
+        if (regionGpkgPath != null) {
+            command.add("--filter-region-gpkg");
+            command.add(normalize(regionGpkgPath));
+            if (invertRegionFilter) {
+                command.add("--invert-region-filter");
+            }
+        }
         if (recursive) {
             command.add("--recursive");
         }
@@ -83,7 +96,6 @@ public class VoxelizerCommandService {
             int minDiffNeighbors,
             int diffNeighborIterations,
             int minDiffClusterSize,
-            boolean union,
             boolean massSummary,
             String cubeDataType,
             String regionWkt,
@@ -101,7 +113,6 @@ public class VoxelizerCommandService {
                 minDiffNeighbors,
                 diffNeighborIterations,
                 minDiffClusterSize,
-                union,
                 massSummary,
                 cubeDataType,
                 regionWkt,
@@ -121,7 +132,6 @@ public class VoxelizerCommandService {
             int minDiffNeighbors,
             int diffNeighborIterations,
             int minDiffClusterSize,
-            boolean union,
             boolean massSummary,
             String cubeDataType,
             String regionWkt,
@@ -148,16 +158,13 @@ public class VoxelizerCommandService {
         command.add(String.valueOf(diffNeighborIterations));
         command.add("--filter-min-cluster-size");
         command.add(String.valueOf(minDiffClusterSize));
-        if (union) {
-            command.add("--withUnion");
-        }
         if (massSummary) {
             command.add("--massSummary");
         }
         command.add("--cubeDataType");
         command.add(cubeDataType);
         if (regionWkt != null && !regionWkt.isEmpty()) {
-            command.add("--regionWkt");
+            command.add("--filter-region-wkt");
             command.add(regionWkt);
         }
         if (recursive) {

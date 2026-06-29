@@ -14,7 +14,6 @@ public record CreateAbDiffRequest(
         Integer minDiffNeighbors,
         Integer diffNeighborIterations,
         Integer minDiffClusterSize,
-        Boolean union,
         Boolean massSummary,
         String cubeDataType,
         Boolean recursive,

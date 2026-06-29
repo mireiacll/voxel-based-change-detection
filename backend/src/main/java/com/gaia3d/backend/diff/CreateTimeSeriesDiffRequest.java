@@ -11,7 +11,6 @@ public record CreateTimeSeriesDiffRequest(
         Integer minDiffNeighbors,
         Integer diffNeighborIterations,
         Integer minDiffClusterSize,
-        Boolean union,
         Boolean massSummary,
         String cubeDataType,
         Boolean recursive,

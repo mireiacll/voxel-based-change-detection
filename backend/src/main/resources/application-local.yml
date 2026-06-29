@@ -3,10 +3,10 @@ spring:
     name: backend-api
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
 
 voxelizer:
-  jar-path: C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.1-beta.jar
+  jar-path: C:/Workspace/git-repositories/geo-data-cube/mago-voxelizer/dist/mago-voxelizer-0.1.2-beta.jar
   storage-root: H:/workspace/change-detection
   mock-execution: false
   temp-path: H:/workspace/change-detection/temp
@@ -15,8 +15,10 @@ voxelizer:
   default-create:
     max-level: 15
     visualize: true
-    visualize-color: grey
+    visualize-color: gray
     cube-data-type: BYTE
+    # region-gpkg-path: /data/regions/aoi.gpkg
+    # invert-region-filter: false
     recursive: true
   default-diff:
     max-level: 15
@@ -27,7 +29,6 @@ voxelizer:
     min-diff-neighbors: 3
     diff-neighbor-iterations: 2
     min-diff-cluster-size: 20
-    union: true
     mass-summary: true
     cube-data-type: BYTE
     recursive: true

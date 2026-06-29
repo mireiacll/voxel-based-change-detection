@@ -148,7 +148,6 @@ public class DiffJobRunner {
                 diff.getMinDiffNeighbors(),
                 diff.getDiffNeighborIterations(),
                 diff.getMinDiffClusterSize(),
-                diff.getUnion(),
                 diff.getMassSummary(),
                 diff.getCubeDataType(),
                 diff.getAreaWkt(),

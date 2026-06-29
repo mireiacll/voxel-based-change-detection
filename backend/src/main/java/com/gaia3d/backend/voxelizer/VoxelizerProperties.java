@@ -17,15 +17,17 @@ public record VoxelizerProperties(
         @DefaultValue DefaultDiff defaultDiff) {
 
     public record DefaultCreate(
-            @DefaultValue("15") int maxLevel,
+            @DefaultValue("16") int maxLevel,
             @DefaultValue("true") boolean visualize,
-            @DefaultValue("grey") String visualizeColor,
+            @DefaultValue("gray") String visualizeColor,
             @DefaultValue("BYTE") String cubeDataType,
+            Path regionGpkgPath,
+            @DefaultValue("false") boolean invertRegionFilter,
             @DefaultValue("true") boolean recursive) {
     }
 
     public record DefaultDiff(
-            @DefaultValue("15") int maxLevel,
+            @DefaultValue("16") int maxLevel,
             @DefaultValue("ADD_AND_REMOVE") String diffOperation,
             @DefaultValue("true") boolean visualize,
             @DefaultValue("6") int diffNeighborMode,
@@ -33,7 +35,6 @@ public record VoxelizerProperties(
             @DefaultValue("3") int minDiffNeighbors,
             @DefaultValue("2") int diffNeighborIterations,
             @DefaultValue("20") int minDiffClusterSize,
-            @DefaultValue("true") boolean union,
             @DefaultValue("true") boolean massSummary,
             @DefaultValue("BYTE") String cubeDataType,
             @DefaultValue("true") boolean recursive) {

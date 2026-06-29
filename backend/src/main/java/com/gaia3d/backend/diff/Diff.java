@@ -41,8 +41,6 @@ public class Diff extends BaseTimeEntity {
     private Integer minDiffNeighbors;
     private Integer diffNeighborIterations;
     private Integer minDiffClusterSize;
-    @Column(name = "union_enabled")
-    private Boolean union;
     private Boolean massSummary;
     private String cubeDataType;
     private Boolean recursive;
@@ -72,7 +70,6 @@ public class Diff extends BaseTimeEntity {
         this.minDiffNeighbors = options.minDiffNeighbors();
         this.diffNeighborIterations = options.diffNeighborIterations();
         this.minDiffClusterSize = options.minDiffClusterSize();
-        this.union = options.union();
         this.massSummary = options.massSummary();
         this.cubeDataType = options.cubeDataType();
         this.recursive = options.recursive();
@@ -105,7 +102,6 @@ public class Diff extends BaseTimeEntity {
     public Integer getMinDiffNeighbors() { return minDiffNeighbors; }
     public Integer getDiffNeighborIterations() { return diffNeighborIterations; }
     public Integer getMinDiffClusterSize() { return minDiffClusterSize; }
-    public Boolean getUnion() { return union; }
     public Boolean getMassSummary() { return massSummary; }
     public String getCubeDataType() { return cubeDataType; }
     public Boolean getRecursive() { return recursive; }

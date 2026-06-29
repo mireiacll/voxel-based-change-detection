@@ -123,6 +123,8 @@ public class ObservationVoxelJobRunner {
                 visualize,
                 visualizeColor,
                 cubeDataType,
+                defaults.regionGpkgPath(),
+                defaults.invertRegionFilter(),
                 recursive);
         String command = commandService.toDisplayCommand(commandArgs);
 

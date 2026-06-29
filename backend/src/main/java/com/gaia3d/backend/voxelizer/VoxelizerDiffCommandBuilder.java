@@ -16,7 +16,7 @@ public class VoxelizerDiffCommandBuilder {
                 "--sourceInput", normalize(inputA),
                 "--targetInput", normalize(inputB),
                 "--output", normalize(outputPath),
-                "--maxLevel", "15",
+                "--maxLevel", "16",
                 "--log", normalize(outputPath.resolve("log.txt")),
                 "--diffOperation", "ADD_AND_REMOVE",
                 "--visualize",
@@ -25,7 +25,6 @@ public class VoxelizerDiffCommandBuilder {
                 "--filter-min-neighbors", "3",
                 "--filter-neighbor-iterations", "2",
                 "--filter-min-cluster-size", "20",
-                "--withUnion",
                 "--massSummary",
                 "--cubeDataType", "BYTE",
                 "--recursive");

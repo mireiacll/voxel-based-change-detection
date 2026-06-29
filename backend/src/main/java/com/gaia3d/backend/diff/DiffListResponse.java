@@ -15,7 +15,6 @@ public record DiffListResponse(
         Integer minDiffNeighbors,
         Integer diffNeighborIterations,
         Integer minDiffClusterSize,
-        Boolean union,
         String cubeDataType,
         long itemCount,
         LocalDateTime createdAt) {
@@ -34,7 +33,6 @@ public record DiffListResponse(
                 diff.getMinDiffNeighbors(),
                 diff.getDiffNeighborIterations(),
                 diff.getMinDiffClusterSize(),
-                diff.getUnion(),
                 diff.getCubeDataType(),
                 itemCount,
                 diff.getCreatedAt());

@@ -38,8 +38,10 @@ voxelizer:
   default-create:
     max-level: 15
     visualize: true
-    visualize-color: grey
+    visualize-color: gray
     cube-data-type: BYTE
+    # region-gpkg-path: /data/regions/aoi.gpkg
+    # invert-region-filter: false
     recursive: true
   default-diff:
     max-level: 15
@@ -50,7 +52,6 @@ voxelizer:
     min-diff-neighbors: 3
     diff-neighbor-iterations: 2
     min-diff-cluster-size: 20
-    union: true
     mass-summary: true
     cube-data-type: BYTE
     recursive: true

@@ -122,14 +122,13 @@ class ManualObservationSeedTest {
 
         DiffCreateResponse diff = diffService.createTimeSeries(project.id(), new CreateTimeSeriesDiffRequest(
                 "Manual seed time-series diff",
-                15,
+                16,
                 true,
                 6,
                 12,
                 2,
                 4,
                 10,
-                true,
                 true,
                 "BYTE",
                 true,
@@ -144,7 +143,7 @@ class ManualObservationSeedTest {
         assertThat(detail.items()).hasSize(2);
         for (DiffItemResponse item : detail.items()) {
             assertThat(item.status().name()).isEqualTo("SUCCEEDED");
-            assertThat(item.command()).contains("--maxLevel 15");
+            assertThat(item.command()).contains("--maxLevel 16");
             assertThat(item.command()).contains("--sourceInput");
             assertThat(item.command()).contains("--targetInput");
             assertThat(item.command()).contains("--log");
@@ -153,7 +152,7 @@ class ManualObservationSeedTest {
             assertThat(item.command()).contains("--filter-min-neighbors 3");
             assertThat(item.command()).contains("--filter-neighbor-iterations 2");
             assertThat(item.command()).contains("--filter-min-cluster-size 20");
-            assertThat(item.command()).contains("--withUnion");
+            assertThat(item.command()).doesNotContain("--withUnion");
             assertThat(item.command()).doesNotContain("--interiorOnly");
             assertThat(item.command()).doesNotContain("--fill-diff");
             assertThat(Path.of(item.resultVoxelPath()).toAbsolutePath().normalize())

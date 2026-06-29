@@ -51,8 +51,8 @@ import ProjectLauncher    from './components/ProjectLauncher'
 import NewProjectModal    from './components/NewProjectModal'
 import DataUploadPage     from './components/DataUploadPage'
 
-const DEFAULT_DRAW_INFO = 'No area selected — diff runs on full extent'
-const DEFAULT_DRAW_BTN  = '✏ Draw Area'
+const DEFAULT_DRAW_INFO = '선택된 영역 없음 — 전체 범위를 분석합니다'
+const DEFAULT_DRAW_BTN  = '✏ 영역 그리기'
 const DEFAULT_VIS       = { added: true, removed: true, unchanged: true }
 
 export default function App() {

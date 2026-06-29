@@ -12,8 +12,8 @@ function _emptyState() {
     geo:      [],
     handler:  null,
     entities: [],
-    drawInfo: 'No area selected — diff runs on full extent',
-    drawBtn:  '✏ Draw Area',
+    drawInfo: '선택된 영역 없음 — 전체 범위를 분석합니다',
+    drawBtn:  '✏ 영역 그리기',
   }
 }
 
@@ -67,8 +67,8 @@ export function clearPolygon() {
     _tabs[tab] = _emptyState()
   })
   _onDrawBanner(false)
-  _onDrawBtnLabel('✏ Draw Area')
-  _onDrawInfo('No area selected — diff runs on full extent')
+  _onDrawBtnLabel('✏ 영역 그리기')
+  _onDrawInfo('선택된 영역 없음 — 전체 범위를 분석합니다')
   if (window.viewer) window.viewer.scene.canvas.style.cursor = ''
   requestRender()
 }
@@ -106,8 +106,8 @@ export function swapPolygonTab(fromTab, toTab, currentDrawInfo, currentDrawBtn) 
   } else {
     Object.keys(_tabs).forEach(tab => _showEntities(_tabs[tab].entities, false))
     _onDrawBanner(false)
-    _onDrawInfo('No area selected — diff runs on full extent')
-    _onDrawBtnLabel('✏ Draw Area')
+    _onDrawInfo('선택된 영역 없음 — 전체 범위를 분석합니다')
+    _onDrawBtnLabel('✏ 영역 그리기')
   }
 
   if (window.viewer) requestRender()
@@ -118,8 +118,8 @@ export function togglePolygonDraw() {
   const s = _s()
   if (s.drawing || s.closed) {
     _clearActivePoly()
-    s.drawInfo = 'No area selected — diff runs on full extent'
-    s.drawBtn  = '✏ Draw Area'
+    s.drawInfo = '선택된 영역 없음 — 전체 범위를 분석합니다'
+    s.drawBtn  = '✏ 영역 그리기'
     _onDrawBtnLabel(s.drawBtn)
     _onDrawInfo(s.drawInfo)
   } else {
@@ -144,8 +144,8 @@ function _startDraw() {
 
   window.viewer.scene.canvas.style.cursor = 'crosshair'
   _onDrawBanner(true)
-  s.drawBtn  = '✕ Cancel Drawing'
-  s.drawInfo = 'Click on the map to add vertices…'
+  s.drawBtn  = '✕ 그리기 취소'
+  s.drawInfo = '지도를 클릭해 꼭짓점을 추가하세요…'
   _onDrawBtnLabel(s.drawBtn)
   _onDrawInfo(s.drawInfo)
 
@@ -191,7 +191,7 @@ function _startDraw() {
 
   s.handler.setInputAction(() => {
     if (s.pts.length >= 3) _closePoly(s)
-    else toast('Need at least 3 vertices to close the polygon', 'warn')
+    else toast('다각형을 닫으려면 꼭짓점이 3개 이상 필요합니다', 'warn')
   }, Cesium.ScreenSpaceEventType.RIGHT_CLICK)
 
   s.handler.setInputAction(() => {
@@ -222,8 +222,8 @@ function _addVertex(s, cartesian) {
     },
   }))
   const n = s.pts.length
-  s.drawInfo = `${n} ${n === 1 ? 'vertex' : 'vertices'}` +
-    (n >= 3 ? ' — right-click or double-click to close' : '')
+  s.drawInfo = `꼭짓점 ${n}개` +
+  (n >= 3 ? ' — 우클릭 또는 더블클릭으로 다각형 닫기' : '')
   _onDrawInfo(s.drawInfo)
   requestRender()
 }
@@ -233,11 +233,11 @@ function _closePoly(s) {
   if (s.handler) { s.handler.destroy(); s.handler = null }
   window.viewer.scene.canvas.style.cursor = ''
   _onDrawBanner(false)
-  s.drawBtn  = '✕ Clear Area'
-  s.drawInfo = `✓ ${s.pts.length}-vertex polygon — run diff to apply`
+  s.drawBtn  = '✕ 영역 지우기'
+  s.drawInfo = `✓ 꼭짓점 ${s.pts.length}개 — 분석을 실행하면 적용됩니다`
   _onDrawBtnLabel(s.drawBtn)
   _onDrawInfo(s.drawInfo)
-  toast(`Area selected (${s.pts.length} vertices). Now run the diff.`, 'ok')
+  toast(`영역이 선택되었습니다 (꼭짓점 ${s.pts.length}개). 이제 분석을 실행하세요.`, 'ok')
   requestRender()
 }
 

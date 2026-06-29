@@ -166,9 +166,9 @@ export default function Panel({
                 <button
                   className={`split-toggle-btn blink-toggle-btn${blinkMode ? ' active' : ''}`}
                   onClick={onToggleBlinkMode}
-                  title={blinkMode ? '점멸 종료' : '추가/제거된 부분을 점멸 표시 (유지 영역 숨김)'}
+                  title={blinkMode ? '반짝반짝 종료' : '추가/제거된 부분을 반짝반짝 표시 (유지 영역 숨김)'}
                 >
-                  점멸
+                  반짝반짝
                 </button>
                 <button
                   className={`split-toggle-btn${splitMode ? ' active' : ''}`}

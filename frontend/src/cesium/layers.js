@@ -61,7 +61,7 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
     material.diffuse  = vec3(0.75, 0.75, 0.78);   // unchanged — lighter gray
     material.emissive = vec3(0.22);
   }
-  material.alpha = 1.0;
+  material.alpha = 0.8;
 }`,
   })
 }

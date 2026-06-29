@@ -154,7 +154,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
           <span />
         </label>
         <div className="layer-body">
-          <div className="layer-name">추가된 부피</div>
+          <div className="layer-name">추가된 복셀</div>
           <div className="layer-type">B 존재, A 부재</div>
         </div>
         <span className="ltag" style={{ background: '#2a1010', color: 'var(--added)' }}>ADD</span>
@@ -166,7 +166,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
           <span />
         </label>
         <div className="layer-body">
-          <div className="layer-name">제거된 부피</div>
+          <div className="layer-name">제거된 복셀</div>
           <div className="layer-type">A 존재, B 부재</div>
         </div>
         <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
@@ -178,7 +178,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
           <span />
         </label>
         <div className="layer-body">
-          <div className="layer-name">유지된 부피</div>
+          <div className="layer-name">유지된 복셀</div>
           <div className="layer-type">A·B 모두 존재</div>
         </div>
         <span className="ltag" style={{ background: '#1a1a2e', color: 'var(--muted)' }}>VOX</span>
@@ -186,7 +186,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
 
       <div id="stats-box" style={{ marginTop: 8 }}>
         <div className="stat-row">
-          <span className="stat-k">추가 부피</span>
+          <span className="stat-k">추가 복셀</span>
           <span className="stat-v" style={{ color: 'var(--added)' }}>+{fmtVol(added)}</span>
         </div>
         {apiSummary.addedCount != null && (
@@ -196,7 +196,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
           </div>
         )}
         <div className="stat-row">
-          <span className="stat-k">제거 부피</span>
+          <span className="stat-k">제거 복셀</span>
           <span className="stat-v" style={{ color: 'var(--removed)' }}>-{fmtVol(removed)}</span>
         </div>
         {apiSummary.removedCount != null && (
@@ -207,7 +207,7 @@ function AbResultBlock({ apiSummary, showAdded, onShowAdded, showRemoved, onShow
         )}
         {changed > 0 && (
           <div className="stat-row">
-            <span className="stat-k">변경 부피</span>
+            <span className="stat-k">변경 복셀</span>
             <span className="stat-v" style={{ color: 'var(--muted)' }}>{fmtVol(changed)}</span>
           </div>
         )}

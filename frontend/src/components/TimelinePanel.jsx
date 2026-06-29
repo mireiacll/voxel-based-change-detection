@@ -121,7 +121,7 @@ export default function TimelinePanel({
         <>
           {/* ── Mini chart ── */}
           <div className="p-section">
-            <div className="p-label">Change Over Time</div>
+            <div className="p-label">시계열 변화</div>
             <MiniChart snapshots={snapshots} activeIndex={activeIndex} onSelect={onSelect} />
             <div className="tl-chart-legend">
               <span className="tl-legend-dot tl-dot-add" />추가
@@ -132,7 +132,7 @@ export default function TimelinePanel({
           {/* ── Active snapshot stats ── */}
           {active && active.stats && (
             <div className="p-section">
-              <div className="p-label">Selected Period</div>
+              <div className="p-label">선택 기간</div>
               <div className="tl-period-header">
                 <span style={{ color: 'var(--text)' }}>{active.date_a.label}</span>
                 <span className="tl-period-arrow">→</span>
@@ -206,11 +206,11 @@ export default function TimelinePanel({
 
           {/* ── Visibility toggles ── */}
           <div className="p-section">
-            <div className="p-label">Visibility</div>
+            <div className="p-label">표시</div>
             <div className="layer-row">
               <Toggle id="tl-chk-added" checked={showAdded} onChange={onShowAdded} />
               <div className="layer-body">
-                <div className="layer-name">추가된 부피</div>
+                <div className="layer-name">추가된 복셀</div>
                 <div className="layer-type">B 존재, A 부재</div>
               </div>
               <span className="ltag" style={{ background: '#2a1010', color: 'var(--added)' }}>ADD</span>
@@ -218,7 +218,7 @@ export default function TimelinePanel({
             <div className="layer-row">
               <Toggle id="tl-chk-removed" checked={showRemoved} onChange={onShowRemoved} />
               <div className="layer-body">
-                <div className="layer-name">제거된 부피</div>
+                <div className="layer-name">제거된 복셀</div>
                 <div className="layer-type">A 존재, B 부재</div>
               </div>
               <span className="ltag" style={{ background: '#10162a', color: 'var(--removed)' }}>REM</span>
@@ -226,7 +226,7 @@ export default function TimelinePanel({
             <div className="layer-row">
               <Toggle id="tl-chk-unchanged" checked={showUnchanged} onChange={onShowUnchanged} />
               <div className="layer-body">
-                <div className="layer-name">유지된 부피</div>
+                <div className="layer-name">유지된 복셀</div>
                 <div className="layer-type">A·B 모두 존재</div>
               </div>
               <span className="ltag" style={{ background: '#1a1a1a', color: '#a0a0a0' }}>VOX</span>
@@ -235,11 +235,11 @@ export default function TimelinePanel({
 
           {/* ── Playback controls ── */}
           <div className="p-section">
-            <div className="p-label">Playback</div>
+            <div className="p-label">재생</div>
             <div className="btn-row">
-              <button className="pbtn" onClick={() => onSelect(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>‹ Prev</button>
-              <button className={`pbtn${playing ? ' active' : ''}`} onClick={onPlayPause}>{playing ? '⏸ Pause' : '▶ Play'}</button>
-              <button className="pbtn" onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))} disabled={activeIndex === snapshots.length - 1}>Next ›</button>
+              <button className="pbtn" onClick={() => onSelect(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>‹ 이전</button>
+              <button className={`pbtn${playing ? ' active' : ''}`} onClick={onPlayPause}>{playing ? '⏸ 일시정지' : '▶ 재생'}</button>
+              <button className="pbtn" onClick={() => onSelect(Math.min(snapshots.length - 1, activeIndex + 1))} disabled={activeIndex === snapshots.length - 1}>다음 ›</button>
             </div>
             <div className="tl-play-hint">단축키: ← → 이동 · Space 재생/정지</div>
           </div>

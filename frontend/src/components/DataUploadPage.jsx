@@ -229,7 +229,7 @@ function SetLocationModal({ site, date, onSaved, onClose }) {
     <div className="modal-backdrop" onClick={handleBackdrop}>
       <div className="modal-box modal-box-sm dup-setpos-box" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">📍 위치로 지정</span>
+          <span className="modal-title">📍 기본 위치로 지정</span>
           <button className="modal-close" onClick={onClose} disabled={phase === 'saving'}>✕</button>
         </div>
 
@@ -1161,9 +1161,9 @@ function MiniCesiumPreview({ preview, date, site, onSiteUpdated }) {
                 ? '데이터 업로드 후 사용 가능'
                 : posAlreadySet
                 ? '이 날짜의 위치가 현재 설정되어 있습니다'
-                : '이 좌표를 프로젝트 위치로 지정'}
+                : '이 좌표를 프로젝트 기본 위치로 지정'}
             >
-              {posAlreadySet ? '✓ 위치 설정됨' : '위치로 지정'}
+              {posAlreadySet ? '✓ 위치 설정됨' : '기본 위치로 지정'}
             </button>
           )}
         </div>
@@ -1269,7 +1269,7 @@ export default function DataUploadPage({
           <div className="dup-nocoords-banner">
             <span>⚠️</span>
             <span>
-              위치가 설정되지 않았습니다. PC 또는 VOX로 미리보기를 연 다음 <strong>위치로 지정</strong> 버튼을 눌러 설정하거나,{' '}
+              위치가 설정되지 않았습니다. PC 또는 VOX로 미리보기를 연 다음 <strong>기본 위치로 지정</strong> 버튼을 눌러 설정하거나,{' '}
               <button className="dup-manual-coords-btn dup-manual-coords-btn-inline" onClick={() => setManualPos(true)}>
                 ✎ 좌표 직접 입력
               </button>

@@ -41,7 +41,6 @@ voxelizer:
     visualize-color: gray
     cube-data-type: BYTE
     # region-gpkg-path: /data/regions/aoi.gpkg
-    # invert-region-filter: false
     recursive: true
   default-diff:
     max-level: 15

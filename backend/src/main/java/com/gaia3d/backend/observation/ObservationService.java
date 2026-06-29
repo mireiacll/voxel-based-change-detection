@@ -185,7 +185,6 @@ public class ObservationService {
                 visualizeColor,
                 cubeDataType,
                 defaults.regionGpkgPath(),
-                defaults.invertRegionFilter(),
                 recursive);
         String command = commandService.toDisplayCommand(commandArgs);
         Job job = jobService.create(

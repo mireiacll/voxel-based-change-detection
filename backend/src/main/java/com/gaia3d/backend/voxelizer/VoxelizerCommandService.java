@@ -24,7 +24,6 @@ public class VoxelizerCommandService {
             String visualizeColor,
             String cubeDataType,
             Path regionGpkgPath,
-            boolean invertRegionFilter,
             boolean recursive) {
         return toDisplayCommand(createVoxelCommandArgs(
                 inputTilesetDir,
@@ -35,7 +34,6 @@ public class VoxelizerCommandService {
                 visualizeColor,
                 cubeDataType,
                 regionGpkgPath,
-                invertRegionFilter,
                 recursive));
     }
 
@@ -48,7 +46,6 @@ public class VoxelizerCommandService {
             String visualizeColor,
             String cubeDataType,
             Path regionGpkgPath,
-            boolean invertRegionFilter,
             boolean recursive) {
         List<String> command = new ArrayList<>(List.of(
                 "java",
@@ -73,9 +70,7 @@ public class VoxelizerCommandService {
         if (regionGpkgPath != null) {
             command.add("--filter-region-gpkg");
             command.add(normalize(regionGpkgPath));
-            if (invertRegionFilter) {
-                command.add("--invert-region-filter");
-            }
+            command.add("--invert-region-filter");
         }
         if (recursive) {
             command.add("--recursive");

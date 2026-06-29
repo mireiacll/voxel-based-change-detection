@@ -22,7 +22,6 @@ public record VoxelizerProperties(
             @DefaultValue("gray") String visualizeColor,
             @DefaultValue("BYTE") String cubeDataType,
             Path regionGpkgPath,
-            @DefaultValue("false") boolean invertRegionFilter,
             @DefaultValue("true") boolean recursive) {
     }
 

@@ -252,6 +252,18 @@ volumes:
 
 Keep the container paths `/data` and `/app/mago-voxelizer.jar`.
 
+Place the region GeoPackage file in the host data folder mapped to `/data`:
+
+```text
+H:/workspace/change-detection/Asan-LandCoverIndex-Vegetation.gpkg
+```
+
+Inside the backend container, this file is read from:
+
+```text
+/data/Asan-LandCoverIndex-Vegetation.gpkg
+```
+
 Run:
 
 ```powershell

@@ -40,7 +40,7 @@ voxelizer:
     visualize: true
     visualize-color: gray
     cube-data-type: BYTE
-    # region-gpkg-path: /data/regions/aoi.gpkg
+    region-gpkg-path: ${VOXELIZER_DEFAULT_CREATE_REGION_GPKG_PATH:/data/Asan-LandCoverIndex-Vegetation.gpkg}
     recursive: true
   default-diff:
     max-level: 15

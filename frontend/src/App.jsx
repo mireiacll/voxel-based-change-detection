@@ -223,11 +223,15 @@ export default function App() {
   const stopCameraSyncRef = useRef(null)
   const viewer2ReadyRef   = useRef(false)
 
-  // Loads a date into the primary viewer, and also into slot B if split mode is active.
+  // Loads a date into the primary viewer, and also into slot B if split mode
+  // is active. Point cloud / mesh observation-date loads always mirror to
+  // both sides. Slot B's own diff/timeseries visibility (set independently
+  // via the history list) is preserved — loadDate() on slot B's controller
+  // won't force diffApiTs.show based on the primary's mode.
   function loadDateBoth(site, dateObj, currentMode, opts) {
     loadDate(site, dateObj, currentMode, opts)
     if (splitMode && layersBRef.current) {
-      layersBRef.current.loadDate(site, dateObj, currentMode, opts)
+      layersBRef.current.loadDate(site, dateObj, currentMode, { ...opts, preserveDiffVisibility: true })
     }
   }
 
@@ -244,7 +248,7 @@ export default function App() {
   const [drawBanner,   setDrawBanner]   = useState(false)
 
   const [basemap,     setBasemapState] = useState('aerial')
-  const [showTerrain, setShowTerrain]  = useState(CONFIG.TERRAIN.ENABLED)
+  const [showTerrain, setShowTerrain]  = useState(false)  // off by default; terrain asset still loads for toggle
   const [pcSize,      setPcSize]       = useState(CONFIG.DEFAULTS.POINT_SIZE)
 
   const [statusMsg,  setStatusMsg]  = useState('Initialising viewer…')
@@ -302,7 +306,7 @@ export default function App() {
         l => setDrawBtnLabel(l),
       )
       await initViewer({
-        onReady:  () => { viewerReady.current = true },
+        onReady:  () => { viewerReady.current = true; setTerrainVisible(false) },
         onStatus: (msg, done) => { setStatusMsg(msg); setStatusDone(!!done) },
         onToast:  addToast,
         onCoords: setCoords,
@@ -531,6 +535,7 @@ export default function App() {
     flownSiteIdRef.current = null
     setActiveDiffId(null)
     setSplitMode(false)
+    layersBRef.current?.clearAllLayers()
     handleClearSlotB()
     inFlightJobsRef.current.clear()
     bumpInFlight()
@@ -695,10 +700,12 @@ export default function App() {
       if (next.has(d.id)) {
         next.delete(d.id)
         clearLayers()
+        if (splitMode && layersBRef.current) layersBRef.current.clearLayers()
         setActiveDate(null)
         setActiveDateLayerMode('pc')
       } else {
         clearLayers()
+        if (splitMode && layersBRef.current) layersBRef.current.clearLayers()
         next.clear()
         next.add(d.id)
         setActiveDate(d)
@@ -1300,7 +1307,8 @@ export default function App() {
   }
 
   function handleClearSlotB() {
-    layersBRef.current?.clearAllLayers()
+    layersBRef.current?.clearDiffApiTileset()
+    layersBRef.current?.clearAllSnapshotTilesets()
     setApiSummaryB(null)
     setApiDiffTilesetUrlB(null)
     setTlSnapshotsB(null)

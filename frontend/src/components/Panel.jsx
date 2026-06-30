@@ -164,7 +164,7 @@ export default function Panel({
               <div className="p-label" style={{ marginBottom: 0 }}>변화탐지 기록</div>
               <div className="dh-header-btns">
                 <button
-                  className={`split-toggle-btn blink-toggle-btn${blinkMode ? ' active' : ''}`}
+                  className={`split-toggle-btn${blinkMode ? ' active' : ''}`}
                   onClick={onToggleBlinkMode}
                   title={blinkMode ? '반짝반짝 종료' : '추가/제거된 부분을 반짝반짝 표시 (유지 영역 숨김)'}
                 >

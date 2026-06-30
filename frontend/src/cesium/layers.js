@@ -114,18 +114,27 @@ export function createLayerController({ viewer } = {}) {
 
   // ── Visibility sync ───────────────────────────────────────────────────────
 
-  function syncVisibility(mode) {
+  function syncVisibility(mode, opts = {}) {
+    const { preserveDiffVisibility = false } = opts
     const inCompareApi = mode === 'compare-api'
     const inTimeline   = mode === 'timeline'
 
     if (state.mesh) state.mesh.show = true
     if (state.pc)   state.pc.show   = true
 
-    if (state.diffApiTs) state.diffApiTs.show = inCompareApi
+    // Slot B's diff/timeseries visibility is independent of the primary's
+    // mode — it should stay exactly as the user left it (set via
+    // loadDiffApiTileset / showSnapshotTileset) when we're just mirroring a
+    // point-cloud/mesh date load into B. Without this, loading a date into
+    // slot B while it already has its own diff loaded would hide that diff
+    // (or show it when it shouldn't) based on the primary viewer's mode.
+    if (!preserveDiffVisibility) {
+      if (state.diffApiTs) state.diffApiTs.show = inCompareApi
 
-    for (const [snapId, ts] of Object.entries(state.timeseriesTsMap)) {
-      if (!ts) continue
-      ts.show = inTimeline && snapId === state.activeSnapshotId
+      for (const [snapId, ts] of Object.entries(state.timeseriesTsMap)) {
+        if (!ts) continue
+        ts.show = inTimeline && snapId === state.activeSnapshotId
+      }
     }
 
     requestAnimationFrame(() => _requestRender())
@@ -157,7 +166,7 @@ export function createLayerController({ viewer } = {}) {
 
   // ── Date loader ───────────────────────────────────────────────────────────
 
-  async function loadDate(site, dateObj, currentMode) {
+  async function loadDate(site, dateObj, currentMode, opts = {}) {
     _rm(state.mesh); _rm(state.pc)
     state.mesh = state.pc = null
     state.siteId = site.id
@@ -190,7 +199,7 @@ export function createLayerController({ viewer } = {}) {
       toast('데이터셋을 찾을 수 없습니다 — 경로를 확인하세요', 'warn')
     }
 
-    syncVisibility(currentMode || 'compare-api')
+    syncVisibility(currentMode || 'compare-api', opts)
     setStatus(`${site.label} — ${dateObj.label} 준비됨`, true)
   }
 

@@ -413,7 +413,7 @@ export default function Panel({
     return (
       <div className="dates-drawer">
         <div className="dates-drawer-header">
-          <span className="dates-drawer-title">Observations</span>
+          <span className="dates-drawer-title">관측 데이터</span>
           <button className="dates-drawer-close" onClick={() => setDrawerOpen(false)}>✕</button>
         </div>
         <div className="dates-drawer-body">

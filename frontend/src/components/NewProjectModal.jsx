@@ -47,8 +47,8 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
     let lon = null
     let lat = null
     try {
-      lon = validateCoord(centerLon, 'Longitude', -180, 180)
-      lat = validateCoord(centerLat, 'Latitude',   -90,  90)
+      lon = validateCoord(centerLon, '경도', -180, 180)
+      lat = validateCoord(centerLat, '위도',   -90,  90)
     } catch (e) {
       return setError(e.message)
     }
@@ -85,15 +85,15 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
     <div className="modal-backdrop" onClick={handleBackdropClick}>
       <div className="modal-box">
         <div className="modal-header">
-          <span className="modal-title">New Project</span>
+          <span className="modal-title">새 프로젝트</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="modal-body">
-          <div className="modal-section-label">Project Identity</div>
+          <div className="modal-section-label">프로젝트 정보</div>
 
           <div className="modal-field">
-            <label>Name</label>
+            <label>이름</label>
             <input
               type="text"
               value={form.name}
@@ -104,23 +104,23 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
           </div>
 
           <div className="modal-field">
-            <label>Description <span className="modal-hint">(optional)</span></label>
+            <label>설명 <span className="modal-hint">(선택)</span></label>
             <input
               type="text"
               value={form.description}
               onChange={e => update('description', e.target.value)}
-              placeholder="Brief description"
+              placeholder="간단한 설명"
               disabled={loading}
             />
           </div>
 
           <div className="modal-section-label" style={{ marginTop: 12 }}>
-            Camera Position <span className="modal-hint">(optional — can be set later from the upload page)</span>
+            카메라 위치 <span className="modal-hint">(선택, 업로드 페이지에서 나중에 설정 가능)</span>
           </div>
 
           <div className="modal-row">
             <div className="modal-field">
-              <label>Longitude</label>
+              <label>경도</label>
               <input
                 type="number"
                 step="any"
@@ -131,7 +131,7 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
               />
             </div>
             <div className="modal-field">
-              <label>Latitude</label>
+              <label>위도</label>
               <input
                 type="number"
                 step="any"
@@ -148,10 +148,10 @@ export default function NewProjectModal({ open, onClose, onCreated }) {
 
         <div className="modal-footer">
           <button className="modal-btn-secondary" onClick={onClose} disabled={loading}>
-            Cancel
+            취소
           </button>
           <button className="modal-btn-primary" onClick={handleSubmit} disabled={loading}>
-            {loading ? 'Creating…' : 'Create Project'}
+            {loading ? '생성 중…' : '프로젝트 생성'}
           </button>
         </div>
       </div>

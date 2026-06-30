@@ -233,7 +233,7 @@ export default function AddDateModal({ open, site, onClose, onCreated }) {
 
         <div className="modal-footer">
           <button className="modal-btn-secondary" onClick={onClose} disabled={loading}>
-            Cancel
+            취소
           </button>
           <button className="modal-btn-primary" onClick={handleSubmit} disabled={loading || !files.length}>
             {loading ? 'Uploading…' : 'Add Date'}

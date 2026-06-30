@@ -163,7 +163,7 @@ export default function App() {
       if (next) {
         setBlinkOn(true)
         clearInterval(blinkTimerRef.current)
-        blinkTimerRef.current = setInterval(() => setBlinkOn(v => !v), 250)
+        blinkTimerRef.current = setInterval(() => setBlinkOn(v => !v), 400)
       } else {
         // Turning OFF — stop flicker, restore 유지 values that were snapshotted.
         clearInterval(blinkTimerRef.current)

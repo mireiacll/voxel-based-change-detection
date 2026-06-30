@@ -132,7 +132,7 @@ function EditSiteModal({ site, onClose, onSaved }) {
           <div className="modal-row">
             <div className="modal-field">
               <label>Description <span className="modal-hint">(optional)</span></label>
-              <input value={description} onChange={e => setDescription(e.target.value)} disabled={saving} placeholder="Brief description" />
+              <input value={description} onChange={e => setDescription(e.target.value)} disabled={saving} placeholder="간단한 설명" />
             </div>
           </div>
           <div className="modal-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
@@ -152,7 +152,7 @@ function EditSiteModal({ site, onClose, onSaved }) {
           {error && <div className="modal-error">{error}</div>}
         </div>
         <div className="modal-footer">
-          <button className="modal-btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="modal-btn-secondary" onClick={onClose} disabled={saving}>취소</button>
           <button className="modal-btn-primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -193,7 +193,7 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
           </p>
         </div>
         <div className="modal-footer">
-          <button className="modal-btn-secondary" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button className="modal-btn-secondary" onClick={onClose} disabled={deleting}>취소</button>
           <button className="modal-btn-danger" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete'}
           </button>

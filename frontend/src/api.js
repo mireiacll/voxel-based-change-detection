@@ -379,8 +379,7 @@ async function _loadJSZip() {
 }
 
 // Checks that a (prefix-stripped) set of paths is a valid tileset upload —
-// tileset.json at the root plus a data/ folder. Throws a user-facing error
-// otherwise, which is what rejects random files that aren't a real tileset.
+// tileset.json at the root plus a data/ folder
 function _validateTilesetPaths(paths) {
   if (!paths.includes('tileset.json')) {
     throw new Error('tileset.json을 찾을 수 없습니다 — 최상위에 tileset.json과 data 폴더가 있는 폴더 또는 ZIP을 선택하세요.')
@@ -390,7 +389,7 @@ function _validateTilesetPaths(paths) {
   }
 }
 
-// Builds a zip blob from a File array using JSZip (loaded from CDN).
+// Builds a zip blob from a File array using JSZip
 // Normalizes the internal structure so tileset.json always ends up at the
 // zip root, alongside data/, regardless of whether the user dropped a flat
 // folder or a nested one (e.g. tiles/tileset.json). Reports progress via

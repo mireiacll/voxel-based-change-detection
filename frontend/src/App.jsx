@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { CONFIG } from './config'
 import {
-  initViewer, flyTo, setTerrainVisible, setBasemap,
+  initViewer, flyTo, setTerrainVisible, setTerrainVisible2, setBasemap,
   initSecondaryViewer, destroySecondaryViewer, setBasemap2,
 } from './cesium/cesiumInit'
 import {
@@ -163,7 +163,7 @@ export default function App() {
       if (next) {
         setBlinkOn(true)
         clearInterval(blinkTimerRef.current)
-        blinkTimerRef.current = setInterval(() => setBlinkOn(v => !v), 400)
+        blinkTimerRef.current = setInterval(() => setBlinkOn(v => !v), 250)
       } else {
         // Turning OFF — stop flicker, restore 유지 values that were snapshotted.
         clearInterval(blinkTimerRef.current)
@@ -362,9 +362,8 @@ export default function App() {
       viewer2ReadyRef.current = true
       layersBRef.current = createLayerController({ viewer: v2 })
       setBasemap2(basemap)
-      if (showTerrain === false) {
-        v2.terrainProvider = new window.Cesium.EllipsoidTerrainProvider()
-      }
+      setTerrainVisible2(showTerrain)
+      layersBRef.current.applyPcStyle(pcSize)
 
       stopCameraSyncRef.current = startCameraSync(window.viewer, v2)
 
@@ -454,8 +453,15 @@ export default function App() {
     )
   }, [tlVisB, splitMode, slotBType, blinkOn])
 
-  useEffect(() => { applyPcStyle(pcSize) },           [pcSize])
-  useEffect(() => { setTerrainVisible(showTerrain) }, [showTerrain])
+  useEffect(() => {
+    applyPcStyle(pcSize)
+    if (splitMode && layersBRef.current) layersBRef.current.applyPcStyle(pcSize)
+  }, [pcSize, splitMode])
+
+  useEffect(() => {
+    setTerrainVisible(showTerrain)
+    if (splitMode && viewer2ReadyRef.current) setTerrainVisible2(showTerrain)
+  }, [showTerrain, splitMode])
   useEffect(() => { setBasemap(basemap) },             [basemap])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────

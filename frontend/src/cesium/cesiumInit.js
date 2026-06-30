@@ -25,6 +25,7 @@ window.Cesium = Cesium
 
 export let viewer = null
 let customTerrain = null
+let customTerrain2 = null // secondary (split-view) viewer's own terrain provider instance
 let viewer2 = null // The secondary (split-view) viewer — null whenever split mode is off.
 
 // Callbacks supplied by React at init time
@@ -235,6 +236,18 @@ export function setTerrainVisible(show) {
   window.viewer.scene.requestRender()
 }
 
+// Same as setTerrainVisible, but targets the secondary (split-view) viewer.
+// Uses its own terrain provider instance (customTerrain2) — viewer2 must
+// NOT reuse window.customTerrain, since two viewers sharing one terrain
+// provider causes cross-context WebGL errors.
+export function setTerrainVisible2(show) {
+  if (!viewer2) return
+  viewer2.terrainProvider = show
+    ? customTerrain2
+    : new Cesium.EllipsoidTerrainProvider()
+  viewer2.scene.requestRender()
+}
+
 // ── Basemap ───────────────────────────────────────────────────────────────
 
 const ION_ASSETS = {
@@ -311,6 +324,7 @@ export async function initSecondaryViewer(containerId) {
   }
 
   const terrain2 = await createFreshTerrainProvider()
+  customTerrain2 = terrain2
 
   viewer2 = new Cesium.Viewer(containerId, {
     terrainProvider: terrain2,
@@ -351,4 +365,5 @@ export function destroySecondaryViewer() {
     console.warn('[destroySecondaryViewer] failed to destroy cleanly:', e)
   }
   viewer2 = null
+  customTerrain2 = null
 }

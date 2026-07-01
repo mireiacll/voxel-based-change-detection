@@ -155,45 +155,6 @@ html, body {
 }
 .nav-no-site { font-size: 11px; color: var(--muted); font-style: italic; }
 
-/* ── Map sub-header ─────────────────────────────────────────── */
-/* Note: not currently mounted anywhere in App.jsx (superseded by the
-   mode dropdown in the left panel) — kept here for safety in case
-   something still references it. Full-width to match the floating-panel
-   layout below; it would render BEHIND the left/right panels where they
-   overlap, same as the canvas does. */
-#map-sub-header {
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  height: var(--mshh);
-  background: var(--surf);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 14px; z-index: 90;
-}
-.msh-tabs { display: flex; gap: 0; height: 100%; }
-.msh-tab {
-  padding: 0 18px; height: 100%;
-  font-size: 12.5px; font-weight: 500;
-  background: none; border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--muted); cursor: pointer;
-  transition: color .15s, border-color .15s;
-  white-space: nowrap;
-}
-.msh-tab:hover { color: var(--text); }
-.msh-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-.msh-dataset-labels { display: flex; gap: 8px; }
-.msh-dataset-tag {
-  font-size: 10px; font-weight: 600;
-  padding: 2px 8px; border-radius: 3px;
-  font-family: var(--mono);
-}
-.msh-tag-a { background: rgba(212,144,80,.15); color: #d49050; border: 1px solid rgba(212,144,80,.3); }
-.msh-tag-b { background: rgba(77,159,255,.15); color: #4d9fff; border: 1px solid rgba(77,159,255,.3); }
-
 /* ── Left panel ─────────────────────────────────────────────── */
 /* Floats ABOVE the full-bleed map canvas rather than pushing/resizing
    it — this keeps the map's zoom/framing perfectly stable whenever this
@@ -290,12 +251,6 @@ html, body {
 .mode-select option { background: var(--surf3); color: var(--text); }
 
 /* ── Date list ──────────────────────────────────────────────── */
-#date-list { display: flex; flex-direction: column; gap: 4px; }
-.rp-date-list {
-  max-height: 260px; overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border2) transparent;
-}
 .date-btn {
   width: 100%;
   display: flex; align-items: center; justify-content: space-between;
@@ -335,63 +290,6 @@ html, body {
 }
 .date-row-wrap:last-child { margin-bottom: 0; }
 .date-row-wrap .date-btn  { margin-bottom: 0; }
-
-/* PC | VOX layer mode pill */
-.date-layer-pill {
-  display: flex; align-self: flex-end;
-  background: var(--surf3);
-  border: 1px solid var(--border);
-  border-radius: 4px; overflow: hidden;
-}
-.dlp-btn {
-  padding: 2px 9px;
-  background: none; border: none;
-  font-size: 9px; font-weight: 700;
-  letter-spacing: .05em; font-family: var(--mono);
-  color: var(--muted); cursor: pointer;
-  line-height: 1.7;
-  transition: color .12s, background .12s;
-}
-.dlp-btn + .dlp-btn { border-left: 1px solid var(--border); }
-.dlp-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.05); }
-.dlp-btn:disabled { opacity: .32; cursor: not-allowed; }
-.dlp-btn.dlp-active                { background: rgba(92,143,255,.15); color: #8ab4ff; }
-.dlp-btn.dlp-active.dlp-vox        { background: rgba(77,217,217,.12); color: #4dd9d9; }
-
-/* ── Voxel compute section (inside Panel) ── */
-.vox-date-select {
-  width: 100%; margin-bottom: 7px;
-}
-.vox-compute-btn {
-  width: 100%; padding: 8px;
-  background: var(--surf2);
-  border: 1px solid var(--border2);
-  color: var(--text); border-radius: var(--r);
-  font-size: 11px; font-weight: 600; letter-spacing: .04em;
-  cursor: pointer; transition: background .15s, border-color .15s, color .15s;
-}
-.vox-compute-btn:hover:not(:disabled) {
-  background: rgba(77,217,217,.08);
-  border-color: #4dd9d9; color: #4dd9d9;
-}
-.vox-compute-btn:disabled { opacity: .45; cursor: not-allowed; }
-.vox-compute-btn.vox-computing { border-color: var(--amber); color: var(--amber); }
-.vox-compute-msg {
-  font-size: 10px; color: var(--muted);
-  font-family: var(--mono); margin-top: 6px;
-}
-.vox-compute-hint {
-  font-size: 10px; color: var(--muted);
-  margin-top: 5px; line-height: 1.4;
-}
-
-/* Sub rows */
-.sub-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 2px 0 6px 36px;
-}
-.sub-label { font-size: 11px; color: var(--muted); width: 44px; flex-shrink: 0; }
-.sub-val   { font-size: 11px; color: var(--muted); width: 30px; text-align: right; font-family: var(--mono); }
 
 /* Toggle switch */
 .sw { position: relative; display: block; width: 30px; height: 17px; flex-shrink: 0; cursor: pointer; }
@@ -437,20 +335,6 @@ select {
 .compare-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .compare-row select { flex: 1; }
 .compare-ab-lbl { font-size: 11px; color: var(--muted); width: 12px; flex-shrink: 0; }
-
-/* Dataset color picker */
-.dataset-color {
-  width: 14px; height: 14px;
-  border: none; border-radius: 50%; overflow: hidden;
-  background: none; padding: 0; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-}
-.dataset-color::-webkit-color-swatch-wrapper { padding: 0; }
-.dataset-color::-webkit-color-swatch { border: none; border-radius: 50%; }
-
-.dataset-opacity { padding-left: 38px; padding-top: 2px; padding-right: 12px; }
-.dataset-opacity input[type=range] { max-width: 120px; flex: none; }
-.dataset-opacity .sub-val { width: 28px; }
 
 /* Run diff button */
 #btn-run-diff {
@@ -1029,19 +913,6 @@ select {
   50%       { opacity: .8; }
 }
 .launcher-list { display: flex; flex-direction: column; gap: 2px; }
-.llist-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px;
-  background: var(--surf); border: 1px solid var(--border);
-  border-radius: var(--r); cursor: pointer; text-align: left;
-  transition: background .12s, border-color .12s;
-}
-.llist-row:hover { background: var(--surf2); border-color: var(--border2); }
-.llist-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); flex-shrink: 0; }
-.llist-name { flex: 1; font-size: 12px; font-weight: 500; color: var(--text); }
-.llist-meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
-.llist-arrow { font-size: 12px; color: var(--muted); }
-.llist-row:hover .llist-arrow { color: var(--accent); }
 
 /* ── Modal system ───────────────────────────────────────────── */
 .modal-backdrop {

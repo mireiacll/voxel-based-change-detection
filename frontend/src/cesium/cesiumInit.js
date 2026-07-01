@@ -131,7 +131,11 @@ export function flyTo(lon, lat, height, pitch = -40, heading = 0) {
 
 export function setStatus(msg, done = false) { _onStatus(msg, done) }
 export function toast(msg, type = 'ok')      { _onToast(msg, type) }
-export function requestRender()              { if (viewer) viewer.scene.requestRender() }
+export function requestRender() {
+  if (!viewer) return
+  const el = viewer.canvas
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) viewer.scene.requestRender()
+}
 
 // ── Terrain ───────────────────────────────────────────────────────────────
 
@@ -233,19 +237,17 @@ export function setTerrainVisible(show) {
   window.viewer.terrainProvider = show
     ? window.customTerrain
     : new window.Cesium.EllipsoidTerrainProvider()
-  window.viewer.scene.requestRender()
+  const el = window.viewer.canvas
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) window.viewer.scene.requestRender()
 }
 
-// Same as setTerrainVisible, but targets the secondary (split-view) viewer.
-// Uses its own terrain provider instance (customTerrain2) — viewer2 must
-// NOT reuse window.customTerrain, since two viewers sharing one terrain
-// provider causes cross-context WebGL errors.
 export function setTerrainVisible2(show) {
   if (!viewer2) return
   viewer2.terrainProvider = show
     ? customTerrain2
     : new Cesium.EllipsoidTerrainProvider()
-  viewer2.scene.requestRender()
+  const el = viewer2.canvas
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) viewer2.scene.requestRender()
 }
 
 // ── Basemap ───────────────────────────────────────────────────────────────
@@ -293,14 +295,15 @@ async function _applyBasemap(imageryLayers, id) {
 export async function setBasemap(id)  {
   if (!viewer)  return
   await _applyBasemap(viewer.imageryLayers, id)
-  viewer.scene.requestRender()
+  const el = viewer.canvas
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) viewer.scene.requestRender()
 }
 
-// Same as setBasemap, but targets the secondary (split-view) viewer
 export async function setBasemap2(id) {
   if (!viewer2) return
   await _applyBasemap(viewer2.imageryLayers, id)
-  viewer2.scene.requestRender()
+  const el = viewer2.canvas
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) viewer2.scene.requestRender()
 }
 
 // ── Secondary viewer (split view) ────────────────────────────────────────
@@ -342,7 +345,8 @@ export async function initSecondaryViewer(containerId) {
   installCesiumGLDiagnostics(viewer2, 'secondary/split-view')
 
   viewer2.resize()
-  viewer2.scene.requestRender()
+  const el2 = viewer2.canvas
+  if (el2 && el2.clientWidth > 0 && el2.clientHeight > 0) viewer2.scene.requestRender()
 
   return viewer2
 }

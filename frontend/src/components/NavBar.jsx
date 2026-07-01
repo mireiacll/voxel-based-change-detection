@@ -60,7 +60,6 @@ export default function NavBar({ tab, onTab, activeSite }) {
           onClick={() => onTab('projects')}
         >
           프로젝트
-          {activeSite && tab !== 'projects' && <span className="nav-tab-dot" />}
         </button>
 
         <button

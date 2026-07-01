@@ -1447,6 +1447,11 @@ export default function App() {
         (mode === 'timeline'    && tlSnapshots != null)
       )
 
+  // Split mode always reserves the right half for the second viewport (even with
+  // no diff loaded yet), so overlay chrome should shift left whenever splitMode is
+  // on, OR when a single-mode diff result is actually loaded.
+  const shiftForRightPanel = splitMode || showRightPanel
+
   const activeVis = mode === 'timeline' ? tlVis : compareApiVis
   const activeVisSetters = mode === 'timeline'
     ? {
@@ -1518,7 +1523,7 @@ export default function App() {
 
       {showAnalysis && activeSite && (
         <>
-          <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} showRightPanel={showRightPanel} />
+          <DrawBanner visible={drawBanner} onCancel={togglePolygonDraw} showRightPanel={shiftForRightPanel} />
 
           <Panel
             activeSite={activeSite}
@@ -1584,7 +1589,7 @@ export default function App() {
             showTerrain={showTerrain}   onShowTerrain={setShowTerrain}
             onCameraSite={handleCameraSite} onCameraTop={handleCameraTop}
             drawBanner={drawBanner}
-            showRightPanel={showRightPanel}
+            showRightPanel={shiftForRightPanel}
           />
 
           <BottomBar
@@ -1606,7 +1611,7 @@ export default function App() {
         <BottomBar statusMsg={displayStatus} statusDone={statusDone} mode="compare-api" />
       )}
 
-      <Toasts items={toasts} showRightPanel={showRightPanel} />
+      <Toasts items={toasts} showRightPanel={shiftForRightPanel} />
     </>
   )
 }

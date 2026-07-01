@@ -18,6 +18,12 @@ export function startCameraSync(primary, secondary) {
 
   let syncing = false
 
+  function canRender(v) {
+    if (!v || v.isDestroyed?.()) return false
+    const el = v.canvas
+    return el && el.clientWidth > 0 && el.clientHeight > 0
+  }
+
   function copyCamera(from, to) {
     const cam = from.camera
     to.camera.setView({
@@ -28,40 +34,33 @@ export function startCameraSync(primary, secondary) {
 
   function onPrimaryRender() {
     if (syncing) return
-    if (!secondary || secondary.isDestroyed?.()) return
+    if (!canRender(secondary)) return
     syncing = true
     copyCamera(primary, secondary)
-    // Defer secondary's render to its own animation frame 
-    // If we requested from inside primary's postRender, two scenes' render passes can be interleaved on the same tick, 
-    // which causes WebGL errors ("object does not belong to this context") 
     requestAnimationFrame(() => {
-      if (!secondary || secondary.isDestroyed?.()) return
-      secondary.scene.requestRender()
+      if (canRender(secondary)) secondary.scene.requestRender()
     })
     syncing = false
   }
 
   function onSecondaryRender() {
     if (syncing) return
-    if (!primary || primary.isDestroyed?.()) return
+    if (!canRender(primary)) return
     syncing = true
     copyCamera(secondary, primary)
     requestAnimationFrame(() => {
-      if (!primary || primary.isDestroyed?.()) return
-      primary.scene.requestRender()
+      if (canRender(primary)) primary.scene.requestRender()
     })
     syncing = false
   }
 
-  // postRender fires every frame a scene actually renders 
   primary.scene.postRender.addEventListener(onPrimaryRender)
   secondary.scene.postRender.addEventListener(onSecondaryRender)
 
-  // Both canvases may still be mid-resize when split view opens, so force a resize and sync
   function resizeAndSync() {
     if (primary && !primary.isDestroyed?.())     primary.resize()
     if (secondary && !secondary.isDestroyed?.()) secondary.resize()
-    onPrimaryRender()
+    if (canRender(primary)) onPrimaryRender()
   }
 
   resizeAndSync()

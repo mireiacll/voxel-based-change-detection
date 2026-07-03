@@ -50,16 +50,16 @@ export default function ProjectLauncher({ sites, onSelect, onPreload, onNewProje
             </svg>
           </div>
           <div>
-            <h1 className="launcher-title">3D Change Detection</h1>
+            <h1 className="launcher-title">3D 변화 탐지</h1>
             <p className="launcher-sub">
               {selectedId
-                ? 'Click again to open — or select a different project'
-                : 'Select a project to open'}
+                ? '한 번 더 클릭해 열기 · 다른 프로젝트 선택 가능'
+                : '열 프로젝트를 선택하세요'}
             </p>
           </div>
         </div>
 
-        <div className="launcher-section-label">Projects</div>
+        <div className="launcher-section-label">프로젝트</div>
         <div className="launcher-cards">
           <NewProjectCard onNewProject={onNewProject} />
           {loading
@@ -119,33 +119,33 @@ function EditSiteModal({ site, onClose, onSaved }) {
     <div className="modal-backdrop" onClick={handleBackdrop}>
       <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Edit Project — {site.name}</span>
+          <span className="modal-title">프로젝트 수정 — {site.name}</span>
           <button className="modal-close" onClick={onClose} disabled={saving}>✕</button>
         </div>
         <div className="modal-body">
           <div className="modal-row">
             <div className="modal-field">
-              <label>Name</label>
+              <label>이름</label>
               <input value={name} onChange={e => setName(e.target.value)} disabled={saving} />
             </div>
           </div>
           <div className="modal-row">
             <div className="modal-field">
-              <label>Description <span className="modal-hint">(optional)</span></label>
+              <label>설명 <span className="modal-hint">(선택)</span></label>
               <input value={description} onChange={e => setDescription(e.target.value)} disabled={saving} placeholder="간단한 설명" />
             </div>
           </div>
           <div className="modal-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
             <div className="modal-field">
-              <label>Camera Lon</label>
+              <label>카메라 경도</label>
               <input type="number" step="any" value={lon} onChange={e => setLon(e.target.value)} disabled={saving} />
             </div>
             <div className="modal-field">
-              <label>Camera Lat</label>
+              <label>카메라 위도</label>
               <input type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} disabled={saving} />
             </div>
             <div className="modal-field">
-              <label>Camera Height</label>
+              <label>카메라 높이</label>
               <input type="number" step="any" value={height} onChange={e => setHeight(e.target.value)} disabled={saving} />
             </div>
           </div>
@@ -154,7 +154,7 @@ function EditSiteModal({ site, onClose, onSaved }) {
         <div className="modal-footer">
           <button className="modal-btn-secondary" onClick={onClose} disabled={saving}>취소</button>
           <button className="modal-btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? '저장 중…' : '저장'}
           </button>
         </div>
       </div>
@@ -182,7 +182,7 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
     <div className="modal-backdrop" onClick={() => !deleting && onClose()}>
       <div className="modal-box modal-box-sm" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">Delete Project</span>
+          <span className="modal-title">프로젝트 삭제</span>
           <button className="modal-close" onClick={onClose} disabled={deleting}>✕</button>
         </div>
         <div className="modal-body">
@@ -195,7 +195,7 @@ function DeleteConfirmModal({ site, onClose, onDeleted }) {
         <div className="modal-footer">
           <button className="modal-btn-secondary" onClick={onClose} disabled={deleting}>취소</button>
           <button className="modal-btn-danger" onClick={handleDelete} disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete'}
+            {deleting ? '삭제 중…' : '삭제'}
           </button>
         </div>
       </div>
@@ -229,14 +229,14 @@ function SiteCard({ site, selected, onClick, onEdited, onDeleted }) {
           <button
             className="lcard-menu-btn"
             onClick={() => setMenuOpen(v => !v)}
-            title="More options"
+            title="더보기"
           >
             ⋯
           </button>
           {menuOpen && (
             <div className="lcard-menu-dropdown" onMouseLeave={() => setMenuOpen(false)}>
-              <button onClick={() => { setMenuOpen(false); setShowEdit(true) }}>✎ Edit</button>
-              <button className="lcard-menu-danger" onClick={() => { setMenuOpen(false); setShowDelete(true) }}>🗑 Delete</button>
+              <button onClick={() => { setMenuOpen(false); setShowEdit(true) }}>✎ 수정</button>
+              <button className="lcard-menu-danger" onClick={() => { setMenuOpen(false); setShowDelete(true) }}>🗑 삭제</button>
             </div>
           )}
         </div>
@@ -254,7 +254,7 @@ function SiteCard({ site, selected, onClick, onEdited, onDeleted }) {
           <div className="lcard-meta">
             <span>{dateCount} survey{dateCount !== 1 ? 's' : ''}</span>
             {latest && (
-              <span className="lcard-latest">Latest: {latest.label}</span>
+              <span className="lcard-latest">최신: {latest.label}</span>
             )}
           </div>
         </div>
@@ -287,10 +287,10 @@ function NewProjectCard({ onNewProject }) {
   return (
     <button className="lcard lcard-new" onClick={onNewProject}>
       <div className="lcard-new-icon">+</div>
-      <div className="lcard-name" style={{ color: 'var(--muted)' }}>New project</div>
+      <div className="lcard-name" style={{ color: 'var(--muted)' }}>새 프로젝트</div>
       <div className="lcard-meta">
         <span style={{ color: 'var(--muted)', fontSize: 10 }}>
-          Add a new site or import data
+          새 사이트를 추가하거나 데이터를 불러오세요
         </span>
       </div>
     </button>

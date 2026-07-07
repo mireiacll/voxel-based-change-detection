@@ -289,7 +289,7 @@ export function createLayerController({ viewer } = {}) {
     _rm(state.diffApiTs)
     state.diffApiTs = null
     if (!tilesetUrl) return
-    const ts = await _loadTileset(tilesetUrl, true, 4, 'mesh')
+    const ts = await _loadTileset(tilesetUrl, true, 8, 'mesh')
     if (ts) {
       state.diffApiTs = ts
       _applyDiffApiStyle()
@@ -316,7 +316,7 @@ export function createLayerController({ viewer } = {}) {
 
     await Promise.allSettled(
       toLoad.map(async s => {
-        const ts = await _loadTileset(s.tilesetUrl, false, 2, 'mesh')
+        const ts = await _loadTileset(s.tilesetUrl, false, 8, 'mesh')
         state.timeseriesTsMap[s.id] = ts ?? null  // null = attempted, don't retry
       })
     )

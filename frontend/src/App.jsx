@@ -20,7 +20,7 @@ import {
 } from './cesium/layers'
 import { setDrawCallbacks, togglePolygonDraw, clearPolygon, swapPolygonTab } from './cesium/polygonDraw'
 import { startCameraSync } from './cesium/viewerSync'
-import { loadDiffSnapshotsByDiffId, invalidateDiffCache } from './timelineDiffs'
+import { loadDiffSnapshotsByDiffId, invalidateDiffCache } from './TimelineDiffs'
 import {
   fetchProjects,
   enrichProjectWithDates,

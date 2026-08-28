@@ -1,0 +1,9 @@
+services:
+  vbcd-frontend:
+    image: ${VBCD_FRONTEND_IMAGE:-vbcd-frontend:latest}
+    container_name: vbcd-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - vbcd-backend
+    restart: unless-stopped

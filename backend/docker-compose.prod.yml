@@ -4,8 +4,9 @@ services:
     container_name: vbcd-backend-api
     environment:
       SERVER_PORT: ${SERVER_PORT:-8080}
+      CORS_ALLOWED_ORIGIN_PATTERNS: ${CORS_ALLOWED_ORIGIN_PATTERNS:-http://192.168.10.75,http://192.168.10.75:*}
       DB_HOST: ${DB_HOST:-postgis}
-      DB_PORT: ${DB_PORT:-5432}
+      DB_PORT: 5432
       DB_NAME: ${DB_NAME:-voxel_change_detection}
       DB_USER: ${DB_USER:-voxel}
       DB_PASSWORD: ${DB_PASSWORD:-voxel}
@@ -16,6 +17,7 @@ services:
       VOXELIZER_VOXEL_SET_OUTPUT_PATH: ${VOXELIZER_VOXEL_SET_OUTPUT_PATH:-/data/voxelsets}
       VOXELIZER_JAR_PATH: ${VOXELIZER_JAR_PATH:-/app/mago-voxelizer.jar}
       VOXELIZER_DEFAULT_CREATE_MAX_LEVEL: ${VOXELIZER_DEFAULT_CREATE_MAX_LEVEL:-15}
+      VOXELIZER_DEFAULT_CREATE_REGION_GPKG_PATH: ${VOXELIZER_DEFAULT_CREATE_REGION_GPKG_PATH:-/data/Asan-LandCoverIndex-Vegetation.gpkg}
       VOXELIZER_DEFAULT_DIFF_MAX_LEVEL: ${VOXELIZER_DEFAULT_DIFF_MAX_LEVEL:-15}
       VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_MODE: ${VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_MODE:-6}
       VOXELIZER_DEFAULT_DIFF_MIN_DIFF_FILTER_LEVEL: ${VOXELIZER_DEFAULT_DIFF_MIN_DIFF_FILTER_LEVEL:-12}
@@ -23,7 +25,7 @@ services:
       VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_ITERATIONS: ${VOXELIZER_DEFAULT_DIFF_DIFF_NEIGHBOR_ITERATIONS:-2}
       VOXELIZER_DEFAULT_DIFF_MIN_DIFF_CLUSTER_SIZE: ${VOXELIZER_DEFAULT_DIFF_MIN_DIFF_CLUSTER_SIZE:-20}
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     depends_on:
       postgis:
         condition: service_healthy
@@ -40,7 +42,7 @@ services:
       POSTGRES_USER: ${DB_USER:-voxel}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-voxel}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${DB_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-voxel} -d ${DB_NAME:-voxel_change_detection}"]
       interval: 10s

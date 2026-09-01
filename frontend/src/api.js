@@ -28,6 +28,13 @@
 
 const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
+// The external HTTPS proxy caps request bodies at ~100MB and stalls without
+// responding (instead of returning 413) when exceeded — so reject oversized
+// uploads client-side before sending anything. Override with VITE_MAX_UPLOAD_MB
+// if the infra limit changes.
+const MAX_UPLOAD_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB) || 100
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
 // ─────────────────────────────────────────────────────────────────────────
 //  INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────────────────
@@ -487,6 +494,13 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
     console.log('[api.uploadObservation] building zip from', fileList.length, 'files…')
     zipBlob = await _buildZip(fileList, pct => onProgress?.({ phase: 'zipping', pct }))
     console.log('[api.uploadObservation] zip built:', zipBlob.size, 'bytes')
+  }
+
+  if (zipBlob.size > MAX_UPLOAD_BYTES) {
+    const mb = (zipBlob.size / (1024 * 1024)).toFixed(1)
+    throw new Error(
+      `업로드 용량 초과 — 압축 후 ${mb}MB (최대 ${MAX_UPLOAD_MB}MB). 데이터를 나누거나 줄여서 다시 시도해주세요.`
+    )
   }
 
   onProgress?.({ phase: 'uploading', pct: 0 })

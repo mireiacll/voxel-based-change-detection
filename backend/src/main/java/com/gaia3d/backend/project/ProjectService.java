@@ -2,6 +2,8 @@ package com.gaia3d.backend.project;
 
 import java.util.List;
 
+import com.gaia3d.backend.auth.AuthContext;
+import com.gaia3d.backend.auth.User;
 import com.gaia3d.backend.job.Job;
 import com.gaia3d.backend.job.JobQueue;
 import com.gaia3d.backend.job.JobService;
@@ -39,6 +41,7 @@ public class ProjectService {
 
     public List<ProjectResponse> findAll() {
         return projectRepository.findByStatusNotOrderByCreatedAtDesc(ProjectStatus.DELETING).stream()
+                .filter(this::isVisibleToCurrentUser)
                 .map(ProjectResponse::from)
                 .toList();
     }
@@ -48,7 +51,26 @@ public class ProjectService {
         if (project.getStatus() == ProjectStatus.DELETING) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found: " + id);
         }
+        requireAccess(project);
         return project;
+    }
+
+    // Visibility rule: admins see everything; regular users see their own
+    // projects plus ownerless (shared/legacy) ones. Background job threads
+    // have no auth context and are exempt.
+    private boolean isVisibleToCurrentUser(Project project) {
+        User user = AuthContext.get();
+        if (user == null || user.isAdmin()) {
+            return true;
+        }
+        return project.getOwnerId() == null || project.getOwnerId().equals(user.getId());
+    }
+
+    private void requireAccess(Project project) {
+        if (!isVisibleToCurrentUser(project)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "이 프로젝트에 접근할 권한이 없습니다: " + project.getId());
+        }
     }
 
     public ProjectResponse findById(Long id) {
@@ -56,12 +78,17 @@ public class ProjectService {
     }
 
     public ProjectResponse create(ProjectRequest request) {
-        return ProjectResponse.from(projectRepository.save(new Project(
+        Project project = new Project(
                 request.name(),
                 request.description(),
                 request.centerLat(),
                 request.centerLon(),
-                request.cameraHeight())));
+                request.cameraHeight());
+        User user = AuthContext.get();
+        if (user != null) {
+            project.assignOwner(user.getId(), user.getUsername());
+        }
+        return ProjectResponse.from(projectRepository.save(project));
     }
 
     public ProjectResponse update(Long id, ProjectRequest request) {
@@ -82,6 +109,7 @@ public class ProjectService {
     @Transactional
     public void delete(Long id) {
         Project project = getAnyRequired(id);
+        requireAccess(project);
         if (project.getStatus() == ProjectStatus.DELETING && hasQueuedOrRunningDeleteJob(project.getId())) {
             return;
         }

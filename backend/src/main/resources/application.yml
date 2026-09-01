@@ -27,6 +27,22 @@ management:
 app:
   cors:
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+  auth:
+    token-ttl-hours: ${AUTH_TOKEN_TTL_HOURS:24}
+    # Seeded on startup only if the username doesn't exist yet.
+    default-users:
+      - username: ${AUTH_ADMIN_USERNAME:admin}
+        password: ${AUTH_ADMIN_PASSWORD:admin1234}
+        display-name: 관리자
+        role: ADMIN
+      - username: ${AUTH_USER1_USERNAME:user1}
+        password: ${AUTH_USER1_PASSWORD:user1234}
+        display-name: 사용자1
+        role: USER
+      - username: ${AUTH_USER2_USERNAME:user2}
+        password: ${AUTH_USER2_PASSWORD:user1234}
+        display-name: 사용자2
+        role: USER
 
 voxelizer:
   jar-path: ${VOXELIZER_JAR_PATH:/app/mago-voxelizer.jar}

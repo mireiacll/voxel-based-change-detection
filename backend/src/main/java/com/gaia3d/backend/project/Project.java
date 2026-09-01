@@ -35,6 +35,14 @@ public class Project extends BaseTimeEntity {
     @Column(nullable = false, length = 30)
     private ProjectStatus status = ProjectStatus.ACTIVE;
 
+    // Owner of this project. Null = shared project visible to everyone
+    // (covers rows created before auth existed and seeded samples).
+    @Column
+    private Long ownerId;
+
+    @Column(length = 50)
+    private String ownerUsername;
+
     protected Project() {
     }
 
@@ -44,6 +52,11 @@ public class Project extends BaseTimeEntity {
         this.centerLat = centerLat;
         this.centerLon = centerLon;
         this.cameraHeight = cameraHeight;
+    }
+
+    public void assignOwner(Long ownerId, String ownerUsername) {
+        this.ownerId = ownerId;
+        this.ownerUsername = ownerUsername;
     }
 
     public void update(String name, String description, Double centerLat, Double centerLon, Double cameraHeight,
@@ -67,4 +80,6 @@ public class Project extends BaseTimeEntity {
     public Double getCenterLon() { return centerLon; }
     public Double getCameraHeight() { return cameraHeight; }
     public ProjectStatus getStatus() { return status; }
+    public Long getOwnerId() { return ownerId; }
+    public String getOwnerUsername() { return ownerUsername; }
 }

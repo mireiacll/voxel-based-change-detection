@@ -26,16 +26,33 @@
  *   date.voxelJobId   — voxelJobId for polling
  */
 
+import { getToken, handleUnauthorized } from './auth'
+
 const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
 // ─────────────────────────────────────────────────────────────────────────
 //  INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────────────────
 
+// Bearer-token header for every API call. Static tile fetches (/files/**)
+// stay headerless — the backend serves those without auth so Cesium can
+// load tiles directly.
+function _authHeaders() {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// 401 anywhere means the token expired or the backend restarted — drop back
+// to the login page instead of surfacing a raw error.
+function _check401(res) {
+  if (res.status === 401) handleUnauthorized()
+}
+
 async function _get(path) {
   const url = `${EXT_API}${path}`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: _authHeaders() })
   if (!res.ok) {
+    _check401(res)
     const body = await res.json().catch(() => ({}))
     console.error('[api._get] ERROR', res.status, url, body)
     throw new Error(body.message ?? body.detail ?? `HTTP ${res.status} — ${path}`)
@@ -48,11 +65,12 @@ async function _post(path, body) {
   console.log('[api._post] →', url, body)
   const res = await fetch(url, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ..._authHeaders() },
     body:    JSON.stringify(body),
   })
   console.log('[api._post] ←', res.status, url)
   if (!res.ok) {
+    _check401(res)
     const b = await res.json().catch(() => ({}))
     console.error('[api._post] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
@@ -65,11 +83,12 @@ async function _put(path, body) {
   console.log('[api._put] →', url, body)
   const res = await fetch(url, {
     method:  'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ..._authHeaders() },
     body:    JSON.stringify(body),
   })
   console.log('[api._put] ←', res.status, url)
   if (!res.ok) {
+    _check401(res)
     const b = await res.json().catch(() => ({}))
     console.error('[api._put] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
@@ -80,9 +99,10 @@ async function _put(path, body) {
 async function _delete(path) {
   const url = `${EXT_API}${path}`
   console.log('[api._delete] →', url)
-  const res = await fetch(url, { method: 'DELETE' })
+  const res = await fetch(url, { method: 'DELETE', headers: _authHeaders() })
   console.log('[api._delete] ←', res.status, url)
   if (!res.ok) {
+    _check401(res)
     const b = await res.json().catch(() => ({}))
     console.error('[api._delete] ERROR', res.status, url, b)
     throw new Error(b.message ?? b.detail ?? `HTTP ${res.status} — ${path}`)
@@ -501,6 +521,8 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   const obs = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url.toString())
+    const token = getToken()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.upload.onprogress = e => {
       if (!e.lengthComputable) return
       onProgress?.({ phase: 'uploading', pct: Math.round((e.loaded / e.total) * 100) })
@@ -512,6 +534,7 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
         catch (e) { reject(new Error('Failed to parse server response')) }
         return
       }
+      if (xhr.status === 401) handleUnauthorized()
       let msg = `HTTP ${xhr.status}`
       try {
         const b = JSON.parse(xhr.responseText)

@@ -10,6 +10,8 @@ public record ProjectResponse(
         Double centerLon,
         Double cameraHeight,
         ProjectStatus status,
+        Long ownerId,
+        String ownerUsername,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -22,6 +24,8 @@ public record ProjectResponse(
                 project.getCenterLon(),
                 project.getCameraHeight(),
                 project.getStatus(),
+                project.getOwnerId(),
+                project.getOwnerUsername(),
                 project.getCreatedAt(),
                 project.getUpdatedAt());
     }

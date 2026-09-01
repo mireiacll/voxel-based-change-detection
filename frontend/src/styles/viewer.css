@@ -2166,3 +2166,99 @@ kbd {
     0 0 0 2px #07070d,
     0 0 10px 2px rgba(123,108,247,0.55); /* purple glow */
 }
+/* ── Login page ─────────────────────────────────────────────── */
+.login-page {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(79,142,247,0.08), transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(123,108,247,0.07), transparent 55%),
+    var(--bg);
+}
+.login-checking { color: var(--muted); font-size: 13px; }
+.login-card {
+  width: 340px;
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 32px 28px 24px;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+}
+.login-brand {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; margin-bottom: 8px; color: var(--accent);
+}
+.login-title { font-size: 17px; font-weight: 600; color: var(--text); }
+.login-subtitle { font-size: 12px; color: var(--muted); }
+.login-label {
+  display: flex; flex-direction: column; gap: 5px;
+  font-size: 11px; color: var(--muted); font-weight: 500;
+}
+.login-input {
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  color: var(--text);
+  font-size: 13px; font-family: var(--sans);
+}
+.login-input:focus { outline: none; border-color: var(--accent); }
+.login-error {
+  background: rgba(255,77,77,0.1);
+  border: 1px solid rgba(255,77,77,0.35);
+  border-radius: var(--r);
+  color: #ff8080;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.login-btn {
+  margin-top: 4px;
+  background: linear-gradient(135deg, #1e3070, #1e1e58);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  color: var(--accent);
+  font-size: 13px; font-weight: 600; font-family: var(--sans);
+  padding: 10px 0;
+  cursor: pointer;
+}
+.login-btn:hover:not(:disabled) { border-color: var(--accent); }
+.login-btn:disabled { opacity: 0.6; cursor: default; }
+.login-hint {
+  margin-top: 6px;
+  font-size: 11px; color: var(--muted); line-height: 1.7;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.login-hint code {
+  font-family: var(--mono); color: var(--text); font-size: 10.5px;
+  background: var(--surf2); padding: 1px 5px; border-radius: 3px;
+}
+
+/* ── NavBar user chip + logout ──────────────────────────────── */
+.nav-user-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 11px;
+  font-size: 11px; color: var(--text);
+  white-space: nowrap;
+}
+.nav-user-role {
+  font-size: 9px; color: var(--accent);
+  border: 1px solid rgba(79,142,247,0.4);
+  border-radius: 3px; padding: 0 4px;
+}
+.nav-logout-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--muted);
+  font-size: 11px; font-family: var(--sans);
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nav-logout-btn:hover { border-color: var(--border2); color: var(--text); }

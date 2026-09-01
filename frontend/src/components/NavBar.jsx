@@ -1,13 +1,16 @@
 /**
  * NavBar.jsx — top navigation bar.
- * Left: logo + title. Center: 프로젝트 / 데이터 업로드 / 변화탐지 tabs. Right: active site chip.
+ * Left: logo + title. Center: 프로젝트 / 데이터 업로드 / 변화탐지 tabs.
+ * Right: active site chip + current user + logout.
  */
 
 import { useState, useEffect } from 'react'
+import { getUser, logout } from '../auth'
 
 export default function NavBar({ tab, onTab, activeSite }) {
   // Force re-render when localStorage changes (triggered by SetLocationModal)
   const [, setLocalUpdate] = useState(0)
+  const user = getUser()
 
   useEffect(() => {
     const handleStorageChange = (e) => {
@@ -80,7 +83,7 @@ export default function NavBar({ tab, onTab, activeSite }) {
         </button>
       </div>
 
-      {/* ── Right: site chip ── */}
+      {/* ── Right: site chip + user ── */}
       <div className="nav-right">
         {activeSite ? (
           <div className="nav-site-chip">
@@ -90,6 +93,19 @@ export default function NavBar({ tab, onTab, activeSite }) {
         ) : (
           <span className="nav-no-site">프로젝트를 선택하세요</span>
         )}
+        {user && (
+          <div className="nav-user-chip" title={user.role === 'ADMIN' ? '관리자 계정' : undefined}>
+            <span className="nav-user-name">{user.displayName ?? user.username}</span>
+            {user.role === 'ADMIN' && <span className="nav-user-role">관리자</span>}
+          </div>
+        )}
+        <button
+          className="nav-logout-btn"
+          onClick={async () => { await logout(); window.location.reload() }}
+          title="로그아웃"
+        >
+          로그아웃
+        </button>
       </div>
 
     </nav>

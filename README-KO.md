@@ -164,11 +164,28 @@ VITE_EXTERNAL_API_URL=http://localhost:8080
 
 환경 변수를 변경한 뒤에는 `npm run dev`를 다시 시작해야 합니다.
 
-### 6. 기본 동작 확인
+### 6. 로그인
 
-1. Frontend에서 샘플 프로젝트가 표시되는지 확인합니다.
-2. Swagger UI에서 `GET /api/projects`를 실행해 응답을 확인합니다.
-3. 필요하면 새 프로젝트를 만들고 날짜별 Observation을 업로드합니다.
+Frontend 접속 시 로그인 화면이 먼저 표시됩니다. `/api/auth/login`을 제외한 모든 `/api/**` 엔드포인트는 Bearer 토큰이 필요합니다.
+
+기본 계정(백엔드 최초 실행 시 자동 생성, `backend/src/main/resources/application.yml`의 `app.auth.default-users` 또는 `AUTH_ADMIN_PASSWORD` / `AUTH_USER1_PASSWORD` / `AUTH_USER2_PASSWORD` 환경 변수로 변경 가능):
+
+| 아이디  | 비밀번호     | 역할   | 데이터 범위                                |
+|---------|-------------|--------|-------------------------------------------|
+| `admin` | `admin1234` | 관리자 | 모든 프로젝트                              |
+| `user1` | `user1234`  | 사용자 | 본인 프로젝트 + 공유(소유자 없는) 프로젝트 |
+| `user2` | `user1234`  | 사용자 | 본인 프로젝트 + 공유(소유자 없는) 프로젝트 |
+
+로그인한 상태에서 만든 프로젝트는 해당 사용자 소유가 되어 다른 일반 사용자에게는 보이지 않습니다. 관리자는 모든 프로젝트를 볼 수 있고, 소유자가 없는 프로젝트(샘플 프로젝트, 인증 도입 전에 만든 데이터)는 모두에게 보입니다.
+
+Swagger나 curl로 API를 직접 호출할 때는 먼저 `POST /api/auth/login`으로 토큰을 받아 `Authorization: Bearer <토큰>` 헤더를 붙여야 합니다. 토큰은 백엔드 메모리에 저장되므로 백엔드를 재시작하면 다시 로그인해야 합니다.
+
+### 7. 기본 동작 확인
+
+1. 기본 계정으로 로그인합니다.
+2. Frontend에서 샘플 프로젝트가 표시되는지 확인합니다.
+3. Swagger UI에서 `GET /api/projects`를 실행해 응답을 확인합니다 (Bearer 토큰 필요).
+4. 필요하면 새 프로젝트를 만들고 날짜별 Observation을 업로드합니다.
 
 업로드할 파일은 **ZIP 루트에 `tileset.json`과 `data/` 폴더가 있는 3D Tiles**여야 합니다.
 

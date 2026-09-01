@@ -164,11 +164,28 @@ VITE_EXTERNAL_API_URL=http://localhost:8080
 
 Restart `npm run dev` after changing the environment file.
 
-### 6. Verify the application
+### 6. Log in
 
-1. Confirm that the sample project appears in the frontend.
-2. Run `GET /api/projects` in Swagger UI.
-3. Create a project and upload observations for different dates as needed.
+The frontend shows a login page first. All `/api/**` endpoints (except `/api/auth/login`) require a bearer token.
+
+Default accounts (seeded on first backend startup, configurable in `backend/src/main/resources/application.yml` under `app.auth.default-users` or via `AUTH_ADMIN_PASSWORD` / `AUTH_USER1_PASSWORD` / `AUTH_USER2_PASSWORD` environment variables):
+
+| Username | Password    | Role  | Data visibility                          |
+|----------|-------------|-------|------------------------------------------|
+| `admin`  | `admin1234` | ADMIN | All projects                             |
+| `user1`  | `user1234`  | USER  | Own projects + shared (ownerless) ones   |
+| `user2`  | `user1234`  | USER  | Own projects + shared (ownerless) ones   |
+
+Projects created while logged in belong to that user. Other regular users cannot see or access them; admins see everything. Projects with no owner (e.g. the seeded sample project or rows created before authentication existed) are visible to everyone.
+
+To call the API manually (Swagger/curl), first `POST /api/auth/login` with `{"username": "...", "password": "..."}` and send the returned token as `Authorization: Bearer <token>` on subsequent requests. Tokens are held in backend memory, so a backend restart requires logging in again.
+
+### 7. Verify the application
+
+1. Log in with one of the default accounts.
+2. Confirm that the sample project appears in the frontend.
+3. Run `GET /api/projects` in Swagger UI (with the bearer token).
+4. Create a project and upload observations for different dates as needed.
 
 An uploaded archive must be a 3D Tiles ZIP with `tileset.json` and `data/` at its root:
 

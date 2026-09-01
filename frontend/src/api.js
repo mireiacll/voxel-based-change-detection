@@ -464,7 +464,7 @@ async function _normalizeZip(blob) {
 // counters during 'uploading', not an estimate.
 export async function uploadObservation(projectId, { name, observedAt, datasetType = 'pointcloud', files, onProgress }) {
   const fileList = [...files]
-  const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`)
+  const url = new URL(`${EXT_API}/api/projects/${projectId}/observations`, window.location.origin)
   url.searchParams.set('name', name)
   url.searchParams.set('observedAt', observedAt)
   url.searchParams.set('datasetType', datasetType)

@@ -15,6 +15,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # honor X-Forwarded-Proto/Host from the TLS-terminating reverse proxy so
+  # generated URLs (redirects, Location headers) use the external https scheme
+  forward-headers-strategy: framework
   error:
     include-message: always
 

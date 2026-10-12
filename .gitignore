@@ -58,3 +58,6 @@ public
 *.db-journal
 /backend/out/
 /storage/
+
+# Exported deployment images
+/vbcd-images*.tar

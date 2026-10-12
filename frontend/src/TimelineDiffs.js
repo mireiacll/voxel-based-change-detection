@@ -1,3 +1,4 @@
+import { authFetch, refreshCsrf } from './auth'
 /**
  * TimelineDiffs.js
  *
@@ -55,7 +56,7 @@ async function _buildSnapshot(item, projectId) {
   // Fetch the report to get summaryPath
   let summaryPath = null
   try {
-    const res = await fetch(`${EXT_API}/api/diff-items/${item.id}/report`)
+    const res = await authFetch(`${EXT_API}/api/diff-items/${item.id}/report`)
     if (res.ok) {
       const report = await res.json()
       summaryPath = report.summaryPath ?? null
@@ -76,7 +77,7 @@ async function _buildSnapshot(item, projectId) {
   const massUrl = _toMassUrl(summaryPath)
   if (massUrl) {
     try {
-      const res = await fetch(massUrl)
+      const res = await authFetch(massUrl)
       if (res.ok) {
         const ms = await res.json()
         const lastLevel = ms.levelCounts?.length
@@ -136,7 +137,7 @@ async function _buildSnapshot(item, projectId) {
 // ── Shared fetch + build ──────────────────────────────────────────────────
 
 async function _fetchAndBuildSnapshotsForDiff(diffId, projectId) {
-  const detailRes = await fetch(`${EXT_API}/api/diffs/${diffId}`)
+  const detailRes = await authFetch(`${EXT_API}/api/diffs/${diffId}`)
   if (!detailRes.ok) {
     console.warn(`[TimelineDiffs] could not fetch diff detail: ${detailRes.status}`)
     return []
@@ -166,7 +167,7 @@ export async function loadDiffSnapshots(site) {
   if (_cache.has(site.id)) return _cache.get(site.id)
 
   try {
-    const res = await fetch(
+    const res = await authFetch(
       `${EXT_API}/api/projects/${site.id}/diffs?type=TIME_SERIES&status=SUCCEEDED`
     )
     if (!res.ok) {

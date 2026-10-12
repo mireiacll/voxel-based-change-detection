@@ -1,3 +1,4 @@
+import { authFetch, refreshCsrf } from './auth'
 /**
  * api.js — Adapter between the frontend and the coworker's REST API (localhost:8080).
  *
@@ -28,11 +29,9 @@
 
 const EXT_API = import.meta.env.VITE_EXTERNAL_API_URL ?? 'http://localhost:8080'
 
-// The external HTTPS proxy caps request bodies at ~100MB and stalls without
-// responding (instead of returning 413) when exceeded — so reject oversized
-// uploads client-side before sending anything. Override with VITE_MAX_UPLOAD_MB
-// if the infra limit changes.
-const MAX_UPLOAD_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB) || 100
+// Direct internal uploads allow 1 GiB. The external HTTPS proxy can impose
+// a smaller limit; override VITE_MAX_UPLOAD_MB for deployments behind it.
+const MAX_UPLOAD_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB) || 1024
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -41,7 +40,7 @@ const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 async function _get(path) {
   const url = `${EXT_API}${path}`
-  const res = await fetch(url)
+  const res = await authFetch(url)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     console.error('[api._get] ERROR', res.status, url, body)
@@ -53,7 +52,7 @@ async function _get(path) {
 async function _post(path, body) {
   const url = `${EXT_API}${path}`
   console.log('[api._post] →', url, body)
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
@@ -70,7 +69,7 @@ async function _post(path, body) {
 async function _put(path, body) {
   const url = `${EXT_API}${path}`
   console.log('[api._put] →', url, body)
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
@@ -87,7 +86,7 @@ async function _put(path, body) {
 async function _delete(path) {
   const url = `${EXT_API}${path}`
   console.log('[api._delete] →', url)
-  const res = await fetch(url, { method: 'DELETE' })
+  const res = await authFetch(url, { method: 'DELETE' })
   console.log('[api._delete] ←', res.status, url)
   if (!res.ok) {
     const b = await res.json().catch(() => ({}))
@@ -167,7 +166,7 @@ const _formatDate = formatDate
 export async function fetchTilesetCenter(tilesetUrl) {
   if (!tilesetUrl) throw new Error('tileset URL이 없습니다.')
   console.log('[api.fetchTilesetCenter] fetching', tilesetUrl)
-  const res = await fetch(tilesetUrl)
+  const res = await authFetch(tilesetUrl)
   if (!res.ok) throw new Error(`tileset.json을 가져오지 못했습니다 (HTTP ${res.status})`)
   const json = await res.json()
 
@@ -512,14 +511,18 @@ export async function uploadObservation(projectId, { name, observedAt, datasetTy
   // XHR instead of fetch so we get real upload-progress events — fetch has
   // no way to report bytes-sent for a request body, which made big uploads
   // look frozen even though the transfer was still going.
+  const csrf = await refreshCsrf()
   const obs = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url.toString())
+    xhr.withCredentials = true
+    xhr.setRequestHeader(csrf.headerName, csrf.token)
     xhr.upload.onprogress = e => {
       if (!e.lengthComputable) return
       onProgress?.({ phase: 'uploading', pct: Math.round((e.loaded / e.total) * 100) })
     }
     xhr.onload = () => {
+      if (xhr.status === 401) window.dispatchEvent(new Event('auth-expired'))
       console.log('[api.uploadObservation] ←', xhr.status)
       if (xhr.status >= 200 && xhr.status < 300) {
         try { resolve(JSON.parse(xhr.responseText)) }
@@ -807,7 +810,7 @@ export async function fetchDiffItemFineSummary(item) {
           .replace(/\/summary\.json$/, '/voxel/mass-summary.json')
       )
       console.log('[fetchDiffItemFineSummary] fetching mass-summary from:', massUrl)
-      const res = await fetch(massUrl)
+      const res = await authFetch(massUrl)
       if (res.ok) {
         massSummary = await res.json()
         console.log('[fetchDiffItemFineSummary] mass-summary:', massSummary)

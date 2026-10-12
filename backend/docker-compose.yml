@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: backend-api
     environment:
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       SERVER_PORT: 8080
       DB_HOST: postgis
       DB_PORT: 5432

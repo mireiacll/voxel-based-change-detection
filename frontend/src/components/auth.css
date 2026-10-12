@@ -1,0 +1,12 @@
+.auth-screen { min-height: 100vh; display: grid; place-items: center; background: #0b1220; color: #e8eef8; font-family: sans-serif; }
+.auth-card { width: min(360px, calc(100vw - 64px)); padding: 36px; background: #151f30; border: 1px solid #2b3950; border-radius: 16px; box-shadow: 0 20px 60px #0005; }
+.auth-brand { font-size: 11px; letter-spacing: 2px; color: #8caef0; }
+.auth-card h1 { margin: 20px 0 8px; font-size: 28px; }
+.auth-card p { font-size: 14px; color: #aebbd0; }
+.auth-card label { display: block; margin: 22px 0 8px; font-size: 14px; }
+.auth-card input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #40516b; border-radius: 6px; background: #0b1220; color: white; font-size: 16px; }
+.auth-card button { width: 100%; margin-top: 24px; padding: 12px; background: #467bea; color: white; border: 0; border-radius: 6px; cursor: pointer; font-size: 15px; }
+.auth-card button:disabled { opacity: .6; cursor: wait; }
+.auth-card .auth-error { color: #ffabab; }
+.auth-session { position: fixed; bottom: 8px; left: 8px; z-index: 10000; display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; background: #151f30eb; color: #e8eef8; font: 12px sans-serif; }
+.auth-session button { padding: 5px 8px; cursor: pointer; }

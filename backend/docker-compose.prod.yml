@@ -3,6 +3,9 @@ services:
     image: ${VBCD_BACKEND_IMAGE:-vbcd-backend:latest}
     container_name: vbcd-backend-api
     environment:
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       SERVER_PORT: ${SERVER_PORT:-8080}
       CORS_ALLOWED_ORIGIN_PATTERNS: ${CORS_ALLOWED_ORIGIN_PATTERNS:-https://voxel-based-change-detection.gaia3d.dev,http://192.168.10.75,http://192.168.10.75:*}
       DB_HOST: ${DB_HOST:-postgis}

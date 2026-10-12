@@ -16,10 +16,11 @@ COPY . .
 ARG VITE_EXTERNAL_API_URL=
 ENV VITE_EXTERNAL_API_URL=$VITE_EXTERNAL_API_URL
 
-# Client-side upload cap (MB) — keep in sync with the external HTTPS proxy's
-# body limit and nginx.conf client_max_body_size. Adjust at build time with:
+# Client-side upload cap (MiB) for direct internal HTTP uploads.
+# The external HTTPS proxy may still enforce its own smaller limit.
+# Adjust at build time with:
 #   docker build --build-arg VITE_MAX_UPLOAD_MB=200 ...
-ARG VITE_MAX_UPLOAD_MB=100
+ARG VITE_MAX_UPLOAD_MB=1024
 ENV VITE_MAX_UPLOAD_MB=$VITE_MAX_UPLOAD_MB
 
 RUN npm run build
